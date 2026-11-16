@@ -1,0 +1,32 @@
+<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>FGT SD-WAN Provision</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
+<body><header><h1>FGT SD-WAN Provision <small>multi-VRF · ADVPN · FortiManager 8.0</small></h1></header>
+<main>
+<section id="about"><h2>Wat doet deze tool?</h2>
+<p>Rolt via FortiManager een SD-WAN/ADVPN-topologie met <b>meerdere VRF's</b> uit: hubs en branches in één regio. De config wordt hier gerenderd (Fortinet Jinja Orchestrator, offline) en als CLI-script naar FortiManager gepusht. Er worden <b>geen Jinja-templates in FortiManager</b> gebruikt.</p>
+<ol id="steps"></ol><p class="muted" id="orch"></p></section>
+
+<section><h2>1. FortiManager</h2><div class="grid">
+<label>Host/IP<input id="fmg_host" placeholder="10.0.0.5"></label>
+<label>Gebruiker<input id="fmg_user" value="admin"></label>
+<label>Wachtwoord<input id="fmg_pass" type="password"></label>
+<label>of API-token<input id="fmg_token" type="password"></label></div>
+<button id="btn_test">Verbinding testen</button> <span id="test_res" class="muted"></span></section>
+
+<section><h2>2. Topologie</h2><div class="grid">
+<label>ADOM-naam<input id="adom"></label><label>Platform<input id="platform"></label>
+<label>IPsec PSK<input id="psk" placeholder="leeg = template-default (alleen lab!)"></label>
+<label>Hub-naar-hub tunnels (DC-to-DC)<input id="hub2hub" type="checkbox"></label>
+<label>Regio<input id="r_name"></label><label>BGP AS<input id="r_as" type="number"></label>
+<label>Loopback-summary regio<input id="r_lo"></label></div>
+<h3>VRF's</h3><table id="vrfs"></table>
+<h3>Hubs</h3><div id="hubs"></div><h3>Branches</h3><div id="edges"></div></section>
+
+<section><h2>3. Preview &amp; uitrol</h2>
+<button id="btn_render">Config renderen (preview)</button>
+<label class="inl"><input type="checkbox" id="dry" checked> Dry-run (stuurt niets naar FortiManager)</label>
+<button id="btn_deploy" class="primary">Uitrollen</button>
+<div id="errors"></div>
+<div id="progress" hidden><h3>Voortgang</h3><ul id="pl"></ul><pre id="log"></pre></div>
+<div id="preview" hidden><h3>Gerenderde config</h3><div id="tabs"></div><pre id="cfg"></pre></div></section>
+</main><script src="app.js"></script></body></html>

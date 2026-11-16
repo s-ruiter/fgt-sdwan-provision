@@ -1,0 +1,14 @@
+:root{--bg:#0f1420;--card:#171e2e;--fg:#e6e9f0;--mut:#8b94a8;--ac:#4f9cff;--ok:#3fb27f;--er:#ef5b5b;--wa:#e0a93a;--bd:#2a3350}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
+header{padding:16px 28px;border-bottom:1px solid var(--bd)}h1{margin:0;font-size:20px}h1 small{color:var(--mut);font-weight:400;font-size:13px;margin-left:8px}
+main{max-width:1100px;margin:0 auto;padding:20px}section{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:18px 22px;margin-bottom:18px}
+h2{margin:0 0 10px;font-size:16px}h3{margin:16px 0 6px;font-size:14px;color:var(--mut)}.muted{color:var(--mut)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}label{display:block;color:var(--mut);font-size:12px}
+input{width:100%;margin-top:3px;padding:6px 8px;background:#0c111b;color:var(--fg);border:1px solid var(--bd);border-radius:6px}
+input[type=checkbox]{width:auto}.inl{display:inline-block;margin:0 12px}
+button{background:#232c42;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:7px 14px;cursor:pointer}button.primary{background:var(--ac);color:#06101f;border:0;font-weight:600}
+.dev{border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:10px}.dev .grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.dev b{display:block;margin-bottom:6px}
+table{border-collapse:collapse}td{padding:2px 8px 2px 0}pre{background:#0c111b;border:1px solid var(--bd);border-radius:8px;padding:10px;max-height:420px;overflow:auto;font-size:12px}
+#errors{color:var(--er);margin-top:10px}#pl{list-style:none;padding:0}#pl li{padding:3px 0}#pl li:before{content:"○ ";color:var(--mut)}
+#pl li.running:before{content:"◐ ";color:var(--ac)}#pl li.ok:before{content:"● ";color:var(--ok)}#pl li.error:before{content:"✕ ";color:var(--er)}#pl li.warn:before{content:"▲ ";color:var(--wa)}
+#tabs button{margin:0 4px 6px 0}#tabs button.on{border-color:var(--ac)}.e-error{color:var(--er)}.e-warn{color:var(--wa)}.e-ok{color:var(--ok)}
