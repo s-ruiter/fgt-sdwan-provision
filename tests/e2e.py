@@ -98,3 +98,39 @@ assert j["state"] == "done", j["events"][-3:]
 assert TOK not in txt and "Sup3r-Secret-Pw" not in txt and "Mock-Pass-1" not in txt
 assert "vm-license ********" in txt and j["steps"]["bootstrap_fgt"] == "ok" and j["steps"]["bootstrap_fmg"] == "ok"
 print("OK  dry-run met bootstrap via API: tokens/wachtwoorden komen nergens in de job-output")
+
+# 4. day-0 endpoints: image upload, Proxmox test, cloud-init preview, day-0 dry-run validation
+import io, struct, zipfile
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w") as z:
+    z.writestr("fortios.qcow2", b"QFI\xfb" + struct.pack(">I", 3) + b"\0" * 16 + struct.pack(">Q", 2 * 1024 ** 3) + b"\0" * 512)
+r = requests.post(f"{APP}/api/images", data={"role": "fgt"},
+                  files={"file": ("FGT_VM64_KVM-v8.0.0-build0001-FORTINET.out.kvm.zip", buf.getvalue())})
+assert r.status_code == 200 and r.json()["virtual_gb"] == 2 and r.json()["version"] == "8.0.0", r.text
+img_fgt = r.json()["id"]
+r = requests.post(f"{APP}/api/images", data={"role": "fmg"}, files={"file": ("FGT_VM64_KVM-v8.0.0-build0001.zip", buf.getvalue())})
+assert r.status_code == 422 and "FortiGate-image" in r.json()["detail"], r.text
+assert [i["id"] for i in requests.get(f"{APP}/api/images").json()] == [img_fgt]
+print("OK  /api/images: upload (zip -> qcow2), rol-mismatch geweigerd, lijst")
+
+PVE = "http://127.0.0.1:8097"
+r = requests.post(f"{APP}/api/pve/test", json={"url": PVE, "token_id": "root@pam!t", "token_secret": "s", "node": "pve1"})
+assert r.status_code == 200 and r.json()["version"] == "9.0.3" and r.json()["bridges"] == ["vmbr0", "vmbr1"], r.text
+print("OK  /api/pve/test:", {k: r.json()[k] for k in ("version", "import_storages", "iso_storages")})
+
+r = requests.post(f"{APP}/api/cloudinit/preview", json={"topology": topo, "device": "site1-H1"})
+assert r.status_code == 200 and "LICENSE-TOKEN: ********" in r.json()["user_data"] and "XXXXXXXX" not in r.json()["user_data"]
+print("OK  /api/cloudinit/preview: MIME met gemaskeerd token")
+
+body = {"topology": topo, "dry_run": True, "fmg": {"username": "admin", "password": "Mock-Pass-1"},
+        "bootstrap": {"fmg": "day0", "fgt": "day0"}, "secrets": {}, "images": {}}
+r = requests.post(f"{APP}/api/deploy", json=body)
+assert r.status_code == 422 and any("Proxmox" in e for e in r.json()["detail"]) and any("image" in e for e in r.json()["detail"]), r.text
+print("OK  day-0 zonder Proxmox/images/tokens geweigerd:", len(r.json()["detail"]), "fouten")
+topo["pve"].update(url=PVE, token_id="root@pam!t", node="pve1", disk_storage="local-lvm", import_storage="local", iso_storage="local")
+body["topology"] = topo
+body["images"] = {"fgt": img_fgt}
+r = requests.post(f"{APP}/api/deploy", json=body)
+assert r.status_code == 422 and any("FortiManager: image" in e for e in r.json()["detail"]), r.text
+requests.delete(f"{APP}/api/images/{img_fgt}")
+print("OK  ontbrekende FMG-image gemeld; image verwijderd")

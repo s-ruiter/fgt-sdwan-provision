@@ -15,7 +15,7 @@ CT_GW="${CT_GW:-}"                       # required when CT_IP is static
 VLAN="${VLAN:-}"
 CORES="${CORES:-1}"
 MEMORY="${MEMORY:-1024}"
-DISK_GB="${DISK_GB:-6}"
+DISK_GB="${DISK_GB:-12}"             # holds uploaded KVM images (zip + extracted qcow2)
 
 msg() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }

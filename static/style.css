@@ -14,3 +14,5 @@ table{border-collapse:collapse}td{padding:2px 8px 2px 0}pre{background:#0c111b;b
 #tabs button{margin:0 4px 6px 0}#tabs button.on{border-color:var(--ac)}.e-error{color:var(--er)}.e-warn{color:var(--wa)}.e-ok{color:var(--ok)}
 select{width:100%;margin-top:3px;padding:6px 8px;background:#0c111b;color:var(--fg);border:1px solid var(--bd);border-radius:6px}
 #pl li.skipped:before{content:"– ";color:var(--mut)}code{background:#0c111b;padding:1px 5px;border-radius:4px}
+select.inline{width:auto;margin:0 6px;display:inline-block}.bar{height:6px;background:#0c111b;border-radius:4px;margin:6px 0;overflow:hidden}.bar div{height:100%;width:0;background:var(--ac)}
+.imgrow{margin:2px 0}.imgrow button{padding:1px 8px;margin-left:8px}#ports td{padding:2px 8px 2px 0}

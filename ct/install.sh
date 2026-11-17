@@ -10,6 +10,7 @@ APP_DIR=/opt/fgt-sdwan-provision
 ORCH_REPO="${ORCH_REPO:-https://github.com/fortinet-solutions-cse/sdwan-advpn-reference.git}"
 ORCH_COMMIT="${ORCH_COMMIT:-252f9c1f6cc2c8d5fc87682c046d16468baee123}"
 ORCH_DIR=/opt/sdwan-advpn-reference
+DATA_DIR=/var/lib/fgt-sdwan          # uploaded KVM images live here
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -25,6 +26,7 @@ if [[ ! -d "$ORCH_DIR/.git" ]]; then git clone -q "$ORCH_REPO" "$ORCH_DIR"; fi
 git -C "$ORCH_DIR" fetch -q origin
 git -C "$ORCH_DIR" checkout -q "$ORCH_COMMIT"
 
+install -d -m 0700 "$DATA_DIR"
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q --upgrade pip
 "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
@@ -38,6 +40,7 @@ Wants=network-online.target
 [Service]
 WorkingDirectory=$APP_DIR
 Environment=ORCH_DIR=$ORCH_DIR
+Environment=DATA_DIR=$DATA_DIR
 ExecStart=$APP_DIR/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 User=root

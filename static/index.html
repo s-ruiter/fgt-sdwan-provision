@@ -17,10 +17,36 @@
 <label>Initieel wachtwoord (leeg bij factory)<input id="fmg_initpw" type="password"></label>
 <label>FortiFlex-token FortiManager<input id="fm_token" type="password" autocomplete="off"></label>
 <label>API-host override (optioneel)<input id="fmg_host" placeholder="leeg = vast IP"></label></div>
-<label class="inl"><input type="checkbox" id="boot_fmg"> FortiManager bootstrappen (IP + licentie)</label>
+<label class="inl">Methode <select id="m_fmg" class="inline"><option value="none">geen (al ingericht)</option><option value="day0" selected>Day-0: tool maakt de VM op Proxmox (cloud-init)</option><option value="ssh">SSH: bestaande VM (factory, initieel IP)</option></select></label>
 <button id="btn_test">Verbinding testen</button> <span id="test_res" class="muted"></span></section>
 
-<section><h2>2. Topologie</h2><div class="grid">
+<section id="sec_pve"><h2>2. Proxmox &amp; images <small class="muted">(voor methode Day-0)</small></h2>
+<div class="grid">
+<label>Proxmox URL<input id="pve_url" placeholder="https://pve.example:8006"></label>
+<label>API token-ID<input id="pve_tid" placeholder="user@pam!naam"></label>
+<label>API token-secret<input id="pve_secret" type="password" autocomplete="off"></label>
+<label class="inl"><input type="checkbox" id="pve_tls" checked> TLS-certificaat controleren</label></div>
+<button id="btn_pve">Proxmox testen</button> <span id="pve_res" class="muted"></span>
+<div class="grid" style="margin-top:10px">
+<label>Node<input id="pve_node" list="dl_nodes"></label><label>Disk-storage<input id="pve_dstore" list="dl_images"></label>
+<label>Import-storage (content: import)<input id="pve_istore" list="dl_import"></label>
+<label>ISO-storage<input id="pve_isostore" list="dl_iso"></label>
+<label>Standaard bridge<input id="pve_br" list="dl_br"></label><label>CPU-type<input id="pve_cpu"></label>
+<label>Licentie in Day-0<select id="pve_lic"><option value="mime">MIME + LICENSE-TOKEN (Fortinet-gids)</option><option value="cli">execute vm-license in CLI</option></select></label></div>
+<datalist id="dl_nodes"></datalist><datalist id="dl_images"></datalist><datalist id="dl_import"></datalist><datalist id="dl_iso"></datalist><datalist id="dl_br"></datalist>
+<h3>VM-grootte</h3><div class="grid">
+<label>FortiGate vCPU<input id="fgt_cores" type="number"></label><label>FortiGate RAM (MB)<input id="fgt_mem" type="number"></label>
+<label>FortiManager vCPU<input id="fmg_cores" type="number"></label><label>FortiManager RAM (MB)<input id="fmg_mem" type="number"></label>
+<label>FMG datadisk (GB)<input id="fmg_disk" type="number"></label><label>FMG bridge<input id="fmg_br" list="dl_br"></label><label>FMG VLAN<input id="fmg_vlan" type="number"></label></div>
+<p class="muted">FortiGate vCPU moet passen bij de FortiFlex-entitlement. Fortinet adviseert voor FortiManager &ge;4 vCPU, 16 GB RAM en een datadisk van &ge;500 GB (thin kan in een lab).</p>
+<h3>FortiGate-poorten &rarr; bridge/VLAN <small class="muted">(port1 = wan1; leeg = standaard bridge)</small></h3><table id="ports"></table>
+<h3>Images <small class="muted">(download bij FortiCloud &rarr; Support &rarr; Firmware Downloads, het <code>.out.kvm.zip</code>-bestand)</small></h3>
+<div class="grid">
+<div><b>FortiGate</b><input type="file" id="up_fgt" accept=".zip,.qcow2"><div class="bar"><div id="bar_fgt"></div></div><label>Gebruik image<select id="img_fgt"></select></label></div>
+<div><b>FortiManager</b><input type="file" id="up_fmg" accept=".zip,.qcow2"><div class="bar"><div id="bar_fmg"></div></div><label>Gebruik image<select id="img_fmg"></select></label></div></div>
+<div id="img_list" class="muted"></div></section>
+
+<section><h2>3. Topologie</h2><div class="grid">
 <label>ADOM-naam<input id="adom"></label><label>Platform<input id="platform"></label>
 <label>DNS primair<input id="dns1"></label><label>DNS secundair<input id="dns2"></label>
 <label>wan1 allowaccess<input id="wan1_access"></label>
@@ -31,17 +57,19 @@
 <h3>VRF's</h3><table id="vrfs"></table>
 <h3>Hubs</h3><div id="hubs"></div><h3>Branches</h3><div id="edges"></div></section>
 
-<section><h2>3. FortiGates: first login &amp; licentie</h2><div class="grid">
-<label>Initieel admin-wachtwoord (leeg bij factory)<input id="fgt_initpw" type="password"></label>
-<label>Nieuw admin-wachtwoord (verplicht bij 1e login)<input id="fgt_newpw" type="password"></label></div>
-<p class="muted">Per FortiGate staan hierboven het wan1-adres (statisch of DHCP), het <b>initiële IP</b> waarop de container hem nu kan bereiken en het <b>FortiFlex-token</b>. Het initiële IP moet uniek zijn per device. Bij DHCP: het adres dat het device nu al heeft.</p>
-<label class="inl"><input type="checkbox" id="boot_fgt"> FortiGates bootstrappen (wan1 + FMG-koppeling + licentie)</label></section>
+<section><h2>4. FortiGates: wachtwoord &amp; licentie</h2><div class="grid">
+<label>Admin-wachtwoord FortiGates (wordt gezet)<input id="fgt_newpw" type="password"></label>
+<label>Initieel wachtwoord (alleen SSH-methode; leeg = factory)<input id="fgt_initpw" type="password"></label></div>
+<p class="muted">Per FortiGate staan hierboven het wan1-adres (statisch of DHCP), het <b>initiële IP</b> waarop de container hem nu kan bereiken en het <b>FortiFlex-token</b>. Het initiële IP is alleen nodig voor de SSH-methode (uniek per device; bij DHCP het adres dat het device nu heeft). Met Day-0 gaan IP, wachtwoord, FMG-koppeling en token mee in de config-drive.</p>
+<label class="inl">Methode <select id="m_fgt" class="inline"><option value="none">geen (al ingericht)</option><option value="day0" selected>Day-0: tool maakt de VM's op Proxmox (cloud-init)</option><option value="ssh">SSH: bestaande VM's (factory, initieel IP)</option></select></label></section>
 
-<section><h2>4. Preview &amp; uitrol</h2>
+<section><h2>5. Preview &amp; uitrol</h2>
 <button id="btn_render">Config renderen (preview)</button>
+<select id="d0_dev" class="inline"></select><button id="btn_d0">Day-0 preview</button>
 <label class="inl"><input type="checkbox" id="dry" checked> Dry-run (stuurt niets naar FortiManager/FortiGates)</label>
 <button id="btn_deploy" class="primary">Uitrollen</button>
 <div id="errors"></div>
 <div id="progress" hidden><h3>Voortgang</h3><ul id="pl"></ul><pre id="log"></pre></div>
+<pre id="d0_out" hidden></pre>
 <div id="preview" hidden><h3>Gerenderde config</h3><div id="tabs"></div><pre id="cfg"></pre></div></section>
 </main><script src="app.js"></script></body></html>

@@ -5,28 +5,32 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union
 
-from . import model
+from . import cloudinit, images, model
 from .bootstrap import Masker
+from .pve import Pve, PveError
 from .fmg import Fmg, FmgError, pipeline
 from .render import render_inventory
 
 ORCH_DIR = os.environ.get("ORCH_DIR", "/opt/sdwan-advpn-reference")
+DATA_DIR = os.environ.get("DATA_DIR", str(Path(__file__).resolve().parent.parent / "data"))
 STATIC = Path(__file__).resolve().parent.parent / "static"
 app = FastAPI(title="FGT SD-WAN Provision")
 JOBS = {}
 
 STEPS = [
-    ("bootstrap_fmg", "FortiManager ZTP", "Vast IP, route, DNS en FortiFlex-licentie (execute vm-license) op de FortiManager"),
+    ("pve_fmg", "FortiManager-VM", "Image naar Proxmox, VM + datadisk + Day-0 config-drive (cloud-init) aanmaken en starten"),
+    ("bootstrap_fmg", "FortiManager ZTP", "Vast IP, route, DNS en FortiFlex-licentie: via Day-0 (wachten) of via SSH (execute vm-license)"),
     ("preflight", "Preflight", "Verbinding en FortiManager-versie (8.0.x) controleren"),
     ("adom", "ADOM", "ADOM aanmaken op basis van jouw naam (bestaat hij al: hergebruiken)"),
     ("devices", "Model devices", "2 hubs + 3 branches toevoegen met opgegeven serienummers"),
-    ("bootstrap_fgt", "FortiGate ZTP", "wan1 (port1) statisch of DHCP, DNS, central-management en FortiFlex-licentie per FortiGate"),
+    ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1, DNS, FMG, FortiFlex-token) starten"),
+    ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wachten tot ze gelicenseerd online zijn in FMG; of via SSH op bestaande VM's"),
     ("scripts", "Configuratie", "Per device de gerenderde multi-VRF CLI-config als FMG-script uitvoeren"),
     ("install", "Install", "Wachten tot FortiGates online zijn, dan device settings installeren"),
 ]
@@ -44,8 +48,9 @@ class RenderReq(BaseModel):
 
 
 class Bootstrap(BaseModel):
-    fmg: bool = False
-    fgt: bool = False
+    """Per product: 'none', 'ssh' (existing VM, bootstrap over SSH) or 'day0' (tool creates the VM on Proxmox)."""
+    fmg: Union[bool, str] = "none"
+    fgt: Union[bool, str] = "none"
 
 
 class Secrets(BaseModel):
@@ -56,6 +61,20 @@ class Secrets(BaseModel):
     fgt_initial_pw: str = ""
     fgt_new_pw: str = ""                       # admin password to set on the forced first-login change
     admin_user: str = "admin"
+    pve_token_secret: str = ""                 # Proxmox API token secret (day-0 only)
+
+
+class PveCfg(BaseModel):
+    url: str
+    token_id: str
+    token_secret: str
+    verify_tls: bool = True
+    node: Optional[str] = None
+
+
+class PreviewReq(BaseModel):
+    topology: dict
+    device: str                                # device name, or 'fmg'
 
 
 class DeployReq(BaseModel):
@@ -64,6 +83,7 @@ class DeployReq(BaseModel):
     dry_run: bool = True
     bootstrap: Bootstrap = Bootstrap()
     secrets: Secrets = Secrets()
+    images: dict = {}                          # {'fgt': image-id, 'fmg': image-id}
 
 
 def _render(topo):
@@ -80,22 +100,43 @@ def _render(topo):
     return project, inv, cfg
 
 
+def _method(v):
+    return "ssh" if v is True else (v or "none")
+
+
 def _check_bootstrap(topo, r):
-    """Extra validation when ZTP bootstrap is requested."""
+    """Extra validation when ZTP bootstrap / day-0 deployment is requested."""
     errs = []
     b, s = r.bootstrap, r.secrets
+    mf, mg = _method(b.fmg), _method(b.fgt)
+    for m in (mf, mg):
+        if m not in ("none", "ssh", "day0"):
+            errs.append(f"onbekende bootstrap-methode '{m}'")
     devs = topo["hubs"] + topo["edges"]
-    if b.fmg:
+    if "day0" in (mf, mg):
+        errs += model.validate_pve(topo)
+        if not s.pve_token_secret:
+            errs.append("Proxmox: token-secret ontbreekt")
+        for role, m in (("fmg", mf), ("fgt", mg)):
+            if m == "day0":
+                try:
+                    meta = images.get_image(DATA_DIR, r.images.get(role, ""))
+                    if meta["role"] != role:
+                        errs.append(f"image voor {role} is als {meta['role']} geupload")
+                except images.ImageError:
+                    errs.append(f"{'FortiManager' if role == 'fmg' else 'FortiGate'}: image ontbreekt, upload eerst een image")
+    if mf in ("ssh", "day0"):
         if not model.valid_token(s.fmg_token):
             errs.append("FortiManager: FortiFlex-token ontbreekt of is ongeldig (alleen letters/cijfers)")
         if not r.fmg.password:
-            errs.append("FortiManager: (nieuw) admin-wachtwoord is verplicht voor de eerste login")
-    if b.fgt:
+            errs.append("FortiManager: admin-wachtwoord is verplicht")
+    if mg in ("ssh", "day0"):
         for d in devs:
             if not model.valid_token(s.fgt_tokens.get(d["name"])):
                 errs.append(f"{d['name']}: FortiFlex-token ontbreekt of is ongeldig")
         if not s.fgt_new_pw:
-            errs.append("FortiGates: nieuw admin-wachtwoord is verplicht voor de eerste login")
+            errs.append("FortiGates: admin-wachtwoord is verplicht")
+    if mg == "ssh":
         ips = [d.get("initial_ip") or model.DEFAULT_INITIAL_IP for d in devs]
         dup = sorted({i for i in ips if ips.count(i) > 1})
         if dup:
@@ -103,6 +144,61 @@ def _check_bootstrap(topo, r):
                         "). Gebruik het DHCP-adres of een eigen VLAN per device tijdens ZTP.")
     if errs:
         raise HTTPException(422, detail=errs)
+
+
+# --- images (uploaded KVM images) -------------------------------------------------------------------------------
+@app.post("/api/images")
+def upload_image(role: str = Form(...), file: UploadFile = File(...)):
+    try:
+        return images.save_upload(DATA_DIR, file.file, file.filename, role)
+    except images.ImageError as e:
+        raise HTTPException(422, detail=str(e))
+
+
+@app.get("/api/images")
+def list_images():
+    return images.list_images(DATA_DIR)
+
+
+@app.delete("/api/images/{iid}")
+def delete_image(iid: str):
+    try:
+        images.delete_image(DATA_DIR, iid)
+    except images.ImageError as e:
+        raise HTTPException(404, detail=str(e))
+    return {"ok": True}
+
+
+# --- Proxmox ----------------------------------------------------------------------------------------------------
+@app.post("/api/pve/test")
+def pve_test(c: PveCfg):
+    p = Pve(c.url, c.token_id, c.token_secret, c.verify_tls, timeout=15)
+    try:
+        res = p.check()
+        if c.node:
+            res["bridges"] = p.bridges(c.node)
+        return res
+    except PveError as e:
+        raise HTTPException(502, detail=e.detail)
+
+
+@app.post("/api/cloudinit/preview")
+def cloudinit_preview(r: PreviewReq):
+    topo = model.merged(r.topology)
+    errs = model.validate(topo)
+    if errs:
+        raise HTTPException(422, detail=errs)
+    pw, tok = "<ADMIN-WACHTWOORD>", "XXXXXXXXXXXXXXXXXXXX"
+    mode = topo["pve"].get("license_mode", "mime")
+    if r.device == "fmg":
+        cli = cloudinit.fmg_cli(topo, pw)
+    else:
+        dev = next((d for d in topo["hubs"] + topo["edges"] if d["name"] == r.device), None)
+        if dev is None:
+            raise HTTPException(404, detail="onbekend device")
+        cli = cloudinit.fgt_cli(dev, topo, pw)
+    return {"mode": mode, "layout": "config-2 ISO: /openstack/latest/user_data",
+            "user_data": cloudinit.mask(cloudinit.build_user_data(cli, tok, mode), tok)}
 
 
 @app.get("/api/about")
@@ -146,7 +242,7 @@ def fmg_test(c: Fmgcfg):
 def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
     def emit(step, status, msg):
         job["events"].append({"t": time.strftime("%H:%M:%S"), "step": step, "status": status, "msg": mask(msg)})
-        if step in job["steps"]:
+        if step in job["steps"] and status != "info":
             job["steps"][step] = status
 
     def log(level, msg):
@@ -176,8 +272,13 @@ def deploy(r: DeployReq):
     _check_bootstrap(topo, r)
     s = r.secrets
     mask = Masker(s.fmg_token, s.fmg_initial_pw, s.fgt_initial_pw, s.fgt_new_pw, r.fmg.password, r.fmg.api_token,
-                  *s.fgt_tokens.values())
-    boot = {"dry": r.dry_run, "fmg": r.bootstrap.fmg, "fgt": r.bootstrap.fgt,
+                  s.pve_token_secret, *s.fgt_tokens.values())
+    img = {}
+    for role in ("fmg", "fgt"):
+        if r.images.get(role):
+            img[role] = images.get_image(DATA_DIR, r.images[role])["path"]
+    boot = {"dry": r.dry_run, "fmg": _method(r.bootstrap.fmg), "fgt": _method(r.bootstrap.fgt),
+            "images": img, "pve_secret": s.pve_token_secret,
             "fmg_token": s.fmg_token, "fgt_tokens": dict(s.fgt_tokens),
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",

@@ -40,6 +40,14 @@ DEFAULTS = {
         "port": "port1",
         "initial_ip": DEFAULT_INITIAL_IP,
     },
+    "pve": {                                # Proxmox target for day-0 deployment (secret token is sent separately)
+        "url": "", "token_id": "", "verify_tls": True, "node": "",
+        "disk_storage": "", "import_storage": "", "iso_storage": "",
+        "default_bridge": "vmbr0", "cpu_type": "host", "license_mode": "mime",
+        "ports": {f"port{i}": {"bridge": "", "vlan": None} for i in range(1, 9)},
+        "fmg": {"bridge": "", "vlan": None, "cores": 4, "memory_mb": 16384, "data_disk_gb": 100},
+        "fgt": {"cores": 2, "memory_mb": 2048},
+    },
     "region": {
         "name": "West",
         "bgp_as": 65001,
@@ -277,7 +285,51 @@ def append_fragment(config, fragment):
     return head + fragment + sep + tail
 
 
+def _deep(base, over):
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _deep(base[k], v)
+        elif v is not None:
+            base[k] = v
+    return base
+
+
 def merged(user):
     t = copy.deepcopy(DEFAULTS)
-    t.update({k: v for k, v in (user or {}).items() if v is not None})
+    for k, v in (user or {}).items():
+        if k == "pve" and isinstance(v, dict):
+            _deep(t["pve"], v)
+        elif v is not None:
+            t[k] = v
     return t
+
+
+def validate_pve(t):
+    """Extra checks when VMs are created on Proxmox (day-0)."""
+    c, err = t.get("pve", {}), []
+    if not re.match(r"^https?://[^\s/]+(:\d+)?/?$", c.get("url", "")):
+        err.append("Proxmox: URL als https://host:8006 is verplicht")
+    if not re.match(r"^[^\s!]+@[^\s!]+![^\s!]+$", c.get("token_id", "")):
+        err.append("Proxmox: token-ID als user@realm!naam is verplicht")
+    for k, lbl in (("node", "node"), ("disk_storage", "disk-storage"), ("import_storage", "import-storage"),
+                   ("iso_storage", "ISO-storage")):
+        if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", c.get(k, "")):
+            err.append(f"Proxmox: {lbl} ontbreekt of is ongeldig")
+    if c.get("license_mode") not in ("mime", "cli"):
+        err.append("Proxmox: licentiemodus moet 'mime' of 'cli' zijn")
+    br = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+    bridges = [c.get("default_bridge", "")] + [p.get("bridge") for p in c.get("ports", {}).values() if p.get("bridge")]
+    bridges.append(c.get("fmg", {}).get("bridge") or c.get("default_bridge", ""))
+    if any(not br.match(b or "") for b in bridges):
+        err.append("Proxmox: ongeldige bridge-naam")
+    vlans = [p.get("vlan") for p in c.get("ports", {}).values()] + [c.get("fmg", {}).get("vlan")]
+    if any(v not in (None, "") and not (isinstance(v, int) and 1 <= v <= 4094) for v in vlans):
+        err.append("Proxmox: VLAN-id moet 1-4094 zijn")
+    fm, fg = c.get("fmg", {}), c.get("fgt", {})
+    for lbl, d, keys in (("FortiManager", fm, ("cores", "memory_mb", "data_disk_gb")), ("FortiGate", fg, ("cores", "memory_mb"))):
+        for k in keys:
+            if not isinstance(d.get(k), int) or d[k] < 1:
+                err.append(f"Proxmox: {lbl} {k} moet een positief geheel getal zijn")
+    if isinstance(fg.get("memory_mb"), int) and fg["memory_mb"] < 1024:
+        err.append("Proxmox: FortiGate-geheugen minimaal 1024 MB")
+    return err

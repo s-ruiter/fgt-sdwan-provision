@@ -91,7 +91,7 @@ def fmg_script_body(config):
                      if l.strip() not in ("execute batch start", "execute batch end")) + "\n"
 
 
-def wait_online(fmg, adom, names, timeout, emit):
+def wait_online(fmg, adom, names, timeout, emit, step="install", poll=5):
     """Poll FMG until every device reports conn_status == 1 (up). Returns list of still-offline names."""
     if fmg.dry:
         return []
@@ -102,9 +102,9 @@ def wait_online(fmg, adom, names, timeout, emit):
             d = fmg.call("get", f"/dvmdb/adom/{adom}/device/{n}").get("data") or {}
             if d.get("conn_status") == 1:
                 pending.remove(n)
-                emit("install", "running", f"{n}: online in FortiManager")
+                emit(step, "running", f"{n}: online in FortiManager")
         if pending:
-            time.sleep(5)
+            time.sleep(poll)
     return pending
 
 
@@ -161,22 +161,80 @@ def _bootstrap_fgts(topo, devices, boot, emit):
     emit("bootstrap_fgt", "ok", "alle FortiGates gelicenseerd en geregistreerd bij FortiManager")
 
 
+def _method(v):
+    """bootstrap method per product: 'none' | 'ssh' (existing VM) | 'day0' (tool creates VM + cloud-init).
+    Plain booleans from older callers mean 'ssh'."""
+    if v is True:
+        return "ssh"
+    return v or "none"
+
+
+def _pve_vms(topo, boot, which, step, emit, state):
+    from . import provision_vms as pv
+    specs = pv.build_specs(topo, boot.get("fgt_new_pw", ""), boot.get("fmg_new_pw", ""), boot.get("fgt_tokens", {}),
+                           boot.get("fmg_token"), which)
+    if boot.get("dry"):
+        for sp in specs:
+            emit(step, "running", "[dry-run] " + pv.plan_lines(sp))
+        emit(step, "ok", "dry-run: niets aangemaakt op Proxmox")
+        return
+    pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
+    boot["pve_client"] = pve
+    emit(step, "running", f"{len(specs)} VM('s) op Proxmox node {topo['pve']['node']}")
+    pv.deploy_vms(pve, topo["pve"], specs, boot["images"], emit, step, state)
+    emit(step, "ok", "VM('s) aangemaakt en gestart")
+
+
+def _login_retry(fmg, attempts, delay):
+    last = None
+    for _ in range(attempts):
+        try:
+            fmg.login()
+            return
+        except FmgError as e:
+            last = e
+            time.sleep(delay)
+    raise last
+
+
 def pipeline(topo, configs, fmg, emit, boot=None):
     """boot (optional) = {'dry','fmg':bool,'fgt':bool, tokens/creds ...}. Raises on fatal error."""
     adom = topo["adom"]
     devices = [(d, "hub") for d in topo["hubs"]] + [(d, "edge") for d in topo["edges"]]
     boot = boot or {}
+    m_fmg, m_fgt = _method(boot.get("fmg")), _method(boot.get("fgt"))
+    state = boot.setdefault("state", {})
+    from . import bootstrap as bs
+    from . import provision_vms as pv
 
-    if boot.get("fmg"):
-        _bootstrap_fmg(topo, boot, emit)
+    if m_fmg == "day0":
+        _pve_vms(topo, boot, "fmg", "pve_fmg", emit, state)
+        ip = bs.split_cidr(topo["fmgr"]["ip"])[0]
+        emit("bootstrap_fmg", "running", f"wachten op FortiManager op {ip} (Day-0: IP + licentie + herstart)")
+        if boot.get("dry"):
+            emit("bootstrap_fmg", "ok", "dry-run: niet gewacht")
+        else:
+            if not (boot.get("waiter") or bs.wait_tcp)(ip, 443, True, boot.get("fmg_boot_timeout", 900)):
+                raise FmgError(f"FortiManager niet bereikbaar op {ip}:443. Controleer de console in Proxmox; "
+                               "of de FMG de config-drive leest is niet bevestigd - gebruik anders methode 'ssh'.")
+            emit("bootstrap_fmg", "ok", f"FortiManager bereikbaar op {ip}")
     else:
-        emit("bootstrap_fmg", "skipped", "overgeslagen (niet gevraagd)")
+        emit("pve_fmg", "skipped", "overgeslagen (niet gevraagd)")
+        if m_fmg == "ssh":
+            _bootstrap_fmg(topo, boot, emit)
+        else:
+            emit("bootstrap_fmg", "skipped", "overgeslagen (niet gevraagd)")
 
     emit("preflight", "running", "FortiManager bereikbaar? versie controleren")
-    fmg.login()
+    if m_fmg == "day0" and not boot.get("dry"):
+        _login_retry(fmg, boot.get("login_attempts", 20), boot.get("login_delay", 15))   # FMG may still be rebooting
+    else:
+        fmg.login()
     st = fmg.call("get", "/sys/status").get("data", {}) if not fmg.dry else {"Version": "dry-run"}
     ver = st.get("Version", "?")
     emit("preflight", "ok", f"verbonden, versie: {ver}")
+    if m_fmg == "day0" and not boot.get("dry"):
+        pv.cleanup_isos(boot["pve_client"], topo["pve"], [topo["fmgr"].get("name") or "fmg"], state, emit, "bootstrap_fmg")
     if not fmg.dry and "v8.0" not in ver:
         raise FmgError(f"FortiManager draait {ver}, verwacht 8.0.x")
 
@@ -205,10 +263,25 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     emit("devices", "ok", "alle model devices aanwezig")
 
     # FortiGates register against the model devices created above
-    if boot.get("fgt"):
-        _bootstrap_fgts(topo, devices, boot, emit)
+    names = [d["name"] for d, _ in devices]
+    if m_fgt == "day0":
+        _pve_vms(topo, boot, "fgt", "pve_fgt", emit, state)
+        emit("bootstrap_fgt", "running", "wachten tot de FortiGates gelicenseerd zijn en zich bij FortiManager melden")
+        offline = wait_online(fmg, adom, names, boot.get("fgt_boot_timeout", 900), emit, "bootstrap_fgt",
+                              boot.get("poll", 5))
+        if offline:
+            emit("bootstrap_fgt", "warn", f"nog niet online: {', '.join(offline)} - controleer de console in Proxmox")
+        else:
+            emit("bootstrap_fgt", "ok", "alle FortiGates online in FortiManager")
+        if not boot.get("dry"):
+            pv.cleanup_isos(boot["pve_client"], topo["pve"], [n for n in names if n not in offline], state, emit,
+                            "bootstrap_fgt")
     else:
-        emit("bootstrap_fgt", "skipped", "overgeslagen (niet gevraagd)")
+        emit("pve_fgt", "skipped", "overgeslagen (niet gevraagd)")
+        if m_fgt == "ssh":
+            _bootstrap_fgts(topo, devices, boot, emit)
+        else:
+            emit("bootstrap_fgt", "skipped", "overgeslagen (niet gevraagd)")
 
     emit("scripts", "running", "CLI-scripts (device database) aanmaken en uitvoeren")
     for d, kind in devices:
@@ -229,8 +302,8 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     emit("scripts", "ok", "alle scripts uitgevoerd op de device database")
 
     emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")
-    wait = boot.get("online_timeout", 600 if boot.get("fgt") else 30)
-    offline = wait_online(fmg, adom, [d["name"] for d, _ in devices], wait, emit)
+    wait = boot.get("online_timeout", 600 if m_fgt != "none" else 30)
+    offline = wait_online(fmg, adom, names, wait, emit, "install", boot.get("poll", 5))
     online = [d for d, _ in devices if d["name"] not in offline]
     if offline:
         emit("install", "warn", f"nog offline na {wait}s: {', '.join(offline)} (install wordt overgeslagen voor deze devices)")
