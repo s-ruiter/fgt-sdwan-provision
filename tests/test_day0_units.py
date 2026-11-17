@@ -106,7 +106,9 @@ def test_cloudinit():
     assert TOKEN not in masked and "********" in masked
     fm = cloudinit.fmg_cli(t, "Adm1n!")
     assert "set ip 10.0.0.5 255.255.255.0" in fm and "config system admin user" in fm and "set gateway 10.0.0.1" in fm
-    print("OK  cloud-init: MIME (config.txt + LICENSE-TOKEN), ISO label config-2 round-trip, quoting, token-validatie, masking, FMG-CLI")
+    assert cloudinit.build_user_data(cli, TOKEN).rstrip().endswith(f"execute vm-license {TOKEN}"), "default moet cli zijn"
+    assert model.DEFAULTS["pve"]["license_mode"] == "cli"
+    print("OK  cloud-init: cli-default (execute vm-license als laatste regel), MIME optioneel (config.txt + LICENSE-TOKEN), ISO label config-2 round-trip, quoting, token-validatie, masking, FMG-CLI")
 
 
 def test_pve_client():

@@ -1,9 +1,10 @@
 """Day-0 (cloud-init) for Fortinet VMs: CLI generation, user_data, config-drive ISO.
 
-FortiOS reads `openstack/latest/user_data` from a config-drive ISO at first boot. With FortiFlex the licence
-travels in the same file as a multipart MIME (config.txt + license.txt with `LICENSE-TOKEN: <token>`), as
-documented in Fortinet's Proxmox guide ('mime', default). `cli` instead appends `execute vm-license <token>`
-to the CLI (untested alternative). Secrets never leave this module unmasked except inside the ISO itself.
+FortiOS reads `openstack/latest/user_data` from a config-drive ISO at first boot. With FortiFlex the licence is
+applied by appending `execute vm-license <token>` as the last CLI line ('cli', default: this is the method the
+user runs in production with Spawnpad). 'mime' is the multipart variant from Fortinet's Proxmox guide
+(config.txt + license.txt with `LICENSE-TOKEN: <token>`), kept as an option only.
+Secrets never leave this module unmasked except inside the ISO itself.
 """
 import re
 from email.mime.multipart import MIMEMultipart
@@ -43,7 +44,7 @@ def fmg_cli(topo, admin_pw):
     return "\n".join(lines) + "\n"
 
 
-def build_user_data(cli, token, mode="mime"):
+def build_user_data(cli, token, mode="cli"):
     if mode not in MODES:
         raise ValueError(f"onbekende licentiemodus '{mode}'")
     if token is not None and not TOKEN_RE.match(token):

@@ -34,7 +34,7 @@ def fgt_nics(dev, cfg):
 
 def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
     """VM specs for `which` in ('fmg', 'fgt'); user_data (secret!) is computed here and never logged."""
-    cfg, mode = topo["pve"], topo["pve"].get("license_mode", "mime")
+    cfg, mode = topo["pve"], topo["pve"].get("license_mode", "cli")
     specs = []
     if which == "fmg":
         f = topo["fmgr"]

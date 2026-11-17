@@ -119,8 +119,10 @@ assert r.status_code == 200 and r.json()["version"] == "9.0.3" and r.json()["bri
 print("OK  /api/pve/test:", {k: r.json()[k] for k in ("version", "import_storages", "iso_storages")})
 
 r = requests.post(f"{APP}/api/cloudinit/preview", json={"topology": topo, "device": "site1-H1"})
-assert r.status_code == 200 and "LICENSE-TOKEN: ********" in r.json()["user_data"] and "XXXXXXXX" not in r.json()["user_data"]
-print("OK  /api/cloudinit/preview: MIME met gemaskeerd token")
+assert r.status_code == 200 and r.json()["user_data"].rstrip().endswith("execute vm-license ********") and "XXXXXXXX" not in r.json()["user_data"] and r.json()["mode"] == "cli"
+r = requests.post(f"{APP}/api/cloudinit/preview", json={"topology": dict(topo, pve=dict(topo["pve"], license_mode="mime")), "device": "site1-1"})
+assert "LICENSE-TOKEN: ********" in r.json()["user_data"] and "XXXXXXXX" not in r.json()["user_data"]
+print("OK  /api/cloudinit/preview: standaard cli (execute vm-license ********), MIME alleen op verzoek")
 
 body = {"topology": topo, "dry_run": True, "fmg": {"username": "admin", "password": "Mock-Pass-1"},
         "bootstrap": {"fmg": "day0", "fgt": "day0"}, "secrets": {}, "images": {}}

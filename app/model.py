@@ -43,7 +43,7 @@ DEFAULTS = {
     "pve": {                                # Proxmox target for day-0 deployment (secret token is sent separately)
         "url": "", "token_id": "", "verify_tls": True, "node": "",
         "disk_storage": "", "import_storage": "", "iso_storage": "",
-        "default_bridge": "vmbr0", "cpu_type": "host", "license_mode": "mime",
+        "default_bridge": "vmbr0", "cpu_type": "host", "license_mode": "cli",
         "ports": {f"port{i}": {"bridge": "", "vlan": None} for i in range(1, 9)},
         "fmg": {"bridge": "", "vlan": None, "cores": 4, "memory_mb": 16384, "data_disk_gb": 100},
         "fgt": {"cores": 2, "memory_mb": 2048},

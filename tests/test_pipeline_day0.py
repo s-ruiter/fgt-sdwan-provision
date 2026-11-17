@@ -111,11 +111,12 @@ for name, raw in iso_seen.items():
     p = Path(td, f"{name}.iso")
     p.write_bytes(raw)
     label, ud = cloudinit.read_config_drive(p)
-    msg = email.message_from_string(ud)
-    parts = {x.get_filename(): x.get_payload() for x in msg.get_payload()}
     tok = TOK_FMG if name == "fmg" else TOKS[name]
-    assert label == "config-2" and parts["license.txt"].strip() == f"LICENSE-TOKEN: {tok}", name
-    conf = parts["config.txt"]
+    assert label == "config-2", name
+    lines = ud.rstrip("\n").split("\n")
+    assert lines[-1] == f"execute vm-license {tok}" and ud.count("execute vm-license") == 1, name   # licence = last CLI line
+    assert not ud.startswith("Content-Type"), "default is cli, geen MIME"
+    conf = ud
     assert f"set password \"{NEWPW}\"" in conf
     if name != "fmg":
         assert f"set hostname {name}" in conf and 'set fmg "10.0.0.5"' in conf and "set allowaccess ping https ssh fgfm" in conf
@@ -123,7 +124,7 @@ for name, raw in iso_seen.items():
         assert ("set mode static" in conf) == (d["wan1_mode"] == "static")
     else:
         assert "set ip 10.0.0.5 255.255.255.0" in conf
-print("OK  Day-0 ISO per VM: label config-2, MIME met config.txt + LICENSE-TOKEN (eigen token), wachtwoord, hostname, FMG, allowaccess fgfm, static/dhcp juist")
+print("OK  Day-0 ISO per VM: label config-2, execute vm-license <eigen token> als laatste CLI-regel, wachtwoord, hostname, FMG, allowaccess fgfm, static/dhcp juist")
 
 # cleanup: no ISO / import left, drives ejected
 ups = list(fake_proxmox.STATE["uploads"])
