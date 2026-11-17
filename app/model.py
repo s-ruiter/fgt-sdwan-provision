@@ -4,6 +4,24 @@ import ipaddress
 import json
 import re
 
+DEFAULT_INITIAL_IP = "192.168.1.99"   # factory default of FortiGate-VM / FortiManager-VM port1
+
+
+def _hub(name, lo, isp1, isp2, mpls, lan):
+    return {"name": name, "serial": "", "loopback": lo,
+            "isp1_intf": "port1", "isp2_intf": "port2", "mpls_intf": "port4",
+            "wan1_mode": "static", "wan1_ip": f"{isp1}/29", "wan1_gw": "", "initial_ip": DEFAULT_INITIAL_IP,
+            "isp1_ip": isp1, "isp2_ip": isp2, "mpls_ip": mpls,
+            "lans": [{"intf": "port5", "ip": lan}]}
+
+
+def _edge(name, lo, n, isp2=True):
+    return {"name": name, "serial": "", "loopback": lo,
+            "isp1_intf": "port1", "isp2_intf": "port2" if isp2 else "", "mpls_intf": "port4",
+            "wan1_mode": "dhcp", "wan1_ip": "", "wan1_gw": "", "initial_ip": DEFAULT_INITIAL_IP,
+            "lans": [{"intf": "port5", "ip": f"10.0.{n}.1/24"}, {"intf": "port6", "ip": f"10.0.10{n}.1/24"}]}
+
+
 DEFAULTS = {
     "adom": "SDWAN-MV",
     "os_ver": "8.0",
@@ -12,6 +30,16 @@ DEFAULTS = {
     "psk": "",
     "hub2hub": False,
     "lo_summary": "10.200.0.0/14",
+    "dns_primary": "",
+    "dns_secondary": "",
+    "wan1_access": "ping https ssh fgfm",   # allowaccess on wan1: keeps admin + FMG reachable after the push
+    "fmgr": {                               # FortiManager: always a fixed address
+        "name": "fmg",
+        "ip": "",                           # a.b.c.d/nn
+        "gateway": "",
+        "port": "port1",
+        "initial_ip": DEFAULT_INITIAL_IP,
+    },
     "region": {
         "name": "West",
         "bgp_as": 65001,
@@ -22,38 +50,49 @@ DEFAULTS = {
         ],
     },
     "hubs": [
-        {"name": "site1-H1", "serial": "", "loopback": "10.200.1.253",
-         "isp1_intf": "port1", "isp2_intf": "port2", "mpls_intf": "port4",
-         "isp1_ip": "100.64.1.1", "isp2_ip": "100.64.1.9", "mpls_ip": "172.16.1.5",
-         "lans": [{"intf": "port5", "ip": "10.1.0.1/24"}]},
-        {"name": "site1-H2", "serial": "", "loopback": "10.200.1.254",
-         "isp1_intf": "port1", "isp2_intf": "port2", "mpls_intf": "port4",
-         "isp1_ip": "100.64.2.1", "isp2_ip": "100.64.2.9", "mpls_ip": "172.16.2.5",
-         "lans": [{"intf": "port5", "ip": "10.2.0.1/24"}]},
+        _hub("site1-H1", "10.200.1.253", "100.64.1.1", "100.64.1.9", "172.16.1.5", "10.1.0.1/24"),
+        _hub("site1-H2", "10.200.1.254", "100.64.2.1", "100.64.2.9", "172.16.2.5", "10.2.0.1/24"),
     ],
     "edges": [
-        {"name": "site1-1", "serial": "", "loopback": "10.200.1.1",
-         "isp1_intf": "port1", "isp2_intf": "port2", "mpls_intf": "port4",
-         "lans": [{"intf": "port5", "ip": "10.0.1.1/24"}, {"intf": "port6", "ip": "10.0.101.1/24"}]},
-        {"name": "site1-2", "serial": "", "loopback": "10.200.1.2",
-         "isp1_intf": "port1", "isp2_intf": "", "mpls_intf": "port4",
-         "lans": [{"intf": "port5", "ip": "10.0.2.1/24"}, {"intf": "port6", "ip": "10.0.102.1/24"}]},
-        {"name": "site1-3", "serial": "", "loopback": "10.200.1.3",
-         "isp1_intf": "port1", "isp2_intf": "port2", "mpls_intf": "port4",
-         "lans": [{"intf": "port5", "ip": "10.0.3.1/24"}, {"intf": "port6", "ip": "10.0.103.1/24"}]},
+        _edge("site1-1", "10.200.1.1", 1),
+        _edge("site1-2", "10.200.1.2", 2, isp2=False),
+        _edge("site1-3", "10.200.1.3", 3),
     ],
 }
 
 _SN = re.compile(r"^FG[A-Z0-9]{3,}\d{4,}$|^FGVM[A-Z0-9]{8,}$", re.I)
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,34}$")
+_TOKEN = re.compile(r"^[A-Za-z0-9]{10,64}$")
 
 
 def _ip(v, net=False):
     try:
-        (ipaddress.ip_interface if net else ipaddress.ip_address)(v)
+        (ipaddress.ip_interface if net else ipaddress.ip_address)(str(v).strip())
         return True
     except ValueError:
         return False
+
+
+def _cidr(v):
+    return _ip(v, True) and "/" in str(v)
+
+
+def split_cidr(v):
+    """'10.0.0.5/24' -> ('10.0.0.5', '255.255.255.0')"""
+    i = ipaddress.ip_interface(v.strip())
+    return str(i.ip), str(i.netmask)
+
+
+def _gw_ok(cidr, gw):
+    try:
+        return ipaddress.ip_address(gw.strip()) in ipaddress.ip_interface(cidr.strip()).network
+    except ValueError:
+        return False
+
+
+def valid_token(t):
+    """FortiFlex tokens are plain alphanumerics; reject anything that could carry CLI syntax."""
+    return bool(_TOKEN.match((t or "").strip()))
 
 
 def validate(t):
@@ -73,6 +112,23 @@ def validate(t):
             err.append(f"VRF {v.get('id')}: ongeldige lan_summary")
     if len(t.get("hubs", [])) < 1 or len(t.get("edges", [])) < 1:
         err.append("Minstens 1 hub en 1 branch nodig")
+
+    f = t.get("fmgr", {})
+    if not _cidr(f.get("ip", "")):
+        err.append("FortiManager: vast IP-adres als a.b.c.d/nn is verplicht")
+    elif not _ip(f.get("gateway", "")) or not _gw_ok(f["ip"], f["gateway"]):
+        err.append("FortiManager: gateway ontbreekt of ligt niet in het subnet van het FMG-IP")
+    if f.get("initial_ip") and not _ip(f["initial_ip"]):
+        err.append("FortiManager: ongeldig initieel IP")
+
+    if not t.get("dns_primary"):
+        err.append("DNS primair is verplicht (FortiFlex-licentie en FortiGuard hebben DNS nodig)")
+    for k in ("dns_primary", "dns_secondary"):
+        if t.get(k) and not _ip(t[k]):
+            err.append(f"{k}: ongeldig IP")
+    if not re.fullmatch(r"[a-z ]+", t.get("wan1_access", "")):
+        err.append("wan1_access: alleen kleine letters en spaties (bv. 'ping https ssh fgfm')")
+
     names, sns = set(), set()
     for kind in ("hubs", "edges"):
         for d in t.get(kind, []):
@@ -95,8 +151,18 @@ def validate(t):
                     err.append(f"{n}: LAN{k+1} ongeldig IP/prefix")
             if len(d.get("lans", [])) > len(r.get("vrfs", [])):
                 err.append(f"{n}: meer LAN's dan VRF's")
-            if not d.get("isp1_intf") and not d.get("isp2_intf") and not d.get("mpls_intf"):
-                err.append(f"{n}: geen WAN-interface")
+            if not d.get("isp1_intf"):
+                err.append(f"{n}: wan1 (isp1_intf, bv. port1) is verplicht: ZTP/FMG-verbinding loopt hierover")
+            mode = d.get("wan1_mode")
+            if mode not in ("static", "dhcp"):
+                err.append(f"{n}: wan1_mode moet 'static' of 'dhcp' zijn")
+            elif mode == "static":
+                if not _cidr(d.get("wan1_ip", "")):
+                    err.append(f"{n}: wan1 statisch IP als a.b.c.d/nn verplicht")
+                elif not _ip(d.get("wan1_gw", "")) or not _gw_ok(d["wan1_ip"], d["wan1_gw"]):
+                    err.append(f"{n}: wan1 gateway ontbreekt of ligt niet in het subnet")
+            if d.get("initial_ip") and not _ip(d["initial_ip"]):
+                err.append(f"{n}: ongeldig initieel IP")
     for h in t.get("hubs", []):
         for k in ("isp1", "isp2", "mpls"):
             if h.get(f"{k}_intf") and not _ip(h.get(f"{k}_ip", "")):
@@ -106,6 +172,13 @@ def validate(t):
 
 def _lan_var(k, suffix):
     return f"lan{'' if k == 0 else k + 1}_{suffix}"
+
+
+def hub_isp1_ip(h):
+    """Hub underlay address the branches connect to; follows wan1 when that is static."""
+    if h.get("wan1_mode") == "static" and h.get("wan1_ip"):
+        return split_cidr(h["wan1_ip"])[0]
+    return h.get("isp1_ip")
 
 
 def build(t):
@@ -118,8 +191,12 @@ def build(t):
         "vrfs": [{"id": v["id"], "lan_summary": v["lan_summary"]} for v in vrfs],
         "hubs": [h["name"] for h in t["hubs"]],
     }}
+    access = json.dumps(t.get("wan1_access", "ping https ssh fgfm").split())
     ifaces = [
-        "{'name': isp1_intf, 'role': 'wan', 'ol_type': 'ISP1', 'ip': 'dhcp', 'dia': true}",
+        # wan1: address mode comes from the inventory (isp1_addr = 'dhcp' or a.b.c.d/nn);
+        # 'access' keeps SSH/HTTPS/fgfm, otherwise the template resets allowaccess to 'ping'.
+        "{'name': isp1_intf, 'role': 'wan', 'ol_type': 'ISP1', 'ip': isp1_addr, 'dia': true, "
+        f"'access': {access}}}",
         "{'name': isp2_intf, 'role': 'wan', 'ol_type': 'ISP2', 'ip': 'dhcp', 'dia': true}",
         "{'name': mpls_intf, 'role': 'wan', 'ol_type': 'MPLS', 'ip': 'dhcp', 'transport_group': 2}",
     ]
@@ -130,9 +207,10 @@ def build(t):
     hubs = {}
     for n, h in enumerate(t["hubs"], start=1):
         ov = {}
+        ips = {"isp1": hub_isp1_ip(h), "isp2": h.get("isp2_ip"), "mpls": h.get("mpls_ip")}
         for j, (ol, key) in enumerate((("ISP1", "isp1"), ("ISP2", "isp2"), ("MPLS", "mpls"))):
-            if h.get(f"{key}_intf") and h.get(f"{key}_ip"):
-                o = {"wan_ip": h[f"{key}_ip"], "network_id": str(n * 10 + j + 1)}
+            if h.get(f"{key}_intf") and ips[key]:
+                o = {"wan_ip": ips[key], "network_id": str(n * 10 + j + 1)}
                 if ol != "MPLS":
                     o["hub2hub"] = False
                 ov[ol] = o
@@ -155,7 +233,8 @@ def build(t):
     project = "\n".join(parts) + "\n"
 
     def meta(d):
-        m = {"hostname": d["name"], "loopback": d["loopback"], "profile": "OneSizeFitsAll", "region": reg_name}
+        m = {"hostname": d["name"], "loopback": d["loopback"], "profile": "OneSizeFitsAll", "region": reg_name,
+             "isp1_addr": d["wan1_ip"].strip() if d.get("wan1_mode") == "static" else "dhcp"}
         for k in ("isp1_intf", "isp2_intf", "mpls_intf"):
             if d.get(k):
                 m[k] = d[k]
@@ -168,6 +247,34 @@ def build(t):
     inv = {"Hub": {h["name"]: meta(h) for h in t["hubs"]},
            "Edge": {e["name"]: meta(e) for e in t["edges"]}}
     return project, inv
+
+
+def underlay_fragment(t, d):
+    """Extra CLI appended to a device's rendered config (things the Orchestrator does not emit).
+
+    The Orchestrator moves wan1 into the PE-VRF (1) and installs no static default route. For a
+    static wan1 we add the default route (id 1 = same id as the ZTP bootstrap route, so it is
+    updated in place) and make the FortiManager tunnel follow the VRF move."""
+    pe_vrf = 1
+    out = [f"# ZTP underlay (fgt-sdwan-provision) - {d['name']}"]
+    if d.get("wan1_mode") == "static":
+        out += ["config router static", "  edit 1", f"    set gateway {d['wan1_gw'].strip()}",
+                f"    set device \"{d['isp1_intf']}\"", f"    set vrf {pe_vrf}", "  next", "end"]
+    out += ["config system dns", f"  set primary {t['dns_primary']}"]
+    if t.get("dns_secondary"):
+        out.append(f"  set secondary {t['dns_secondary']}")
+    out += ["end",
+            "config system central-management", "  set type fortimanager",
+            f"  set fmg \"{split_cidr(t['fmgr']['ip'])[0]}\"", f"  set vrf-select {pe_vrf}", "end"]
+    return "\n".join(out) + "\n"
+
+
+def append_fragment(config, fragment):
+    marker = "execute batch end"
+    head, sep, tail = config.rpartition(marker)
+    if not sep:
+        return config + fragment
+    return head + fragment + sep + tail
 
 
 def merged(user):

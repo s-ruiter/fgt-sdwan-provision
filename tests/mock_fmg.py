@@ -33,7 +33,7 @@ class H(BaseHTTPRequestHandler):
         elif url == "dvmdb/adom" and m == "add":
             STATE["adoms"].add(p["data"][0]["name"])
         elif m == "get" and len(parts) == 5 and parts[3] == "device":
-            res = ok({"name": parts[4]}) if parts[4] in STATE["devices"] else MISSING(p["url"])
+            res = ok({"name": parts[4], "conn_status": 1}) if parts[4] in STATE["devices"] else MISSING(p["url"])
         elif url == "dvm/cmd/add/device":
             STATE["devices"].add(p["data"]["device"]["name"])
             res = ok({"taskid": 101})

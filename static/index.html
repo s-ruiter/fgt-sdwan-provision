@@ -1,20 +1,29 @@
 <!doctype html><html lang="nl"><head><meta charset="utf-8"><title>FGT SD-WAN Provision</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head>
-<body><header><h1>FGT SD-WAN Provision <small>multi-VRF · ADVPN · FortiManager 8.0</small></h1></header>
+<body><header><h1>FGT SD-WAN Provision <small>multi-VRF · ADVPN · FortiManager 8.0 · FortiFlex ZTP</small></h1></header>
 <main>
 <section id="about"><h2>Wat doet deze tool?</h2>
-<p>Rolt via FortiManager een SD-WAN/ADVPN-topologie met <b>meerdere VRF's</b> uit: hubs en branches in één regio. De config wordt hier gerenderd (Fortinet Jinja Orchestrator, offline) en als CLI-script naar FortiManager gepusht. Er worden <b>geen Jinja-templates in FortiManager</b> gebruikt.</p>
+<p>Rolt via FortiManager een SD-WAN/ADVPN-topologie met <b>meerdere VRF's</b> uit (hubs en branches in één regio). De config wordt hier gerenderd (Fortinet Jinja Orchestrator, offline) en als CLI-script naar FortiManager gepusht &mdash; <b>geen Jinja-templates in FortiManager</b>. Optioneel doet de tool ook de <b>zero-touch bootstrap</b>: wan1 (port1) een IP, DNS, FortiManager-koppeling en de <b>FortiFlex-licentie</b> (<code>execute vm-license &lt;token&gt;</code>) op FortiManager en FortiGates.</p>
 <ol id="steps"></ol><p class="muted" id="orch"></p></section>
 
-<section><h2>1. FortiManager</h2><div class="grid">
-<label>Host/IP<input id="fmg_host" placeholder="10.0.0.5"></label>
-<label>Gebruiker<input id="fmg_user" value="admin"></label>
-<label>Wachtwoord<input id="fmg_pass" type="password"></label>
-<label>of API-token<input id="fmg_token" type="password"></label></div>
+<section><h2>1. FortiManager <small class="muted">(altijd vast IP)</small></h2><div class="grid">
+<label>Hostnaam<input id="fm_name"></label>
+<label>Vast IP (a.b.c.d/nn)<input id="fm_ip" placeholder="10.0.0.5/24"></label>
+<label>Gateway<input id="fm_gw"></label>
+<label>Poort<input id="fm_port"></label>
+<label>Initieel IP (factory: 192.168.1.99)<input id="fm_init"></label>
+<label>Admin-gebruiker<input id="fmg_user" value="admin"></label>
+<label>Admin-wachtwoord (nieuw / API)<input id="fmg_pass" type="password"></label>
+<label>Initieel wachtwoord (leeg bij factory)<input id="fmg_initpw" type="password"></label>
+<label>FortiFlex-token FortiManager<input id="fm_token" type="password" autocomplete="off"></label>
+<label>API-host override (optioneel)<input id="fmg_host" placeholder="leeg = vast IP"></label></div>
+<label class="inl"><input type="checkbox" id="boot_fmg"> FortiManager bootstrappen (IP + licentie)</label>
 <button id="btn_test">Verbinding testen</button> <span id="test_res" class="muted"></span></section>
 
 <section><h2>2. Topologie</h2><div class="grid">
 <label>ADOM-naam<input id="adom"></label><label>Platform<input id="platform"></label>
+<label>DNS primair<input id="dns1"></label><label>DNS secundair<input id="dns2"></label>
+<label>wan1 allowaccess<input id="wan1_access"></label>
 <label>IPsec PSK<input id="psk" placeholder="leeg = template-default (alleen lab!)"></label>
 <label>Hub-naar-hub tunnels (DC-to-DC)<input id="hub2hub" type="checkbox"></label>
 <label>Regio<input id="r_name"></label><label>BGP AS<input id="r_as" type="number"></label>
@@ -22,9 +31,15 @@
 <h3>VRF's</h3><table id="vrfs"></table>
 <h3>Hubs</h3><div id="hubs"></div><h3>Branches</h3><div id="edges"></div></section>
 
-<section><h2>3. Preview &amp; uitrol</h2>
+<section><h2>3. FortiGates: first login &amp; licentie</h2><div class="grid">
+<label>Initieel admin-wachtwoord (leeg bij factory)<input id="fgt_initpw" type="password"></label>
+<label>Nieuw admin-wachtwoord (verplicht bij 1e login)<input id="fgt_newpw" type="password"></label></div>
+<p class="muted">Per FortiGate staan hierboven het wan1-adres (statisch of DHCP), het <b>initiële IP</b> waarop de container hem nu kan bereiken en het <b>FortiFlex-token</b>. Het initiële IP moet uniek zijn per device. Bij DHCP: het adres dat het device nu al heeft.</p>
+<label class="inl"><input type="checkbox" id="boot_fgt"> FortiGates bootstrappen (wan1 + FMG-koppeling + licentie)</label></section>
+
+<section><h2>4. Preview &amp; uitrol</h2>
 <button id="btn_render">Config renderen (preview)</button>
-<label class="inl"><input type="checkbox" id="dry" checked> Dry-run (stuurt niets naar FortiManager)</label>
+<label class="inl"><input type="checkbox" id="dry" checked> Dry-run (stuurt niets naar FortiManager/FortiGates)</label>
 <button id="btn_deploy" class="primary">Uitrollen</button>
 <div id="errors"></div>
 <div id="progress" hidden><h3>Voortgang</h3><ul id="pl"></ul><pre id="log"></pre></div>

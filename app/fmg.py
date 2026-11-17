@@ -91,10 +91,86 @@ def fmg_script_body(config):
                      if l.strip() not in ("execute batch start", "execute batch end")) + "\n"
 
 
-def pipeline(topo, configs, fmg, emit):
-    """Yield-style pipeline; emit(step_id, status, msg). Raises on fatal error."""
+def wait_online(fmg, adom, names, timeout, emit):
+    """Poll FMG until every device reports conn_status == 1 (up). Returns list of still-offline names."""
+    if fmg.dry:
+        return []
+    end = time.time() + timeout
+    pending = list(names)
+    while pending and time.time() < end:
+        for n in list(pending):
+            d = fmg.call("get", f"/dvmdb/adom/{adom}/device/{n}").get("data") or {}
+            if d.get("conn_status") == 1:
+                pending.remove(n)
+                emit("install", "running", f"{n}: online in FortiManager")
+        if pending:
+            time.sleep(5)
+    return pending
+
+
+def _bootstrap_fmg(topo, boot, emit):
+    from . import bootstrap as bs
+    f = topo["fmgr"]
+    lines = bs.fmg_network_lines(topo)
+    emit("bootstrap_fmg", "running", f"FortiManager {f['initial_ip']} -> {f['ip']} (poort {f.get('port','port1')})")
+    if boot["dry"]:
+        for l in lines:
+            emit("bootstrap_fmg", "running", f"[dry-run] {l}")
+        emit("bootstrap_fmg", "running", "[dry-run] execute vm-license ********")
+        emit("bootstrap_fmg", "ok", "dry-run: niets verstuurd")
+        return
+    creds = {"user": boot["fmg_user"], "initial_pw": boot["fmg_initial_pw"], "new_pw": boot["fmg_new_pw"]}
+    bs.bootstrap_device("fmg", f.get("name") or "fmg", lines, f["initial_ip"], bs.split_cidr(f["ip"])[0],
+                        boot["fmg_token"], creds, lambda lvl, m: emit("bootstrap_fmg", "running", m),
+                        connector=boot.get("connector"), waiter=boot.get("waiter") or bs.wait_tcp,
+                        timing=boot.get("timing"))
+    emit("bootstrap_fmg", "ok", "FortiManager gelicenseerd en op vast IP")
+
+
+def _bootstrap_fgts(topo, devices, boot, emit):
+    from concurrent.futures import ThreadPoolExecutor
+    from . import bootstrap as bs
+    errors = []
+
+    def one(d):
+        name = d["name"]
+        lines = bs.fgt_network_lines(d, topo)
+        target = bs.split_cidr(d["wan1_ip"])[0] if d.get("wan1_mode") == "static" else d["initial_ip"]
+        log = lambda lvl, m: emit("bootstrap_fgt", "running", m)
+        if boot["dry"]:
+            for l in lines:
+                log("info", f"[dry-run] {name}: {l}")
+            log("info", f"[dry-run] {name}: execute vm-license ********")
+            return
+        creds = {"user": boot["fgt_user"], "initial_pw": boot["fgt_initial_pw"], "new_pw": boot["fgt_new_pw"]}
+        bs.bootstrap_device("fgt", name, lines, d["initial_ip"], target, boot["fgt_tokens"][name], creds, log,
+                            connector=boot.get("connector"), waiter=boot.get("waiter") or bs.wait_tcp,
+                            timing=boot.get("timing"), expect_serial=d["serial"])
+
+    emit("bootstrap_fgt", "running", f"{len(devices)} FortiGates: wan1, DNS, central-management, FortiFlex")
+    with ThreadPoolExecutor(max_workers=len(devices)) as ex:
+        futs = {ex.submit(one, d): d["name"] for d, _ in devices}
+        for fut, name in futs.items():
+            try:
+                fut.result()
+            except Exception as e:  # noqa: BLE001 - collect per-device failures
+                errors.append(f"{name}: {e}")
+                emit("bootstrap_fgt", "error", f"{name}: {e}")
+    if errors:
+        raise FmgError("bootstrap mislukt voor: " + "; ".join(errors))
+    emit("bootstrap_fgt", "ok", "alle FortiGates gelicenseerd en geregistreerd bij FortiManager")
+
+
+def pipeline(topo, configs, fmg, emit, boot=None):
+    """boot (optional) = {'dry','fmg':bool,'fgt':bool, tokens/creds ...}. Raises on fatal error."""
     adom = topo["adom"]
     devices = [(d, "hub") for d in topo["hubs"]] + [(d, "edge") for d in topo["edges"]]
+    boot = boot or {}
+
+    if boot.get("fmg"):
+        _bootstrap_fmg(topo, boot, emit)
+    else:
+        emit("bootstrap_fmg", "skipped", "overgeslagen (niet gevraagd)")
 
     emit("preflight", "running", "FortiManager bereikbaar? versie controleren")
     fmg.login()
@@ -128,6 +204,12 @@ def pipeline(topo, configs, fmg, emit):
         emit("devices", "running", f"{d['name']} ({d['serial']}) toegevoegd")
     emit("devices", "ok", "alle model devices aanwezig")
 
+    # FortiGates register against the model devices created above
+    if boot.get("fgt"):
+        _bootstrap_fgts(topo, devices, boot, emit)
+    else:
+        emit("bootstrap_fgt", "skipped", "overgeslagen (niet gevraagd)")
+
     emit("scripts", "running", "CLI-scripts (device database) aanmaken en uitvoeren")
     for d, kind in devices:
         name = f"{d['name']}-sdwan"
@@ -146,13 +228,21 @@ def pipeline(topo, configs, fmg, emit):
         emit("scripts", "running", f"{d['name']}: script uitgevoerd ({len(body.splitlines())} regels)")
     emit("scripts", "ok", "alle scripts uitgevoerd op de device database")
 
-    emit("install", "running", "device settings installeren (alleen online devices)")
+    emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")
+    wait = boot.get("online_timeout", 600 if boot.get("fgt") else 30)
+    offline = wait_online(fmg, adom, [d["name"] for d, _ in devices], wait, emit)
+    online = [d for d, _ in devices if d["name"] not in offline]
+    if offline:
+        emit("install", "warn", f"nog offline na {wait}s: {', '.join(offline)} (install wordt overgeslagen voor deze devices)")
+    if not online:
+        emit("install", "warn", "geen enkel device online: install overgeslagen; draai de uitrol opnieuw zodra ze online zijn")
+        return
     r = fmg.call("exec", "/securityconsole/install/device",
-                 {"adom": adom, "flags": ["none"],
-                  "scope": [{"name": d["name"], "vdom": "root"} for d, _ in devices]})
+                 {"adom": adom, "flags": ["none"], "scope": [{"name": d["name"], "vdom": "root"} for d in online]})
     tid = (r.get("data") or {}).get("task")
     try:
         fmg.wait_task(tid)
-        emit("install", "ok", "install voltooid")
+        emit("install", "warn" if offline else "ok",
+             "install voltooid" + (f" ({len(offline)} device(s) nog te doen)" if offline else ""))
     except FmgError as e:
-        emit("install", "warn", f"install niet voltooid (devices nog offline?): {e}")
+        emit("install", "warn", f"install niet voltooid: {e}")
