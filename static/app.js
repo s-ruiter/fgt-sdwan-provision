@@ -108,6 +108,7 @@ const fmgCfg = () => ({ host: null, username: $("#fmg_user").value, password: $(
 
 // "initial IP" is only relevant for the SSH method (existing factory VMs)
 function syncMethods() {
+  $("#row_test").hidden = $("#m_fmg").value !== "none";   // connection test only makes sense for an FMG that already runs
   document.querySelectorAll("[data-ssh]").forEach((el) => (el.hidden = $(el.dataset.ssh === "fmg" ? "#m_fmg" : "#m_fgt").value !== "ssh"));
 }
 $("#m_fmg").addEventListener("change", syncMethods); $("#m_fgt").addEventListener("change", syncMethods);

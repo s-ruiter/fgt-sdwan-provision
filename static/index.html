@@ -40,7 +40,7 @@
         </div>
         <div class="f" style="max-width:420px"><label>Methode</label>
           <select id="m_fmg"><option value="day0" selected>Day-0: tool maakt de VM op Proxmox (cloud-init)</option><option value="ssh">SSH: bestaande VM (factory, initieel IP)</option><option value="none">Geen (al ingericht)</option></select></div>
-        <div class="btnrow"><button id="btn_test">Verbinding testen</button><span class="hint" id="test_res"></span></div>
+        <div class="btnrow" id="row_test" hidden><button id="btn_test">Verbinding testen</button><span class="hint" id="test_res"></span></div>
       </div>
 
       <div class="card" id="sec_pve">
