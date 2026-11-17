@@ -21,14 +21,15 @@ print("OK  validatie weigert lege serienummers:", len(r.json()["detail"]), "fout
 for i, d in enumerate(topo["hubs"] + topo["edges"]):
     d["serial"] = f"FGVMMLTM2600{i:04d}"
 topo["adom"] = "ACME-SDWAN"
-topo["psk"] = "Lab-Only-Psk-123"
+topo["psk"] = "Lab-Only-Psk-123"      # a client-supplied PSK must be ignored: the tool generates its own
 
 r = requests.post(f"{APP}/api/render", json={"topology": topo})
 assert r.status_code == 200, r.text
 cfg = r.json()["configs"]
 print("OK  render:", {k: v for k, v in r.json()["lines"].items()})
 allcfg = "".join(cfg.values())
-assert "Lab-Only-Psk-123" in cfg["CLI HUB1_02-Overlay"] and "S3cr3t!" not in allcfg
+assert "Lab-Only-Psk-123" not in allcfg and "S3cr3t!" not in allcfg
+assert "<PSK-wordt-bij-de-uitrol-gegenereerd>" in cfg["CLI HUB1_02-Overlay"]      # preview: placeholder, nothing generated/stored yet
 # templates, geen per-device config: variabelen i.p.v. literals
 assert "Variabelen" in cfg and "$(loopback)" in cfg["CLI SPOKES-1_02-Overlay"] and "10.200.1.1" not in cfg["CLI SPOKES-1_02-Overlay"]
 assert "set vrf-select 1" in cfg["CLI HUB1_00-Mgmt"] and "set gateway $(wan1_gw)" in cfg["CLI HUB1_00-Mgmt"]
@@ -38,7 +39,7 @@ print("OK  render: templates met $(var), CLI/SD-WAN/Policy tabs:", len(cfg))
 for needle in ("set vrf 11", "set vrf 12", "vrf11_leak"):
     assert needle in allcfg, needle
 assert "vrf12_leak" not in allcfg  # VRF 12 heeft geen DIA
-print("OK  VRF 11/12, leak alleen voor DIA-VRF 11, eigen PSK aanwezig")
+print("OK  VRF 11/12, leak alleen voor DIA-VRF 11; PSK in de preview = placeholder (eigen invoer genegeerd)")
 
 # 2. real deploy against the mock - twice (second run must be idempotent)
 def deploy():
@@ -68,6 +69,12 @@ for run in (1, 2):
     assert not any("/script" in u for u in urls), "geen scripts meer"
     if run == 1:
         n1 = len(urls)
+import re as _re
+_psks = {_re.search(r"psksecret (\S+)", str(d)).group(1) for _, u, d in m["bodies"] if "obj/cli/template/HUB1_02-Overlay" in u and d and "psksecret" in str(d)}
+assert len(_psks) == 1, _psks                          # same PSK in run 1 and run 2 (stable per ADOM)
+_psk = _psks.pop().strip('"').strip("\\")
+assert len(_psk) >= 32 and _psk != "Lab-Only-Psk-123" and "gegenereerd" not in _psk, _psk
+print("OK  PSK naar FMG: willekeurig (%d tekens), identiek in 2 runs, eigen invoer genegeerd" % len(_psk))
 print("OK  pipeline (mock): 5 devices, templates/variabelen/pakketten/blueprints aangemaakt, geen scripts")
 print("OK  2e run idempotent: alleen set/replace/update-aanroepen (%d aanroepen na run 1)" % n1)
 

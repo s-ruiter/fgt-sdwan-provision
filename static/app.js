@@ -48,7 +48,7 @@ function ipProblem(kind, v) {
   }
   return "";
 }
-const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip", dns1: "ip", dns2: "ip" };
+const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip" };
 const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip", isp2_ip: "ip", mpls_ip: "ip" };
 function markIpFields() {
   for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
@@ -117,10 +117,8 @@ function dev(kind, d, i) {
 }
 function draw() {
   const p = T.pve;
-  $("#adom").value = T.adom; $("#platform").value = T.platform; $("#psk").value = T.psk; $("#hub2hub").checked = !!T.hub2hub;
-  $("#dns1").value = T.dns_primary; $("#dns2").value = T.dns_secondary; $("#wan1_access").value = T.wan1_access;
+  $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub;
   $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port;
-  $("#r_name").value = T.region.name; $("#r_as").value = T.region.bgp_as; $("#r_lo").value = T.region.lo_summary;
   pveFill(p);
   const mv = T.region.multi_vrf !== false;
   $("#r_multi").checked = mv; $("#sv_box").hidden = mv; $("#vrfs").hidden = !mv; $("#r_lansum").value = T.region.lan_summary || "10.0.0.0/8";
@@ -131,8 +129,7 @@ function draw() {
 }
 function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);
-  t.adom = $("#adom").value.trim(); t.platform = $("#platform").value.trim(); t.psk = $("#psk").value; t.hub2hub = $("#hub2hub").checked;
-  t.dns_primary = $("#dns1").value.trim(); t.dns_secondary = $("#dns2").value.trim(); t.wan1_access = $("#wan1_access").value.trim();
+  t.adom = $("#adom").value.trim(); t.hub2hub = $("#hub2hub").checked;
   t.fmgr = { ...T.fmgr, name: $("#fm_name").value.trim(), ip: $("#fm_ip").value.trim(), gateway: $("#fm_gw").value.trim(), port: $("#fm_port").value.trim() || "port1" };
   t.pve = {
     server_id: $("#pve_server").value ? +$("#pve_server").value : null, url: "", token_id: "", verify_tls: true, node: $("#pve_node").value.trim(),
@@ -142,7 +139,6 @@ function collect() {
     fmg: { cores: +$("#fmg_cores").value, memory_mb: +$("#fmg_mem").value, data_disk_gb: +$("#fmg_disk").value, bridge: $("#fmg_br").value.trim(), vlan: n($("#fmg_vlan").value) },
     ports: Object.fromEntries([...document.querySelectorAll("[data-p]")].map((r) => [r.dataset.p, { bridge: r.querySelector("[data-f=bridge]").value.trim(), vlan: n(r.querySelector("[data-f=vlan]").value) }])),
   };
-  t.region.name = $("#r_name").value.trim(); t.region.bgp_as = +$("#r_as").value; t.region.lo_summary = $("#r_lo").value.trim();
   t.region.multi_vrf = $("#r_multi").checked; t.region.lan_summary = $("#r_lansum").value.trim();
   t.region.vrfs = [...document.querySelectorAll("[data-v]")].map((r) => ({ id: +r.querySelector("[data-f=id]").value, lan_summary: r.querySelector("[data-f=lan_summary]").value.trim(), dia: r.querySelector("[data-f=dia]").checked }));
   document.querySelectorAll(".dev").forEach((el) => {

@@ -67,3 +67,21 @@ def get_last_used(conn, server_id):
 def last_server(conn):
     row = conn.execute("SELECT value FROM settings WHERE key='last_server'").fetchone()
     return int(row["value"]) if row else None
+
+
+PSK_PLACEHOLDER = "<PSK-wordt-bij-de-uitrol-gegenereerd>"
+
+
+def get_psk(conn, adom, create=False):
+    """Random IPsec PSK per ADOM, kept so re-running a deployment does not change the tunnels' key.
+    create=False (previews): the stored PSK or a visible placeholder; nothing is generated or stored."""
+    import secrets
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (f"psk:{adom}",)).fetchone()
+    if row:
+        return row[0]
+    if not create:
+        return PSK_PLACEHOLDER
+    psk = secrets.token_urlsafe(32)
+    conn.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (f"psk:{adom}", psk))
+    conn.commit()
+    return psk

@@ -30,8 +30,8 @@ DEFAULTS = {
     "psk": "",
     "hub2hub": False,
     "lo_summary": "10.200.0.0/14",
-    "dns_primary": "",
-    "dns_secondary": "",
+    "dns_primary": "1.1.1.1",
+    "dns_secondary": "8.8.8.8",
     "wan1_access": "ping https ssh fgfm",   # allowaccess on wan1: keeps admin + FMG reachable after the push
     "fmgr": {                               # FortiManager: always a fixed address
         "name": "fmg",
@@ -320,6 +320,12 @@ def _deep(base, over):
     return base
 
 
+# Not configurable (always the same in our deployments). Enforced here so no client can override them.
+FIXED = {"platform": "FortiGate-VM64", "dns_primary": "1.1.1.1", "dns_secondary": "8.8.8.8",
+         "wan1_access": "ping https ssh fgfm", "lo_summary": "10.200.0.0/14",
+         "region": {"name": "West", "bgp_as": 65001, "lo_summary": "10.200.1.0/24"}}
+
+
 def merged(user):
     t = copy.deepcopy(DEFAULTS)
     for k, v in (user or {}).items():
@@ -327,6 +333,7 @@ def merged(user):
             _deep(t["pve"], v)
         elif v is not None:
             t[k] = v
+    _deep(t, copy.deepcopy(FIXED))
     return t
 
 

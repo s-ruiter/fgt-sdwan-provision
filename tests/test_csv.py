@@ -7,7 +7,7 @@ from app import csvio, model
 def topo(multi):
     t = model.merged({})
     t["region"]["multi_vrf"] = multi
-    t["adom"], t["dns_primary"], t["psk"] = "ACME", "1.1.1.1", "Lab;Psk,1"
+    t["adom"] = "ACME"
     t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
     for i, d in enumerate(t["hubs"] + t["edges"]):
         d["serial"] = f"FGVMMLTM2600{i:04d}"
@@ -30,7 +30,7 @@ em, es = csvio.export_csv(m), csvio.export_csv(s)
 for txt in (em, es):
     body = "\n".join(l for l in txt.splitlines() if not l.lstrip("\ufeff").startswith("#")).lower()
     assert txt.startswith("\ufeff") and "[devices]" in txt and "[algemeen]" not in txt and "[vrf]" not in txt
-    assert not any(w in body for w in ("acme", "lab;psk", "1.1.1.1", "adom", "dns", "psk", "token", "secret", "wachtwoord", "password"))
+    assert not any(w in body for w in ("acme", "adom", "dns", "psk", "token", "secret", "wachtwoord", "password"))
     assert "initial_ip" not in txt
 # LAN columns follow the mode
 assert "lan2_intf" in cols(em) and "lan3_intf" not in cols(em)
@@ -75,7 +75,7 @@ for multi in (True, False):
     g["pve"].update(node="pve01", disk_storage="local-lvm", import_storage="local", iso_storage="local", default_bridge="vmbr0", server_id=7)
     g["pve"]["fmg"].update(cores=6, bridge="vmbr1", vlan=106)
     g["pve"]["ports"]["port1"].update(bridge="vmbr0", vlan=20)
-    g["hub2hub"], g["region"]["bgp_as"] = True, 65099
+    g["hub2hub"] = True
     if multi:
         g["region"]["vrfs"][1]["dia"] = True
     full = csvio.export_csv(g, full=True, server_name="pve01")
@@ -87,20 +87,30 @@ for multi in (True, False):
     assert r["settings"] == {} and r["has_settings"] and any("genegeerd" in n for n in r["notes"])
     r = csvio.import_devices(full, topo(not multi), True)
     st = r["settings"]
-    assert st["adom"] == "ACME" and st["psk"] == "Lab;Psk,1" and st["hub2hub"] is True and st["region"]["bgp_as"] == 65099
-    assert st["region"]["multi_vrf"] is multi and st["fmgr"]["ip"] == "10.0.0.5/24" and st["dns_primary"] == "1.1.1.1"
+    assert st["adom"] == "ACME" and st["hub2hub"] is True
+    assert st["region"]["multi_vrf"] is multi and st["fmgr"]["ip"] == "10.0.0.5/24"
     assert st["pve"]["server_name"] == "pve01" and st["pve"]["node"] == "pve01" and st["pve"]["fmg"]["cores"] == 6
     assert st["pve"]["fmg"]["vlan"] == 106 and st["pve"]["ports"]["port1"]["vlan"] == 20 and st["pve"]["ports"]["port2"]["vlan"] is None
     assert ("vrfs" in st["region"]) == multi and (not multi or st["region"]["vrfs"][1]["dia"] is True)
     assert r["todo"] == [], r["todo"]          # validated against the *imported* settings (mode matches the LAN columns)
     assert [d["name"] for d in r["hubs"]] == ["site1-H1", "site1-H2"] and len(r["edges"]) == 3
     assert "server_id" not in str(st)           # DB ids are not portable: only the server name travels
+# fixed values: not in the file, and an imported/old file cannot change them
+full = csvio.export_csv(topo(True), full=True)
+for k in ("platform", "dns_primary", "dns_secondary", "wan1_access", "psk", "lo_summary", "region.name", "region.bgp_as", "region.lo_summary", "pve.license_mode"):
+    assert f"\n{k};" not in full, k
+old = full.replace("hub2hub;nee", "hub2hub;nee\ndns_primary;4.4.4.4\npsk;ikkiezzelf\nregion.bgp_as;1")
+r = csvio.import_devices(old, topo(True), True)
+assert any("onbekende sleutel" in n for n in r["notes"]) and "dns_primary" not in r["settings"] and "psk" not in r["settings"]
+fx = model.merged({"dns_primary": "4.4.4.4", "dns_secondary": "", "wan1_access": "x", "platform": "p", "region": {"name": "Oost", "bgp_as": 1, "lo_summary": "1.2.3.0/24", "multi_vrf": False}})
+assert (fx["dns_primary"], fx["dns_secondary"], fx["wan1_access"], fx["platform"]) == ("1.1.1.1", "8.8.8.8", "ping https ssh fgfm", "FortiGate-VM64")
+assert (fx["region"]["name"], fx["region"]["bgp_as"], fx["region"]["lo_summary"]) == ("West", 65001, "10.200.1.0/24") and fx["region"]["multi_vrf"] is False
 # a bad value in a settings section only matters when settings are applied
-bad = csvio.export_csv(topo(True), full=True, server_name="x").replace("region.bgp_as;65001", "region.bgp_as;abc")
+bad = csvio.export_csv(topo(True), full=True, server_name="x").replace("pve.fmg.cores;4", "pve.fmg.cores;abc")
 assert imp(bad, topo(True))[0]
 try:
     csvio.import_devices(bad, topo(True), True)
     raise SystemExit("geen fout")
 except csvio.CsvError as e:
-    assert "geen getal" in str(e) and "region.bgp_as" in str(e)
+    assert "geen getal" in str(e) and "pve.fmg.cores" in str(e)
 print("OK  CSV (alleen [devices]): export zonder instellingen/geheimen, LAN-kolommen per modus, import raakt de GUI-instellingen niet, oude secties genegeerd, fouten per rij; volledige export (algemeen/vrf/proxmox) round-trip, alleen met opt-in")

@@ -90,16 +90,7 @@
           <div class="inline"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-naar-hub tunnels (DC-to-DC)</label></div>
           <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + klant-VRF's met leak naar de PE-VRF; uit = klassiek single-VRF, één LAN per device)</label></div>
         </div>
-        <div class="fields">
-          <div class="f"><label>Platform</label><input id="platform"></div>
-          <div class="f"><label>DNS primair</label><input id="dns1"></div>
-          <div class="f"><label>DNS secundair</label><input id="dns2"></div>
-          <div class="f"><label>wan1 allowaccess</label><input id="wan1_access"></div>
-          <div class="f"><label>IPsec PSK</label><input id="psk" placeholder="leeg = template-default (alleen lab!)"></div>
-          <div class="f"><label>Regio</label><input id="r_name"></div>
-          <div class="f"><label>BGP AS</label><input id="r_as" type="number"></div>
-          <div class="f"><label>Loopback-summary regio</label><input id="r_lo"></div>
-        </div>
+        <div class="hint">Vast: regio West (AS 65001), loopback-summary 10.200.1.0/24, DNS 1.1.1.1 en 8.8.8.8, wan1 allowaccess <code>ping https ssh fgfm</code>, platform FortiGate-VM64. De IPsec-PSK genereert de tool zelf (willekeurig, per ADOM bewaard).</div>
         <h3>VRF's</h3>
         <div class="f" id="sv_box" hidden><label>LAN-summary (single-VRF)</label><input id="r_lansum"></div>
         <table id="vrfs" class="tbl"></table>
