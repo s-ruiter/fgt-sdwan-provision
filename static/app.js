@@ -1,7 +1,7 @@
 "use strict";
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-let T = null, IMGS = [], STEPS = [], ES = null;
+let T = null, IMGS = [], STEPS = [], ES = null, CUR_JOB = null;
 
 // ---- helpers ----------------------------------------------------------------
 const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
@@ -16,12 +16,14 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 
 // ---- routing ----------------------------------------------------------------
 function route() {
-  const r = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0];
+  const [r, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
   const VIEWS = ["deploy", "progress", "images", "servers", "about"];
   const view = VIEWS.includes(r) ? r : "deploy";
   for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
-  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === (view === "progress" ? "deploy" : view)));
+  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
   window.scrollTo(0, 0);
+  if (view === "progress") progressOpen(arg);
+  if (view === "deploy") bannerLoad();
 }
 window.addEventListener("hashchange", route);
 
@@ -313,10 +315,24 @@ $("#btn_deploy").onclick = async () => {
   const j = await json(r);
   if (!r.ok) return showErr(errList(j));
   if (ES) ES.close();
-  $("#p_title").textContent = `Uitrol van ${$("#adom").value.trim()}` + (dry ? " (dry-run)" : "");
-  $("#p_sum").className = "summary"; $("#p_sum").textContent = "Bezig…";
-  $("#log").textContent = ""; stepsDraw(); location.hash = "#/progress";
-  ES = new EventSource(`/api/jobs/${j.job}/stream`);
+  location.hash = "#/progress/" + j.job;                 // route() attaches to the job; a refresh keeps working
+};
+function progressMsg(t, cls) { $("#p_sum").className = "summary" + (cls ? " " + cls : ""); $("#p_sum").textContent = t; $("#p_sum").style.padding = cls ? "12px 16px" : ""; }
+async function progressOpen(id) {
+  if (!id) {                                              // "Voortgang" without a job: the most recent one
+    const l = await (await fetch("/api/jobs")).json();
+    if (!l.latest) { if (ES) { ES.close(); ES = null; } CUR_JOB = null; $("#p_title").textContent = "Voortgang"; stepsDraw(); $("#log").textContent = ""; return progressMsg("Er is nog geen uitrol gestart. Start er een op de pagina Uitrol."); }
+    location.replace("#/progress/" + l.latest); return;
+  }
+  if (id === CUR_JOB && ES) return;                       // already showing this one
+  if (ES) ES.close();
+  CUR_JOB = id;
+  const r = await fetch("/api/jobs/" + id);
+  if (!r.ok) { ES = null; CUR_JOB = null; $("#p_title").textContent = "Voortgang"; stepsDraw(); $("#log").textContent = ""; return progressMsg("Deze uitrol bestaat niet meer (de lijst met uitrollen is leeg of gewist). Start een nieuwe op de pagina Uitrol."); }
+  const info = await r.json();
+  $("#p_title").textContent = info.title || "Uitrol";
+  progressMsg("Bezig…"); $("#log").textContent = ""; stepsDraw();
+  ES = new EventSource(`/api/jobs/${id}/stream`);        // replays the whole log, then follows a running job
   ES.addEventListener("log", (e) => {
     const x = JSON.parse(e.data), d = document.createElement("div");
     d.className = "e-" + x.status; d.textContent = `${x.t} ${x.step ? "[" + x.step + "] " : ""}${x.msg}`;
@@ -327,13 +343,20 @@ $("#btn_deploy").onclick = async () => {
     const s = JSON.parse(e.data);
     document.querySelectorAll("#pl li").forEach((li) => { const st = s.steps[li.dataset.id]; li.className = "st-" + st; li.querySelector(".dot").className = "dot st-" + st; });
     if (s.state !== "running") {
-      ES.close();
-      $("#p_sum").className = "summary " + (s.state === "done" ? "ok" : "error");
-      $("#p_sum").textContent = s.state === "done" ? "✔ Klaar" : "✕ Mislukt — zie de log";
-      $("#p_sum").style.padding = "12px 16px";
+      ES.close(); ES = null;
+      progressMsg(s.state === "done" ? "✔ Klaar" : "✕ Mislukt — zie de log", s.state === "done" ? "ok" : "error");
     }
   });
-};
+}
+async function bannerLoad() {
+  const el = $("#job_banner");
+  try {
+    const l = await (await fetch("/api/jobs")).json(), j = l.jobs[0];
+    if (!j) { el.hidden = true; return; }
+    const st = { running: "loopt nu", done: "is klaar", failed: "is mislukt" }[j.state] || j.state;
+    el.hidden = false; el.innerHTML = `Laatste uitrol: <b>${esc(j.title)}</b> (${esc(j.created)}) ${st} &middot; <a href="#/progress/${j.id}" style="color:var(--accent)">Voortgang en log bekijken</a>`;
+  } catch (_) { el.hidden = true; }
+}
 
 // ---- servers ----------------------------------------------------------------
 let SERVERS = [], EDIT = null;

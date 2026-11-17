@@ -23,6 +23,32 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 app = FastAPI(title="FGT SD-WAN Provision")
 app.include_router(servers_router)
 JOBS = {}
+_JOB_LOCK = threading.Lock()
+_JOB_DB = None
+
+
+def _jobdb():
+    global _JOB_DB
+    if _JOB_DB is None:
+        _JOB_DB = db.connect(DATA_DIR)
+        db.interrupt_running_jobs(_JOB_DB, time.strftime("%H:%M:%S"))      # jobs killed by a restart
+    return _JOB_DB
+
+
+def _persist(job):
+    try:
+        with _JOB_LOCK:
+            db.save_job(_jobdb(), job)
+    except Exception:                                    # progress storage must never break a deployment
+        pass
+
+
+def _get_job(jid):
+    j = JOBS.get(jid)
+    if j is not None:
+        return j
+    with _JOB_LOCK:
+        return db.load_job(_jobdb(), jid)
 
 STEPS = [
     ("pve_fmg", "FortiManager-VM", "Image naar Proxmox, VM + datadisk + Day-0 config-drive (cloud-init) aanmaken en starten"),
@@ -295,6 +321,7 @@ def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
         job["events"].append({"t": time.strftime("%H:%M:%S"), "step": step, "status": status, "msg": mask(msg)})
         if step in job["steps"] and status != "info":
             job["steps"][step] = status
+        _persist(job)
 
     def log(level, msg):
         job["events"].append({"t": time.strftime("%H:%M:%S"), "step": None, "status": level, "msg": mask(msg)})
@@ -304,12 +331,14 @@ def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
     try:
         pipeline(topo, cfg, fmg, emit, boot)
         job["state"] = "done"
+        _persist(job)
     except Exception as e:
         cur = next((s for s, v in job["steps"].items() if v == "running"), None)
         if cur:
             job["steps"][cur] = "error"
         job["events"].append({"t": time.strftime("%H:%M:%S"), "step": cur, "status": "error", "msg": mask(str(e))})
         job["state"] = "failed"
+        _persist(job)
     finally:
         fmg.logout()
         fmgcfg.password = None  # do not keep credentials around
@@ -344,29 +373,48 @@ def deploy(r: DeployReq):
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
             "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw}
     jid = uuid.uuid4().hex[:8]
-    job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [],
+    job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [], "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+           "title": f"Uitrol van {topo['adom']}" + (" (dry-run)" if r.dry_run else ""),
            "steps": {i: "pending" for i, _, _ in STEPS}}
     JOBS[jid] = job
+    _persist(job)
     threading.Thread(target=_run, args=(job, topo, cfg, r.fmg, r.dry_run, boot, mask), daemon=True).start()
     return {"job": jid}
 
 
+@app.on_event("startup")
+def _startup():
+    _jobdb()                                            # also marks jobs a restart killed as interrupted
+
+
+@app.get("/api/jobs")
+def jobs_list():
+    """Recent deployments (newest first); the UI uses this to re-attach to the progress after a refresh."""
+    with _JOB_LOCK:
+        rows = db.list_jobs(_jobdb(), 10)
+    for r in rows:                                      # a job that is running right now is more current than its stored row
+        if r["id"] in JOBS:
+            r["state"] = JOBS[r["id"]]["state"]
+    return {"latest": rows[0]["id"] if rows else None, "jobs": rows}
+
+
 @app.get("/api/jobs/{jid}")
 def job(jid: str):
-    if jid not in JOBS:
-        raise HTTPException(404)
-    return JOBS[jid]
+    j = _get_job(jid)
+    if j is None:
+        raise HTTPException(404, detail="Deze uitrol bestaat niet (meer)")
+    return j
 
 
 @app.get("/api/jobs/{jid}/stream")
 def stream(jid: str):
-    if jid not in JOBS:
-        raise HTTPException(404)
+    if _get_job(jid) is None:
+        raise HTTPException(404, detail="Deze uitrol bestaat niet (meer)")
 
     def gen():
         sent = 0
         while True:
-            j = JOBS[jid]
+            j = JOBS.get(jid) or _get_job(jid)
             while sent < len(j["events"]):
                 yield f"event: log\ndata: {json.dumps(j['events'][sent])}\n\n"
                 sent += 1

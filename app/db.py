@@ -21,6 +21,15 @@ CREATE TABLE IF NOT EXISTS last_used (
     server_id INTEGER PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
     data TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    created TEXT NOT NULL,
+    title TEXT NOT NULL,
+    state TEXT NOT NULL,
+    dry_run INTEGER NOT NULL,
+    steps TEXT NOT NULL,
+    events TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -85,3 +94,46 @@ def get_psk(conn, adom, create=False):
     conn.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (f"psk:{adom}", psk))
     conn.commit()
     return psk
+
+
+# ---- deployment jobs: persisted so progress survives a page refresh and a service restart -------------------------
+def save_job(conn, job):
+    """job = {id, created, title, state, dry_run, steps{}, events[]}; events are already masked (no secrets)."""
+    conn.execute("INSERT INTO jobs(id,created,title,state,dry_run,steps,events) VALUES(?,?,?,?,?,?,?) "
+                 "ON CONFLICT(id) DO UPDATE SET state=excluded.state, steps=excluded.steps, events=excluded.events, title=excluded.title",
+                 (job["id"], job.get("created", ""), job.get("title", ""), job["state"], int(bool(job.get("dry_run"))),
+                  json.dumps(job["steps"]), json.dumps(job["events"])))
+    conn.commit()
+
+
+def _job_row(r):
+    return {"id": r["id"], "created": r["created"], "title": r["title"], "state": r["state"], "dry_run": bool(r["dry_run"]),
+            "steps": json.loads(r["steps"]), "events": json.loads(r["events"])}
+
+
+def load_job(conn, jid):
+    r = conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+    return _job_row(r) if r else None
+
+
+def list_jobs(conn, limit=10):
+    """Newest first, without events."""
+    rows = conn.execute("SELECT id,created,title,state,dry_run FROM jobs ORDER BY created DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
+    return [{"id": r["id"], "created": r["created"], "title": r["title"], "state": r["state"], "dry_run": bool(r["dry_run"])} for r in rows]
+
+
+def interrupt_running_jobs(conn, when):
+    """At service start: a job still 'running' in the database was killed by a restart. Mark it, never leave it 'running'."""
+    n = 0
+    for r in conn.execute("SELECT * FROM jobs WHERE state='running'").fetchall():
+        j = _job_row(r)
+        cur = next((s for s, v in j["steps"].items() if v == "running"), None)
+        if cur:
+            j["steps"][cur] = "error"
+        j["events"].append({"t": when, "step": cur, "status": "error",
+                            "msg": "Onderbroken: de service is herstart terwijl de uitrol bezig was. Controleer wat er al is aangemaakt "
+                                   "(VM's op Proxmox, objecten in FortiManager) en start de uitrol opnieuw; bestaande onderdelen worden hergebruikt."})
+        j["state"] = "failed"
+        save_job(conn, j)
+        n += 1
+    return n
