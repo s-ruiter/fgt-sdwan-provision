@@ -94,7 +94,10 @@
           <div class="f"><label>Loopback-summary regio</label><input id="r_lo"></div>
         </div>
         <div class="inline"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-naar-hub tunnels (DC-to-DC)</label></div>
-        <h3>VRF's</h3><table id="vrfs" class="tbl"></table>
+        <h3>VRF's</h3>
+        <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + klant-VRF's met leak naar de PE-VRF; uit = klassiek single-VRF, één LAN per device)</label></div>
+        <div class="f" id="sv_box" hidden><label>LAN-summary (single-VRF)</label><input id="r_lansum"></div>
+        <table id="vrfs" class="tbl"></table>
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
       </div>

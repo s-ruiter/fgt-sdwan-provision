@@ -52,6 +52,8 @@ DEFAULTS = {
         "name": "West",
         "bgp_as": 65001,
         "lo_summary": "10.200.1.0/24",
+        "multi_vrf": True,                   # False: classic single-VRF design (one LAN per device, no PE-VRF/leak)
+        "lan_summary": "10.0.0.0/8",         # single-VRF only (multi-VRF: per VRF)
         "vrfs": [
             {"id": 11, "lan_summary": "10.0.0.0/14", "dia": True},
             {"id": 12, "lan_summary": "10.0.0.0/14", "dia": False},
@@ -120,14 +122,17 @@ def validate(t):
     if t.get("os_ver") not in ("7.6", "8.0"):
         err.append("os_ver moet 8.0 (FortiManager 8.0.x) of 7.6 (FortiManager 7.6.x) zijn")
     r = t.get("region", {})
-    if not r.get("vrfs"):
-        err.append("Minstens 1 VRF nodig")
-    ids = [v.get("id") for v in r.get("vrfs", [])]
-    if len(set(ids)) != len(ids) or any(not isinstance(i, int) or i < 2 or i > 251 for i in ids):
-        err.append("VRF-id's: uniek, geheel getal 2-251 (VRF 1 is gereserveerd als PE-VRF)")
-    for v in r.get("vrfs", []):
-        if not _ip(v.get("lan_summary", ""), True):
-            err.append(f"VRF {v.get('id')}: ongeldige lan_summary")
+    if _multi(t):
+        if not r.get("vrfs"):
+            err.append("Multi-VRF: minstens 1 VRF nodig (of zet multi-VRF uit)")
+        ids = [v.get("id") for v in r.get("vrfs", [])]
+        if len(set(ids)) != len(ids) or any(not isinstance(i, int) or i < 2 or i > 251 for i in ids):
+            err.append("VRF-id's: uniek, geheel getal 2-251 (VRF 1 is gereserveerd als PE-VRF)")
+        for v in r.get("vrfs", []):
+            if not _ip(v.get("lan_summary", ""), True):
+                err.append(f"VRF {v.get('id')}: ongeldige lan_summary")
+    elif not _ip(r.get("lan_summary", ""), True):
+        err.append("Single-VRF: ongeldige LAN-summary")
     if len(t.get("hubs", [])) < 1 or len(t.get("edges", [])) < 1:
         err.append("Minstens 1 hub en 1 branch nodig")
 
@@ -167,7 +172,7 @@ def validate(t):
             for k, l in enumerate(d.get("lans", [])):
                 if l.get("intf") and not _cidr(l.get("ip", "")):
                     err.append(f"{n}: LAN{k+1} ongeldig IP/prefix")
-            if len(d.get("lans", [])) > len(r.get("vrfs", [])):
+            if _multi(t) and len(d.get("lans", [])) > len(r.get("vrfs", [])):
                 err.append(f"{n}: meer LAN's dan VRF's")
             if not d.get("isp1_intf"):
                 err.append(f"{n}: wan1 (isp1_intf, bv. port1) is verplicht: ZTP/FMG-verbinding loopt hierover")
@@ -199,16 +204,24 @@ def hub_isp1_ip(h):
     return h.get("isp1_ip")
 
 
+def _multi(t):
+    return bool(t.get("region", {}).get("multi_vrf", True))
+
+
+def pe_vrf(t):
+    """VRF that carries the underlay (wan1/FMG tunnel): 1 in multi-VRF, the default VRF (0) otherwise."""
+    return 1 if _multi(t) else 0
+
+
 def build(t):
     """Return (project_template_text, inventory_dict)."""
     r = t["region"]
     reg_name = r["name"]
-    vrfs = r["vrfs"]
-    regions = {reg_name: {
-        "as": str(r["bgp_as"]), "lo_summary": r["lo_summary"],
-        "vrfs": [{"id": v["id"], "lan_summary": v["lan_summary"]} for v in vrfs],
-        "hubs": [h["name"] for h in t["hubs"]],
-    }}
+    multi = _multi(t)
+    vrfs = r["vrfs"] if multi else []
+    regions = {reg_name: {"as": str(r["bgp_as"]), "lo_summary": r["lo_summary"], "hubs": [h["name"] for h in t["hubs"]]}}
+    if multi:
+        regions[reg_name]["vrfs"] = [{"id": v["id"], "lan_summary": v["lan_summary"]} for v in vrfs]
     access = json.dumps(t.get("wan1_access", "ping https ssh fgfm").split())
     ifaces = [
         # wan1: address mode comes from the inventory (isp1_addr = 'dhcp' or a.b.c.d/nn);
@@ -222,6 +235,8 @@ def build(t):
         dia = ", 'allow_dia': true" if v.get("dia") else ""
         ifaces.append(f"{{'name': {_lan_var(k,'intf')}, 'role': 'lan', 'vrf': {v['id']}{dia}, "
                       f"'ip': {_lan_var(k,'ip')}}}")
+    if not multi:                                   # single VRF: exactly one LAN, in the default VRF
+        ifaces.append(f"{{'name': {_lan_var(0,'intf')}, 'role': 'lan', 'ip': {_lan_var(0,'ip')}}}")
     hubs = {}
     for n, h in enumerate(t["hubs"], start=1):
         ov = {}
@@ -244,6 +259,7 @@ def build(t):
         parts.append("{% set psk = " + json.dumps(t["psk"]) + " %}")
     parts += [
         "{% set lo_summary = " + json.dumps(t["lo_summary"]) + " %}",
+    ] + (["{% set lan_summary = " + json.dumps(r.get("lan_summary", "10.0.0.0/8")) + " %}"] if not multi else []) + [
         "{% set regions = " + json.dumps(regions, indent=1) + " %}",
         "{% set profiles = {'OneSizeFitsAll': {'interfaces': [\n  " + ",\n  ".join(ifaces) + "\n]}} %}",
         "{% set hubs = " + json.dumps(hubs, indent=1) + " %}",
@@ -256,7 +272,7 @@ def build(t):
         for k in ("isp1_intf", "isp2_intf", "mpls_intf"):
             if d.get(k):
                 m[k] = d[k]
-        for k, l in enumerate(d.get("lans", [])):
+        for k, l in enumerate(d.get("lans", [])[:None if multi else 1]):
             if l.get("intf"):
                 m[_lan_var(k, "intf")] = l["intf"]
                 m[_lan_var(k, "ip")] = l["ip"]
@@ -273,17 +289,17 @@ def underlay_fragment(t, d):
     The Orchestrator moves wan1 into the PE-VRF (1) and installs no static default route. For a
     static wan1 we add the default route (id 1 = same id as the ZTP bootstrap route, so it is
     updated in place) and make the FortiManager tunnel follow the VRF move."""
-    pe_vrf = 1
+    pe = pe_vrf(t)
     out = [f"# ZTP underlay (fgt-sdwan-provision) - {d['name']}"]
     if d.get("wan1_mode") == "static":
         out += ["config router static", "  edit 1", f"    set gateway {d['wan1_gw'].strip()}",
-                f"    set device \"{d['isp1_intf']}\"", f"    set vrf {pe_vrf}", "  next", "end"]
+                f"    set device \"{d['isp1_intf']}\"", *([f"    set vrf {pe}"] if pe else []), "  next", "end"]
     out += ["config system dns", f"  set primary {t['dns_primary']}"]
     if t.get("dns_secondary"):
         out.append(f"  set secondary {t['dns_secondary']}")
     out += ["end",
             "config system central-management", "  set type fortimanager",
-            f"  set fmg \"{split_cidr(t['fmgr']['ip'])[0]}\"", f"  set vrf-select {pe_vrf}", "end"]
+            f"  set fmg \"{split_cidr(t['fmgr']['ip'])[0]}\"", *([f"  set vrf-select {pe}"] if pe else []), "end"]
     return "\n".join(out) + "\n"
 
 

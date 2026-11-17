@@ -216,13 +216,14 @@ def _short(fname):
     return f"{m.group(1)}-{m.group(2)}" if m else fname
 
 
-def mgmt_cli(dev):
+def mgmt_cli(dev, pe=PE_VRF):
     """ZTP/management fragment: default route for a static wan1 + FMG tunnel follows the VRF move of wan1."""
     lines = []
     if dev.get("wan1_mode") == "static":
         lines += ["config router static", "  edit 1", "    set gateway $(wan1_gw)", '    set device "$(isp1_intf)"',
-                  f"    set vrf {PE_VRF}", "  next", "end"]
-    lines += ["config system central-management", f"  set vrf-select {PE_VRF}", "end"]
+                  *([f"    set vrf {pe}"] if pe else []), "  next", "end"]
+    if pe:
+        lines += ["config system central-management", f"  set vrf-select {pe}", "end"]
     return "\n".join(lines)
 
 
@@ -235,7 +236,7 @@ def build_plan(topo, orch_dir):
     for name, (d, is_hub) in devs.items():
         meta = (inv["Hub"] if is_hub else inv["Edge"])[name]
         s = render_device(orch_dir, project, meta, is_hub)
-        mg = mgmt_cli(d)
+        mg = mgmt_cli(d, model.pe_vrf(topo))
         reg = s["reg"]
         values = {v: reg.value(v) for v in set(VAR_RE.findall("\n".join(list(s["core"].values()) + [s["sdwan"], s["firewall"]])))}
         if d.get("wan1_mode") == "static":
@@ -262,7 +263,8 @@ def build_plan(topo, orch_dir):
         role = r["name"]
         r["cli"] = []
         mgmt_vars = sorted(set(VAR_RE.findall(s["mgmt"])))
-        r["cli"].append((f"{role}_00-Mgmt", s["mgmt"], mgmt_vars))
+        if s["mgmt"].strip():
+            r["cli"].append((f"{role}_00-Mgmt", s["mgmt"], mgmt_vars))
         for fname, text in s["core"].items():
             if text.strip():
                 r["cli"].append((f"{role}_{_short(fname)}", text, sorted(set(VAR_RE.findall(text)))))

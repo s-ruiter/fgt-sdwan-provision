@@ -113,7 +113,7 @@ function dev(kind, d, i) {
   h += `<div class="f" data-ssh="fgt" hidden><label>Initieel IP (alleen SSH)</label><input data-f="initial_ip" value="${esc(d.initial_ip)}"></div>`;
   h += `<div class="f"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
   if (hub) ["isp2", "mpls"].forEach((k) => (h += fld(k + "_ip", k.toUpperCase() + " hub-IP", d[k + "_ip"])));
-  (d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
+  (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
   return h + "</div></div>";
 }
 function draw() {
@@ -123,6 +123,8 @@ function draw() {
   $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port; $("#fm_init").value = T.fmgr.initial_ip;
   $("#r_name").value = T.region.name; $("#r_as").value = T.region.bgp_as; $("#r_lo").value = T.region.lo_summary;
   pveFill(p);
+  const mv = T.region.multi_vrf !== false;
+  $("#r_multi").checked = mv; $("#sv_box").hidden = mv; $("#vrfs").hidden = !mv; $("#r_lansum").value = T.region.lan_summary || "10.0.0.0/8";
   $("#vrfs").innerHTML = "<thead><tr><th>VRF-id</th><th>LAN-summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
@@ -142,9 +144,10 @@ function collect() {
     ports: Object.fromEntries([...document.querySelectorAll("[data-p]")].map((r) => [r.dataset.p, { bridge: r.querySelector("[data-f=bridge]").value.trim(), vlan: n(r.querySelector("[data-f=vlan]").value) }])),
   };
   t.region.name = $("#r_name").value.trim(); t.region.bgp_as = +$("#r_as").value; t.region.lo_summary = $("#r_lo").value.trim();
+  t.region.multi_vrf = $("#r_multi").checked; t.region.lan_summary = $("#r_lansum").value.trim();
   t.region.vrfs = [...document.querySelectorAll("[data-v]")].map((r) => ({ id: +r.querySelector("[data-f=id]").value, lan_summary: r.querySelector("[data-f=lan_summary]").value.trim(), dia: r.querySelector("[data-f=dia]").checked }));
   document.querySelectorAll(".dev").forEach((el) => {
-    const d = t[el.dataset.k][el.dataset.i], lans = [];
+    const d = t[el.dataset.k][el.dataset.i], lans = (d.lans || []).map((l) => ({ ...l }));
     el.querySelectorAll("[data-f]").forEach((inp) => {
       const k = inp.dataset.f, v = inp.value.trim(), m = k.match(/^lan(\d+)_(intf|ip)$/);
       if (m) (lans[+m[1]] ??= {})[m[2]] = v; else d[k] = v;
@@ -368,5 +371,6 @@ $("#srv_test").onclick = async () => {
   $("#steps").innerHTML = a.steps.map((s) => `<li><b>${esc(s.title)}</b><span>${esc(s.desc)}</span></li>`).join("");
   $("#orch").textContent = a.orchestrator_present ? "Orchestrator-templates gevonden: " + a.orchestrator : "⚠ Orchestrator-templates niet gevonden op " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
+  $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: false }]; draw(); markIpFields(); syncMethods(); });
   draw(); markIpFields(); syncMethods(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
 })();
