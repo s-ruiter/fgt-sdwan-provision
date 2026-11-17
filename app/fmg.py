@@ -123,7 +123,7 @@ def wait_online(fmg, adom, names, timeout, emit, step="install", poll=5):
 def _bootstrap_fmg(topo, boot, emit):
     from . import bootstrap as bs
     f = topo["fmgr"]
-    lines = bs.fmg_network_lines(topo)
+    lines = bs.fmg_api_lines(boot.get("fmg_user")) + bs.fmg_network_lines(topo)   # address change stays last
     emit("bootstrap_fmg", "running", f"FortiManager {f['initial_ip']} -> {f['ip']} (poort {f.get('port','port1')})")
     if boot["dry"]:
         for l in lines:
