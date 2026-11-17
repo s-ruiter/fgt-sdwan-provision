@@ -68,6 +68,13 @@ class Fmg:
                 return False
             raise
 
+    def _task_errors(self, task_id):
+        try:
+            lines = self.call("get", f"/task/task/{task_id}/line").get("data", [])
+            return "; ".join(f"{l.get('name','')}: {l.get('detail','')}" for l in lines if l.get("err") or l.get("state") == "error")[:400]
+        except FmgError:
+            return ""
+
     def wait_task(self, task_id, timeout=600):
         if self.dry or not task_id:
             return {"state": 4, "percent": 100}
@@ -75,12 +82,14 @@ class Fmg:
         while time.time() < end:
             d = self.call("get", f"/task/task/{task_id}").get("data", {})
             st = d.get("state")
+            st = {"done": 4, "error": 5, "cancelled": 6, "cancelling": 6, "aborted": 7, "aborting": 7,
+                  "warning": 8}.get(st, st) if isinstance(st, str) else st      # verbose=1 returns names
             if st in (4, 8):
                 if d.get("num_err"):
-                    raise FmgError(f"task {task_id}: {d.get('num_err')} fouten")
+                    raise FmgError(f"task {task_id}: {d.get('num_err')} fouten: {self._task_errors(task_id)}")
                 return d
             if st in (3, 5, 6, 7):
-                raise FmgError(f"task {task_id} state={st}: {d.get('title','')}")
+                raise FmgError(f"task {task_id} state={st}: {d.get('title','')} {self._task_errors(task_id)}")
             time.sleep(2)
         raise FmgError(f"task {task_id}: timeout")
 
@@ -197,6 +206,12 @@ def _login_retry(fmg, attempts, delay):
     raise last
 
 
+def osmr(topo):
+    """FortiManager's own (os_ver, mr) notation: 7.6 is '7.0' MR6; 8.0 is '8.0' MR0."""
+    v = topo["os_ver"]
+    return ("7.0", 6) if v == "7.6" else (v, topo.get("mr", 0))
+
+
 def pipeline(topo, configs, fmg, emit, boot=None):
     """boot (optional) = {'dry','fmg':bool,'fgt':bool, tokens/creds ...}. Raises on fatal error."""
     adom = topo["adom"]
@@ -235,15 +250,15 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     emit("preflight", "ok", f"verbonden, versie: {ver}")
     if m_fmg == "day0" and not boot.get("dry"):
         pv.cleanup_isos(boot["pve_client"], topo["pve"], [topo["fmgr"].get("name") or "fmg"], state, emit, "bootstrap_fmg")
-    if not fmg.dry and "v8.0" not in ver:
-        raise FmgError(f"FortiManager draait {ver}, verwacht 8.0.x")
+    if not fmg.dry and f"v{topo['os_ver']}" not in ver:
+        raise FmgError(f"FortiManager draait {ver}, maar de ADOM-versie is {topo['os_ver']}: kies de ADOM-versie van je FortiManager")
 
     emit("adom", "running", f"ADOM '{adom}' aanmaken")
     if not fmg.dry and fmg.exists(f"/dvmdb/adom/{adom}"):
         emit("adom", "ok", "ADOM bestaat al, hergebruikt")
     else:
-        fmg.call("add", "/dvmdb/adom", [{"name": adom, "os_ver": topo["os_ver"], "mr": topo["mr"],
-                                          "restricted_prds": ["fos"], "desc": "Created by fgt-sdwan-provision"}])
+        fmg.call("add", "/dvmdb/adom", [{"name": adom, "os_ver": osmr(topo)[0], "mr": osmr(topo)[1],
+                                          "restricted_prds": "fos", "desc": "Created by fgt-sdwan-provision"}])
         emit("adom", "ok", f"ADOM '{adom}' aangemaakt (os {topo['os_ver']})")
 
     emit("devices", "running", f"{len(devices)} model devices toevoegen")
@@ -254,7 +269,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         r = fmg.call("exec", "/dvm/cmd/add/device", {
             "adom": adom, "flags": ["create_task", "nonblocking"],
             "device": {"name": d["name"], "sn": d["serial"].strip(), "mgmt_mode": "fmg",
-                       "os_type": "fos", "os_ver": topo["os_ver"], "mr": topo["mr"],
+                       "os_type": "fos", "os_ver": osmr(topo)[0], "mr": osmr(topo)[1],
                        "platform_str": topo["platform"], "device action": "add_model",
                        "desc": f"SD-WAN {kind}"}})
         tid = (r.get("data") or {}).get("taskid") or (r.get("data") or {}).get("task")

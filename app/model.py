@@ -117,8 +117,8 @@ def validate(t):
     err = []
     if not _NAME.match(t.get("adom", "")):
         err.append("ADOM-naam: 1-35 tekens (letters, cijfers, _ . -), begint met letter/cijfer")
-    if t.get("os_ver") != "8.0":
-        err.append("os_ver moet 8.0 zijn voor FortiManager 8.0.x")
+    if t.get("os_ver") not in ("7.6", "8.0"):
+        err.append("os_ver moet 8.0 (FortiManager 8.0.x) of 7.6 (FortiManager 7.6.x) zijn")
     r = t.get("region", {})
     if not r.get("vrfs"):
         err.append("Minstens 1 VRF nodig")

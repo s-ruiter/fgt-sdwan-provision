@@ -28,7 +28,7 @@ def plan_calls(topo, plan):
 
     # 1. device groups (+ members)
     for r in roles:
-        add("Device groups", "set", f"/dvmdb/adom/{adom}/group", [{"name": group(r), "os_type": 1}])
+        add("Device groups", "set", f"/dvmdb/adom/{adom}/group", [{"name": group(r), "os_type": "fos"}])
         add("Device groups", "add", f"/dvmdb/adom/{adom}/group/{group(r)}/object member", scope(r["devices"]), ignore=True)
 
     # 2. metadata variables with the value per device
@@ -55,7 +55,9 @@ def plan_calls(topo, plan):
             for k in ("advpn-select", "advpn-health-check"):
                 if k in z:
                     advpn.setdefault(z["name"], {})[k] = z.pop(k)
-        add("SD-WAN templates", "replace", f"{base}/wanprof/{r['name']}/system/sdwan", body)
+        if not any(z["name"] == "virtual-wan-link" for z in body.get("zone", [])):
+            body.setdefault("zone", []).insert(0, {"name": "virtual-wan-link"})   # reserved zone: FMG refuses to delete it
+        add("SD-WAN templates", "update", f"{base}/wanprof/{r['name']}/system/sdwan", body)
         for zname, vals in advpn.items():
             add("SD-WAN templates", "update", f"{base}/wanprof/{r['name']}/system/sdwan/zone/{zname}", vals)
     for r in roles:
@@ -113,7 +115,9 @@ def plan_calls(topo, plan):
         add("Blueprints", "set", f"{base}/obj/fmg/device/blueprint/{r['name']}",
             {"name": r["name"], "dev-group": group(r), "prov-type": "template-group", "template-group": r["name"],
              "pkg": r["name"], "platform": BLUEPRINT_PLATFORM, "vm-log-disk": 1})
-    return calls
+    order = ["Device groups", "Metadata-variabelen", "System template", "Interfaces en adressen", "SD-WAN templates",
+             "Static-route templates", "Policy packages", "CLI-templates", "Template groups", "Blueprints"]
+    return sorted(calls, key=lambda c: order.index(c["stage"]))      # stable: keeps order within a stage
 
 
 def apply_plan(fmg, topo, plan, emit, step="templates"):
