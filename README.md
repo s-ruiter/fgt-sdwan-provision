@@ -11,14 +11,27 @@ Deploy tool voor een Fortinet **SD-WAN/ADVPN multi-VRF** topologie via **FortiMa
 
 ## Installeren (op de Proxmox-host, als root)
 
+**Privé-repo / vanuit een checkout (nu aanbevolen):** de code wordt lokaal naar de container gekopieerd.
+
+```bash
+gh repo clone s-ruiter/fgt-sdwan-provision && scp -r fgt-sdwan-provision root@<pve-ip>:/root/
+ssh root@<pve-ip> bash /root/fgt-sdwan-provision/ct/deploy.sh
+```
+
+**Publieke repo (one-liner):**
+
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/s-ruiter/fgt-sdwan-provision/main/ct/deploy.sh)"
 ```
 
-Overrides via environment: `CTID`, `CT_IP` (`dhcp` of `a.b.c.d/nn`), `CT_GW`, `STORAGE`, `BRIDGE`, `VLAN`, `CORES`, `MEMORY`, `DISK_GB`.
-Daarna: `http://<ct-ip>:8000`. Updaten: `pct exec <CTID> -- bash /opt/fgt-sdwan-provision/ct/install.sh`.
+**Privé-repo zonder checkout:** `GITHUB_TOKEN=ghp_xxx bash -c "$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/s-ruiter/fgt-sdwan-provision/main/ct/deploy.sh)"` (token met leesrechten op de repo).
 
-De Orchestrator-repo heeft geen licentiebestand en wordt daarom bij de installatie geclonet (vastgepind op een commit) in plaats van hier meegeleverd.
+Het script toont eerst een samenvatting (CTID, storage, netwerk) en vraagt om bevestiging (`--yes` of `YES=1` slaat dat over). Storages worden automatisch gekozen (eerste actieve met `rootdir`/`vztmpl`). Overrides via environment: `CTID`, `CT_HOSTNAME`, `STORAGE`, `TEMPLATE_STORAGE`, `BRIDGE`, `VLAN`, `CT_IP` (`dhcp` of `a.b.c.d/nn`), `CT_GW`, `CT_DNS`, `CORES`, `MEMORY`, `DISK_GB` (standaard 12).
+Daarna: `http://<ct-ip>:8000`.
+
+**Updaten** (data en opgeslagen servers blijven staan): `UPDATE=1 CTID=<id> bash /root/fgt-sdwan-provision/ct/deploy.sh` (met een verse checkout), of voor een GitHub-installatie `pct exec <id> -- bash /opt/fgt-sdwan-provision/ct/install.sh`.
+
+De container heeft uitgaand internet nodig (Debian-mirrors, PyPI, github.com voor Fortinet's Orchestrator) en moet de Proxmox-API (:8006) en de FortiManager kunnen bereiken. De Orchestrator-repo heeft geen licentiebestand en wordt daarom bij de installatie geclonet (vastgepind op een commit) in plaats van hier meegeleverd.
 
 ## Uitrolstappen (zichtbaar in de UI)
 
@@ -63,7 +76,7 @@ De UI heeft een **dry-run** (standaard aan): alle schrijvende calls worden gelog
 - Day-0/Proxmox getest tegen een **nagebootste Proxmox-API** (`tests/fake_proxmox.py`): streaming-upload byte-voor-byte, ISO-inhoud teruggelezen, VM-parameters, NIC's, opruimen, idempotentie en rollback (`tests/test_day0_units.py`, `tests/test_pipeline_day0.py`).
 - **Niet getest tegen echte Proxmox 9 / FortiGate-VM's / FortiManager-VM**: of de FortiManager de config-drive leest (niet bevestigd; zo niet: methode `ssh`), het live loskoppelen van de ISO, de token-rechten (controleer op een FortiGate met `diagnose debug cloudinit show` of de config-drive is gevonden), de exacte prompts (wachtwoordwissel, `(y/n)` bij `execute vm-license`), of FortiManager `execute vm-license <token>` kent, en `vrf-select` onder `central-management`. De nepserver is geschreven uit documentatie, niet uit een echt apparaat.
 - **Niet getest tegen een echte FortiManager 8.0**: de JSON-RPC paden/payloads in `app/fmg.py` (ADOM aanmaken, `add_model` device, script exec, install) moeten in een lab worden geverifieerd.
-- `deploy.sh` is niet gedraaid op een echte Proxmox-host.
+- `install.sh` is getest in een schone Debian 12 (Docker, `tests/test_install_docker.sh`) en `deploy.sh` tegen nagemaakte `pct`/`pveam`/`pvesh`/`pvesm` (`tests/test_deploy_fake_pve.sh`); het echte `pct create` op Proxmox 9 is nog niet gedraaid.
 - Alleen wan1 is statisch/DHCP te kiezen; ISP2/MPLS blijven DHCP zoals in de referentie.
 - Hub-naar-hub tunnels binnen de regio staan standaard uit (zoals in de referentie); aan te zetten in de UI.
 - Verificatiefase (tunnels/BGP per VRF) is nog niet gebouwd.
