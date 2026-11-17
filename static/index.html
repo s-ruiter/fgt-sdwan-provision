@@ -42,24 +42,26 @@
           <div class="f"><label>CPU-type</label><select id="pve_cpu"><option>host</option><option>x86-64-v2-AES</option><option>x86-64-v3</option><option>kvm64</option></select></div>
           <div class="f"><label>Licentie in Day-0</label><select id="pve_lic"><option value="cli">execute vm-license &lt;token&gt; (aanbevolen)</option><option value="mime">MIME + LICENSE-TOKEN (optioneel)</option></select></div>
         </div>
-        <h3>VM-grootte</h3>
+        <h3>FortiManager-VM</h3>
         <div class="fields">
-          <div class="f"><label>FortiGate vCPU</label><input id="fgt_cores" type="number"></div>
-          <div class="f"><label>FortiGate RAM (MB)</label><input id="fgt_mem" type="number"></div>
-          <div class="f"><label>FortiManager vCPU</label><input id="fmg_cores" type="number"></div>
-          <div class="f"><label>FortiManager RAM (MB)</label><input id="fmg_mem" type="number"></div>
-          <div class="f"><label>FMG datadisk (GB)</label><input id="fmg_disk" type="number"></div>
-          <div class="f"><label>FMG bridge</label><select id="fmg_br"></select></div>
-          <div class="f"><label>FMG VLAN</label><input id="fmg_vlan" type="number"></div>
+          <div class="f"><label>Image</label><select id="img_fmg"></select></div>
+          <div class="f"><label>vCPU</label><input id="fmg_cores" type="number"></div>
+          <div class="f"><label>RAM (MB)</label><input id="fmg_mem" type="number"></div>
+          <div class="f"><label>Datadisk (GB)</label><input id="fmg_disk" type="number"></div>
+          <div class="f"><label>Bridge</label><select id="fmg_br"></select></div>
+          <div class="f"><label>VLAN</label><input id="fmg_vlan" type="number"></div>
         </div>
-        <div class="hint">FortiGate-vCPU moet passen bij de FortiFlex-entitlement. Fortinet adviseert voor FortiManager &ge;4 vCPU, 16 GB RAM en een datadisk van &ge;500 GB (thin kan in een lab).</div>
-        <h3>FortiGate-poorten <small>&rarr; bridge/VLAN (port1 = wan1; leeg = standaard bridge)</small></h3>
+        <div class="hint">Fortinet adviseert voor FortiManager &ge;4 vCPU, 16 GB RAM en een datadisk van &ge;500 GB (thin kan in een lab).</div>
+
+        <h3>FortiGate-VM's <small>(hub en branches)</small></h3>
+        <div class="fields">
+          <div class="f"><label>Image</label><select id="img_fgt"></select></div>
+          <div class="f"><label>vCPU</label><input id="fgt_cores" type="number"></div>
+          <div class="f"><label>RAM (MB)</label><input id="fgt_mem" type="number"></div>
+        </div>
+        <div class="hint">vCPU moet passen bij de FortiFlex-entitlement.</div>
+        <h4>Poorten <small>&rarr; bridge/VLAN (port1 = wan1; leeg = standaard bridge)</small></h4>
         <table id="ports" class="tbl"></table>
-        <h3>Images</h3>
-        <div class="fields" style="max-width:640px">
-          <div class="f"><label>FortiGate-image</label><select id="img_fgt"></select></div>
-          <div class="f"><label>FortiManager-image</label><select id="img_fmg"></select></div>
-        </div>
         <div class="hint">Nog geen image? Upload het <code>.out.kvm.zip</code> van FortiCloud op de pagina <a href="#/images" style="color:var(--accent)">Images</a>.</div>
       </div>
 
