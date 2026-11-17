@@ -67,21 +67,25 @@ def fgt_network_lines(dev, topo):
     return lines
 
 
-def fmg_network_lines(topo):
+def fmg_network_lines(topo, ip_last=True):
+    """FortiManager hostname, DNS, port1 and default route.
+    port1 is put in `mode static` explicitly: a new FortiManager VM can come up with DHCP on port1, and `set ip` alone
+    then leaves it on the DHCP address. ip_last=True (SSH): the address change drops the session, so it goes last;
+    ip_last=False (Day-0 config-drive): interface first, so the gateway is already inside the port's subnet."""
     f = topo["fmgr"]
     ip, mask = split_cidr(f["ip"])
+    port = f.get("port", "port1")
     lines = []
     if f.get("name"):
         lines += ["config system global", f"set hostname {f['name']}", "end"]
     lines += ["config system dns", f"set primary {topo['dns_primary']}"]
     if topo.get("dns_secondary"):
         lines.append(f"set secondary {topo['dns_secondary']}")
-    lines += ["end",
-              "config system route", "edit 1", f'set device "{f.get("port", "port1")}"',
-              f"set gateway {f['gateway'].strip()}", "next", "end",
-              "config system interface", f'edit "{f.get("port", "port1")}"', "set allowaccess ping https ssh",
-              f"set ip {ip} {mask}", "next", "end"]
-    return lines
+    lines.append("end")
+    route = ["config system route", "edit 1", f'set device "{port}"', f"set gateway {f['gateway'].strip()}", "next", "end"]
+    iface = ["config system interface", f'edit "{port}"', "set allowaccess ping https ssh", "set mode static",
+             f"set ip {ip} {mask}", "next", "end"]
+    return lines + (route + iface if ip_last else iface + route)
 
 
 def license_line(token):

@@ -66,6 +66,7 @@ Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool
 
 ## ZTP / FortiFlex (methode `ssh`, voor bestaande VM's)
 
+- **FortiManager Day-0**: `port1` wordt expliciet op `set mode static` gezet vóór `set ip` (een nieuwe FortiManager-VM kan op DHCP staan en negeert dan alleen `set ip`; bij een echte uitrol kreeg de FMG zo een DHCP-adres in plaats van het opgegeven vaste IP). Of `mode static` door een FortiManager 8.0-build wordt geaccepteerd is nog niet op een echte 8.0 gezien.
 - De FortiManager heeft altijd een vast IP (`a.b.c.d/nn` + gateway). Per FortiGate kies je in de UI **statisch of DHCP** voor wan1 (= `wan1_intf`, standaard `port1`).
 - FortiFlex-tokens voert de gebruiker in op de UI (per device + één voor de FortiManager). De tool stuurt `execute vm-license <token>` via SSH, beantwoordt de `(y/n)`-vraag, wacht op de reboot en controleert daarna `get system status` (serienummer moet overeenkomen met de invoer).
 - Eerste login met leeg wachtwoord (factory): de verplichte wachtwoordwissel wordt afgehandeld met het door jou opgegeven nieuwe admin-wachtwoord.

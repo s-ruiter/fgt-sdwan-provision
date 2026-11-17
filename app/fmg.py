@@ -230,8 +230,9 @@ def pipeline(topo, configs, fmg, emit, boot=None):
             emit("bootstrap_fmg", "ok", "dry-run: niet gewacht")
         else:
             if not (boot.get("waiter") or bs.wait_tcp)(ip, 443, True, boot.get("fmg_boot_timeout", 900)):
-                raise FmgError(f"FortiManager niet bereikbaar op {ip}:443. Controleer de console in Proxmox; "
-                               "of de FMG de config-drive leest is niet bevestigd - gebruik anders methode 'ssh'.")
+                raise FmgError(f"FortiManager niet bereikbaar op {ip}:443. Open de console in Proxmox en controleer met "
+                               "'get system interface' of port1 op mode static staat met dit IP (een FortiManager-VM kan "
+                               "op DHCP staan en dan een ander adres hebben; het Day-0 IP is dan niet overgenomen).")
             emit("bootstrap_fmg", "ok", f"FortiManager bereikbaar op {ip}")
     else:
         emit("pve_fmg", "skipped", "overgeslagen (niet gevraagd)")

@@ -40,7 +40,7 @@ def fgt_cli(dev, topo, admin_pw):
 
 
 def fmg_cli(topo, admin_pw):
-    lines = fmg_network_lines(topo) + _admin(admin_pw, fmg=True)
+    lines = fmg_network_lines(topo, ip_last=False) + _admin(admin_pw, fmg=True)
     return "\n".join(lines) + "\n"
 
 

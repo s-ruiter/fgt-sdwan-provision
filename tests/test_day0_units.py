@@ -108,6 +108,17 @@ def test_cloudinit():
     assert "set ip 10.0.0.5 255.255.255.0" in fm and "config system admin user" in fm and "set gateway 10.0.0.1" in fm
     assert cloudinit.build_user_data(cli, TOKEN).rstrip().endswith(f"execute vm-license {TOKEN}"), "default moet cli zijn"
     assert model.DEFAULTS["pve"]["license_mode"] == "cli"
+    # FortiManager Day-0: port1 forced to static (a new FMG VM can sit on DHCP and then ignores `set ip` alone); interface
+    # before the route so the gateway is inside the port's subnet. The SSH path keeps the address change last (session drops).
+    t2 = model.merged({})
+    t2["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1", name="fmg")
+    d0 = cloudinit.fmg_cli(t2, "Pw-123456").splitlines()
+    assert d0.count("set mode static") == 1 and d0.index("set mode static") < d0.index("set ip 10.10.106.11 255.255.255.0"), d0
+    assert d0.index("config system interface") < d0.index("config system route") and "set gateway 10.10.106.1" in d0, d0
+    from app import bootstrap
+    ssh = bootstrap.fmg_network_lines(t2)
+    assert "set mode static" in ssh and ssh.index("config system route") < ssh.index("config system interface"), ssh
+    assert ssh.index("set mode static") < ssh.index("set ip 10.10.106.11 255.255.255.0")
     print("OK  cloud-init: cli-default (execute vm-license als laatste regel), MIME optioneel (config.txt + LICENSE-TOKEN), ISO label config-2 round-trip, quoting, token-validatie, masking, FMG-CLI")
 
 
