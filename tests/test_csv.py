@@ -13,7 +13,7 @@ for i, d in enumerate(t["hubs"] + t["edges"]):
 t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.64.1.6", "100.64.2.6"
 
 txt = csvio.export_csv(t)
-assert txt.startswith("\ufeff") and "[algemeen]" in txt and "[vrf]" in txt and "[devices]" in txt
+assert txt.startswith("\ufeff") and "[algemeen]" in txt and "[devices]" in txt
 body = "\n".join(l for l in txt.splitlines() if not l.lstrip("\ufeff").startswith("#")).lower()
 assert not any(w in body for w in ("token", "secret", "wachtwoord", "password"))
 # round-trip (both delimiters)
@@ -25,8 +25,20 @@ for delim in (";", ","):
     assert back["region"]["vrfs"] == t["region"]["vrfs"]
     assert [d["name"] for d in back["hubs"]] == ["site1-H1", "site1-H2"] and len(back["edges"]) == 3
     assert back["hubs"][0]["wan1_gw"] == "100.64.1.6" and back["hubs"][0]["isp2_ip"] == t["hubs"][0]["isp2_ip"]
-    assert back["edges"][1]["isp2_intf"] == "" and back["edges"][0]["lans"] == t["edges"][0]["lans"]
+    assert back["edges"][1]["isp2_intf"] == "" and back["edges"][0]["lans"] == t["edges"][0]["lans"][:1]
     assert "isp2_ip" not in back["edges"][0] and todo == [] and notes == [], (todo, notes)
+# the file differs per mode
+def cols(text):
+    return next(l for l in text.splitlines() if l.startswith("type"))
+single, multi = csvio.export_csv(t), csvio.export_csv(dict(t, region=dict(t["region"], multi_vrf=True)))
+assert "[vrf]" not in single and "region.lan_summary" in single and "lan1_intf" in cols(single) and "lan2_intf" not in cols(single)
+assert "[vrf]" in multi and "region.lan_summary" not in multi and "lan2_intf" in cols(multi) and "lan3_intf" not in cols(multi)
+three = dict(t["region"], multi_vrf=True, vrfs=t["region"]["vrfs"] + [{"id": 13, "lan_summary": "10.0.0.0/14", "dia": False}])
+assert "lan3_intf" in cols(csvio.export_csv(dict(t, region=three)))          # one LAN column pair per VRF
+# importing the multi-VRF layout into single-VRF mode: extra LANs and [vrf] are ignored with a note
+mixed = multi.replace("region.multi_vrf;ja", "region.multi_vrf;nee")
+bm, nm, _ = csvio.import_csv(mixed)
+assert all(len(d["lans"]) <= 1 for d in bm["hubs"] + bm["edges"]) and any("[vrf] genegeerd" in n for n in nm) and any("lan2+" in n for n in nm), nm
 # blank template: serials missing -> todo list, not an error
 blank, _, todo = csvio.import_csv(csvio.export_csv(model.merged({})))
 assert any("serienummer" in e for e in todo) and len(blank["hubs"]) == 2

@@ -69,6 +69,7 @@ def _fmt(v, kind):
 
 def export_csv(topo, delim=";"):
     t = model.merged(topo)
+    multi = model._multi(t)
     out = io.StringIO()
     w = csv.writer(out, delimiter=delim, lineterminator="\n")
     w.writerow(["# fgt-sdwan-provision topologie. Vul de lege cellen in (serienummers!) en importeer dit bestand weer."])
@@ -77,15 +78,22 @@ def export_csv(topo, delim=";"):
     w.writerow(["[algemeen]"])
     w.writerow(["sleutel", "waarde", "uitleg"])
     for key, label, kind in SETTINGS:
+        if key == "region.lan_summary" and multi:          # multi-VRF: LAN-summary is per VRF, in [vrf]
+            continue
         w.writerow([key, _fmt(_get(t, key), kind), label])
     w.writerow([])
-    w.writerow(["[vrf]"])
-    w.writerow(VRF_COLS)
-    for v in t["region"].get("vrfs", []):
-        w.writerow([v.get("id", ""), v.get("lan_summary", ""), "ja" if v.get("dia") else "nee"])
-    w.writerow([])
+    if multi:
+        w.writerow(["# Multi-VRF: lan1_* hoort bij de eerste VRF hieronder, lan2_* bij de tweede, enzovoort."])
+        w.writerow(["[vrf]"])
+        w.writerow(VRF_COLS)
+        for v in t["region"].get("vrfs", []):
+            w.writerow([v.get("id", ""), v.get("lan_summary", ""), "ja" if v.get("dia") else "nee"])
+        w.writerow([])
+    else:
+        w.writerow(["# Single-VRF: geen VRF-sectie en per device maar één LAN (lan1_*)."])
+        w.writerow([])
     devs = [("hub", d) for d in t["hubs"]] + [("branch", d) for d in t["edges"]]
-    nl = min(max([len(d.get("lans", [])) for _, d in devs] + [2]), MAX_LANS)
+    nl = min(max(len(t["region"].get("vrfs", [])), 1), MAX_LANS) if multi else 1       # one LAN per VRF / exactly one
     cols = DEV_COLS + [f"lan{i}_{s}" for i in range(1, nl + 1) for s in ("intf", "ip")]
     w.writerow(["[devices]"])
     w.writerow(cols)
@@ -210,6 +218,18 @@ def parse_csv(text):
             d["lans"] = lans
             (hubs if kind == "hub" else edges).append(d)
         topo["hubs"], topo["edges"] = hubs, edges
+    single = topo.get("region", {}).get("multi_vrf") is False
+    if single:
+        if "vrf" in sections:
+            notes.append("[vrf] genegeerd: single-VRF gebruikt geen VRF's")
+            topo.get("region", {}).pop("vrfs", None)
+        extra = [d["name"] for d in topo.get("hubs", []) + topo.get("edges", []) if len(d.get("lans", [])) > 1]
+        for d in topo.get("hubs", []) + topo.get("edges", []):
+            d["lans"] = d.get("lans", [])[:1]
+        if extra:
+            notes.append(f"extra LAN's (lan2+) genegeerd bij single-VRF: {', '.join(extra)}")
+    elif topo.get("region", {}).get("multi_vrf") is True and "region.lan_summary" in [r[0] for r in sections.get("algemeen", {"rows": []})["rows"]]:
+        notes.append("region.lan_summary genegeerd: bij multi-VRF staat de LAN-summary per VRF in [vrf]")
     return topo, notes
 
 
