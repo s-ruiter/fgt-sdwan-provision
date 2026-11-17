@@ -114,6 +114,19 @@ def test_server(sid: int, body: TestIn):
         raise HTTPException(502, e.detail)
 
 
+@router.get("/{sid}/nodes/{node}/options")
+def node_options(sid: int, node: str):
+    row = db.get_server(conn(), sid)
+    if row is None:
+        raise HTTPException(404, "Server niet gevonden")
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", node):
+        raise HTTPException(422, "Ongeldige node")
+    try:
+        return client(row).node_options(node)
+    except PveError as e:
+        raise HTTPException(502, e.detail)
+
+
 @router.get("/{sid}/last-used")
 def last_used(sid: int):
     return db.get_last_used(conn(), sid)

@@ -26,14 +26,27 @@ function route() {
 window.addEventListener("hashchange", route);
 
 // ---- topology form ----------------------------------------------------------
+let PVE_OPT = { nodes: [], image_storages: [], import_storages: [], iso_storages: [], bridges: [] };
+const names = (l) => (l || []).map((x) => (typeof x === "string" ? x : x.name));
+// fill a <select>: keep `cur` (even when the server did not list it), else fall back to the first entry
+function setSel(id, values, cur, blank) {
+  const vals = [...values]; if (cur && !vals.includes(cur)) vals.unshift(cur);
+  $(id).innerHTML = (blank ? `<option value="">${blank}</option>` : "") + vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  $(id).value = cur || (blank ? "" : vals[0] || "");
+}
 function pveFill(p) {
-  $("#pve_node").value = p.node;
-  $("#pve_dstore").value = p.disk_storage; $("#pve_istore").value = p.import_storage; $("#pve_isostore").value = p.iso_storage;
-  $("#pve_br").value = p.default_bridge; $("#pve_cpu").value = p.cpu_type; $("#pve_lic").value = p.license_mode;
+  setSel("#pve_node", PVE_OPT.nodes, p.node);
+  setSel("#pve_dstore", names(PVE_OPT.image_storages), p.disk_storage);
+  setSel("#pve_istore", names(PVE_OPT.import_storages), p.import_storage);
+  setSel("#pve_isostore", names(PVE_OPT.iso_storages), p.iso_storage);
+  setSel("#pve_br", PVE_OPT.bridges, p.default_bridge);
+  setSel("#fmg_br", PVE_OPT.bridges, p.fmg.bridge, "(standaard bridge)");
+  $("#pve_cpu").value = p.cpu_type; $("#pve_lic").value = p.license_mode;
   $("#fgt_cores").value = p.fgt.cores; $("#fgt_mem").value = p.fgt.memory_mb;
-  $("#fmg_cores").value = p.fmg.cores; $("#fmg_mem").value = p.fmg.memory_mb; $("#fmg_disk").value = p.fmg.data_disk_gb; $("#fmg_br").value = p.fmg.bridge; $("#fmg_vlan").value = p.fmg.vlan ?? "";
+  $("#fmg_cores").value = p.fmg.cores; $("#fmg_mem").value = p.fmg.memory_mb; $("#fmg_disk").value = p.fmg.data_disk_gb; $("#fmg_vlan").value = p.fmg.vlan ?? "";
+  const opt = (v) => `<option value="">(standaard bridge)</option>` + [...new Set([...PVE_OPT.bridges, ...(v ? [v] : [])])].map((x) => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
   $("#ports").innerHTML = "<thead><tr><th>Poort</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
-    Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><input data-f="bridge" list="dl_br" value="${esc(v.bridge)}"></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
+    Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
 }
 const WAN = [["isp1_intf", "wan1-poort (ZTP)"], ["isp2_intf", "ISP2-poort"], ["mpls_intf", "MPLS-poort"]];
 function dev(kind, d, i) {
@@ -89,7 +102,7 @@ function collect() {
 function secrets() {
   const tok = {};
   document.querySelectorAll("[data-tok]").forEach((i) => { if (i.value.trim()) tok[i.dataset.tok] = i.value.trim(); });
-  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: $("#fmg_initpw").value, fgt_initial_pw: $("#fgt_initpw").value, fgt_new_pw: $("#fgt_newpw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
+  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: "", fgt_initial_pw: "", fgt_new_pw: $("#fgt_newpw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
 }
 const fmgCfg = () => ({ host: $("#fmg_host").value.trim() || null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
 
@@ -147,21 +160,27 @@ $("#btn_test").onclick = async () => {
   const r = await post("/api/fmg/test", c), j = await json(r);
   $("#test_res").className = "hint " + (r.ok ? "ok" : "error"); $("#test_res").textContent = r.ok ? `OK — ${j.hostname} ${j.version}` : "Fout: " + j.detail;
 };
-$("#btn_pve").onclick = async () => {
-  const sid = $("#pve_server").value;
-  $("#pve_res").className = "hint";
-  if (!sid) { $("#pve_res").className = "hint error"; $("#pve_res").textContent = "Kies eerst een server"; return; }
-  $("#pve_res").textContent = "…";
-  const r = await post(`/api/servers/${sid}/test`, { node: $("#pve_node").value.trim() || null }), j = await json(r);
-  if (!r.ok) { $("#pve_res").className = "hint error"; $("#pve_res").textContent = "Fout: " + j.detail; return; }
-  const fill = (id, a) => ($(id).innerHTML = (a || []).map((x) => `<option value="${x}">`).join(""));
-  fill("#dl_nodes", j.nodes); fill("#dl_images", j.image_storages); fill("#dl_import", j.import_storages); fill("#dl_iso", j.iso_storages); fill("#dl_br", j.bridges);
-  if (!$("#pve_node").value && j.nodes.length === 1) $("#pve_node").value = j.nodes[0];
-  if (!$("#pve_dstore").value && j.image_storages.length) $("#pve_dstore").value = j.image_storages[0];
-  if (!$("#pve_istore").value && j.import_storages.length) $("#pve_istore").value = j.import_storages[0];
-  if (!$("#pve_isostore").value && j.iso_storages.length) $("#pve_isostore").value = j.iso_storages[0];
-  $("#pve_res").className = "hint " + (j.warning ? "warn" : "ok"); $("#pve_res").textContent = `OK — Proxmox VE ${j.version}` + (j.warning ? " · ⚠ " + j.warning : "");
-};
+// Proxmox data (nodes, storages per node, bridges) is fetched from the saved server and shown as dropdowns
+async function loadPve(msg) {
+  const sid = $("#pve_server").value, out = $("#pve_res");
+  out.className = "hint";
+  if (!sid) { PVE_OPT = { nodes: [], image_storages: [], import_storages: [], iso_storages: [], bridges: [] }; pveFill(collect().pve); out.textContent = ""; return; }
+  out.textContent = "Gegevens ophalen…";
+  const p = collect().pve;
+  const r = await post(`/api/servers/${sid}/test`, {}), j = await json(r);
+  if (!r.ok) { out.className = "hint error"; out.textContent = "Fout: " + j.detail; return; }
+  PVE_OPT.nodes = j.nodes;
+  const node = j.nodes.includes(p.node) ? p.node : j.nodes[0];
+  const r2 = await fetch(`/api/servers/${sid}/nodes/${encodeURIComponent(node)}/options`), o = await json(r2);
+  if (!r2.ok) { out.className = "hint error"; out.textContent = "Fout: " + o.detail; return; }
+  Object.assign(PVE_OPT, o);
+  const pick = (cur, list) => (names(list).includes(cur) ? cur : names(list)[0] || "");
+  pveFill(Object.assign(p, { node, disk_storage: pick(p.disk_storage, o.image_storages), import_storage: pick(p.import_storage, o.import_storages), iso_storage: pick(p.iso_storage, o.iso_storages), default_bridge: o.bridges.includes(p.default_bridge) ? p.default_bridge : o.bridges[0] || "" }));
+  out.className = "hint " + (j.warning ? "warn" : "ok");
+  out.textContent = `Proxmox VE ${j.version} · ${j.nodes.length} node(s)` + (j.warning ? " · ⚠ " + j.warning : "");
+}
+$("#btn_pve").onclick = () => loadPve();
+$("#pve_node").addEventListener("change", () => loadPve());
 $("#btn_render").onclick = async () => {
   showErr([]);
   const r = await post("/api/render", { topology: collect() }), j = await json(r);
@@ -237,7 +256,7 @@ async function serversLoad(selectLast) {
   srvDraw();
   if (selectLast && !$("#pve_server").value) {
     const l = SERVERS.find((s) => s.last) || (SERVERS.length === 1 ? SERVERS[0] : null);
-    if (l) { $("#pve_server").value = l.id; await applyLast(l.id); }
+    if (l) { $("#pve_server").value = l.id; await applyLast(l.id); await loadPve(); }
   }
 }
 async function applyLast(sid) {
@@ -247,7 +266,7 @@ async function applyLast(sid) {
   T.pve = Object.assign({}, T.pve, last, { ports: Object.assign({}, T.pve.ports, last.ports || {}) });
   pveFill(T.pve);
 }
-$("#pve_server").addEventListener("change", () => { for (const d of ["nodes", "images", "import", "iso", "br"]) $("#dl_" + d).innerHTML = ""; $("#pve_res").textContent = ""; applyLast($("#pve_server").value); });
+$("#pve_server").addEventListener("change", async () => { $("#pve_res").textContent = ""; await applyLast($("#pve_server").value); await loadPve(); });
 $("#srv_list").addEventListener("click", async (e) => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.dataset.sd) {

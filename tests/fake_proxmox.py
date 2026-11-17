@@ -68,6 +68,12 @@ class H(BaseHTTPRequestHandler):
         if path == "/storage":
             return self._send([{"storage": "local", "content": "iso,vztmpl,import,backup"},
                                {"storage": "local-lvm", "content": "images,rootdir"}])
+        if path == "/nodes/pve1/storage" and method == "GET":
+            allst = [("local", "iso,vztmpl,import,backup", 1, 90e9), ("local-lvm", "images,rootdir", 1, 400e9),
+                     ("old", "images", 0, 0)]
+            want = q.get("content")
+            return self._send([{"storage": n, "content": c, "active": a, "avail": av} for n, c, a, av in allst
+                               if want in c.split(",")])
         if path == "/nodes/pve1/network":
             return self._send([{"iface": "vmbr0"}, {"iface": "vmbr1"}])
         if path == "/cluster/nextid":

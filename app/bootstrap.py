@@ -162,8 +162,15 @@ def ssh_connect(host, user, password, port=22, mask=None, log=lambda *_: None, t
 
 def login(connector, host, user, initial_pw, new_pw, mask, log, timing):
     """Open a shell; handles FortiOS' forced password change. Returns (shell, password_in_effect)."""
-    sh = connector(host, user, initial_pw)
     pw = initial_pw
+    try:
+        sh = connector(host, user, initial_pw)
+    except paramiko.AuthenticationException:
+        # device already has the admin password set (not factory): same password for admin and SSH
+        if not new_pw or new_pw == initial_pw:
+            raise
+        sh = connector(host, user, new_pw)
+        pw = new_pw
     for _ in range(6):
         i, out = sh.expect([PROMPT, r"(?i)new password:", r"(?i)confirm password:",
                             r"(?i)please input new password|change your password"], timing.login)

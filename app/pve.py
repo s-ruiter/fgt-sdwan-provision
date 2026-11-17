@@ -115,6 +115,14 @@ class Pve:
         rows = self._req("GET", f"/nodes/{node}/network", params={"type": "any_bridge"}) or []
         return sorted(b["iface"] for b in rows)
 
+    def node_options(self, node):
+        """Active storages per content type (with free space) and bridges of one node."""
+        def st(content):
+            rows = self._req("GET", f"/nodes/{node}/storage", params={"content": content}) or []
+            return [{"name": s["storage"], "avail": s.get("avail")} for s in rows if s.get("active", 1)]
+        return {"image_storages": st("images"), "import_storages": st("import"), "iso_storages": st("iso"),
+                "bridges": self.bridges(node)}
+
     def next_vmid(self):
         return int(self._req("GET", "/cluster/nextid"))
 

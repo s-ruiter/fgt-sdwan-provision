@@ -104,6 +104,24 @@ def test_fmg():
     print("OK  FortiManager: vast IP/route/DNS + vm-license")
 
 
+def test_same_password_when_not_factory():
+    """Device already has the admin password: login with blank fails, then the single user password is used."""
+    t = topo()
+    d = t["edges"][0]
+    dev = FakeDevice(State("FGVMMLTM26000001"))
+    dev.state.password = "N3w-Pass!"
+    mask = Masker(TOKEN, "N3w-Pass!")
+    try:
+        st = bootstrap_device("fgt", d["name"], fgt_network_lines(d, t), "192.168.1.99", "192.168.1.99", TOKEN,
+                              {"user": "admin", "initial_pw": "", "new_pw": "N3w-Pass!"}, lambda *_: None,
+                              connector=lambda h, u, p: ssh_connect("127.0.0.1", u, p, port=dev.port, mask=mask),
+                              waiter=lambda h, p, up, tmo: True, timing=FAST, expect_serial="FGVMMLTM26000001")
+    finally:
+        dev.stop()
+    assert dev.state.licensed and st["license"] == "Valid" and "<password changed>" not in dev.state.cmds
+    print("OK  bestaand wachtwoord: een veld voor admin en SSH volstaat (geen factory-login nodig)")
+
+
 def test_token_validation():
     assert model.valid_token(TOKEN)
     for bad in ("", "short", "abc; config system admin", "AAAAAAAAAA\nexecute shutdown"):
@@ -112,7 +130,7 @@ def test_token_validation():
 
 
 if __name__ == "__main__":
-    for f in (test_token_validation, test_fgt_dhcp, test_fgt_static_with_ip_move, test_bad_token,
+    for f in (test_same_password_when_not_factory, test_token_validation, test_fgt_dhcp, test_fgt_static_with_ip_move, test_bad_token,
               test_serial_mismatch, test_no_new_password, test_fmg):
         f()
     print("alle bootstrap-tests geslaagd")

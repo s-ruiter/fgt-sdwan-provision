@@ -35,8 +35,7 @@
           <div class="f"><label>Poort</label><input id="fm_port"></div>
           <div class="f"><label>Initieel IP (factory)</label><input id="fm_init"></div>
           <div class="f"><label>Admin-gebruiker</label><input id="fmg_user" value="admin"></div>
-          <div class="f"><label>Admin-wachtwoord</label><input id="fmg_pass" type="password" autocomplete="off"></div>
-          <div class="f"><label>Initieel wachtwoord (SSH)</label><input id="fmg_initpw" type="password" autocomplete="off"></div>
+          <div class="f"><label>Admin- en SSH-wachtwoord</label><input id="fmg_pass" type="password" autocomplete="off"></div>
           <div class="f"><label>FortiFlex-token</label><input id="fm_token" type="password" autocomplete="off"></div>
           <div class="f"><label>API-host override (optioneel)</label><input id="fmg_host" placeholder="leeg = vast IP"></div>
         </div>
@@ -50,18 +49,17 @@
         <div class="fields">
           <div class="f"><label>Proxmox-server</label><select id="pve_server"></select></div>
         </div>
-        <div class="btnrow"><button id="btn_pve">Storages &amp; bridges laden</button><span class="hint" id="pve_res"></span></div>
+        <div class="btnrow"><button id="btn_pve">Vernieuwen</button><span class="hint" id="pve_res"></span></div>
         <div class="hint" id="pve_none" hidden>Nog geen server. Voeg er een toe op de pagina <a href="#/servers" style="color:var(--accent)">Servers</a>; je hoeft dat maar één keer te doen.</div>
         <div class="fields">
-          <div class="f"><label>Node</label><input id="pve_node" list="dl_nodes"></div>
-          <div class="f"><label>Disk-storage</label><input id="pve_dstore" list="dl_images"></div>
-          <div class="f"><label>Import-storage</label><input id="pve_istore" list="dl_import"></div>
-          <div class="f"><label>ISO-storage</label><input id="pve_isostore" list="dl_iso"></div>
-          <div class="f"><label>Standaard bridge</label><input id="pve_br" list="dl_br"></div>
-          <div class="f"><label>CPU-type</label><input id="pve_cpu"></div>
+          <div class="f"><label>Node</label><select id="pve_node"></select></div>
+          <div class="f"><label>Disk-storage (VM-schijven)</label><select id="pve_dstore"></select></div>
+          <div class="f"><label>Import-storage (content: import)</label><select id="pve_istore"></select></div>
+          <div class="f"><label>ISO-storage</label><select id="pve_isostore"></select></div>
+          <div class="f"><label>Standaard bridge</label><select id="pve_br"></select></div>
+          <div class="f"><label>CPU-type</label><select id="pve_cpu"><option>host</option><option>x86-64-v2-AES</option><option>x86-64-v3</option><option>kvm64</option></select></div>
           <div class="f"><label>Licentie in Day-0</label><select id="pve_lic"><option value="cli">execute vm-license &lt;token&gt; (aanbevolen)</option><option value="mime">MIME + LICENSE-TOKEN (optioneel)</option></select></div>
         </div>
-        <datalist id="dl_nodes"></datalist><datalist id="dl_images"></datalist><datalist id="dl_import"></datalist><datalist id="dl_iso"></datalist><datalist id="dl_br"></datalist>
         <h3>VM-grootte</h3>
         <div class="fields">
           <div class="f"><label>FortiGate vCPU</label><input id="fgt_cores" type="number"></div>
@@ -69,7 +67,7 @@
           <div class="f"><label>FortiManager vCPU</label><input id="fmg_cores" type="number"></div>
           <div class="f"><label>FortiManager RAM (MB)</label><input id="fmg_mem" type="number"></div>
           <div class="f"><label>FMG datadisk (GB)</label><input id="fmg_disk" type="number"></div>
-          <div class="f"><label>FMG bridge</label><input id="fmg_br" list="dl_br"></div>
+          <div class="f"><label>FMG bridge</label><select id="fmg_br"></select></div>
           <div class="f"><label>FMG VLAN</label><input id="fmg_vlan" type="number"></div>
         </div>
         <div class="hint">FortiGate-vCPU moet passen bij de FortiFlex-entitlement. Fortinet adviseert voor FortiManager &ge;4 vCPU, 16 GB RAM en een datadisk van &ge;500 GB (thin kan in een lab).</div>
@@ -105,8 +103,7 @@
       <div class="card">
         <h2><span class="num">04</span>FortiGates: wachtwoord &amp; licentie</h2>
         <div class="fields">
-          <div class="f"><label>Admin-wachtwoord FortiGates</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
-          <div class="f"><label>Initieel wachtwoord (SSH)</label><input id="fgt_initpw" type="password" autocomplete="off"></div>
+          <div class="f"><label>Admin- en SSH-wachtwoord FortiGates</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
         </div>
         <div class="f" style="max-width:420px"><label>Methode</label>
           <select id="m_fgt"><option value="day0" selected>Day-0: tool maakt de VM's op Proxmox (cloud-init)</option><option value="ssh">SSH: bestaande VM's (factory, initieel IP)</option><option value="none">Geen (al ingericht)</option></select></div>

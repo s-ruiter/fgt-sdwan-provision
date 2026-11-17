@@ -166,6 +166,13 @@ r = requests.put(f"{APP}/api/servers/{sid}", json=dict(srv, name="pve-lab2", url
 assert r.status_code == 422 and "opnieuw" in r.json()["detail"], r.text
 print("OK  opgeslagen secret wordt echt gebruikt richting Proxmox; bewerken zonder secret behoudt hem; URL wijzigen eist nieuw secret")
 
+r = requests.get(f"{APP}/api/servers/{sid}/nodes/pve1/options")
+o = r.json()
+assert r.status_code == 200 and [s["name"] for s in o["image_storages"]] == ["local-lvm"] and [s["name"] for s in o["import_storages"]] == ["local"] \
+    and [s["name"] for s in o["iso_storages"]] == ["local"] and o["bridges"] == ["vmbr0", "vmbr1"], r.text
+assert requests.get(f"{APP}/api/servers/{sid}/nodes/pve1;rm/options").status_code in (404, 422)
+print("OK  /api/servers/{id}/nodes/{node}/options: actieve storages per content-type (inactieve 'old' weggelaten) + bridges")
+
 for role in ("fgt", "fmg"):
     r = requests.post(f"{APP}/api/images", data={"role": role}, files={"file": ("fortios.qcow2" if role == "fgt" else "fmg.qcow2", b"QFI\xfb" + struct.pack(">I", 3) + b"\0" * 16 + struct.pack(">Q", 2 * 1024 ** 3) + b"\0" * 64)})
     assert r.status_code == 200, r.text
