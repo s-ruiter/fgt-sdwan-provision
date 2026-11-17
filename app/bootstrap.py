@@ -88,6 +88,12 @@ def fmg_network_lines(topo, ip_last=True):
     return lines + (route + iface if ip_last else iface + route)
 
 
+def fmg_api_lines(user="admin"):
+    """JSON-RPC access for the admin the tool logs in with: a new FortiManager has rpc-permit none for `admin`,
+    and the API login then answers -11 "No permission for the resource"."""
+    return ["config system admin user", f'edit "{user or "admin"}"', "set rpc-permit read-write", "next", "end"]
+
+
 def license_line(token):
     return f"execute vm-license {token.strip()}"
 

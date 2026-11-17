@@ -130,6 +130,7 @@ def test_cloudinit():
     ssh = bootstrap.fmg_network_lines(t2)
     assert "set mode static" in ssh and ssh.index("config system route") < ssh.index("config system interface"), ssh
     assert ssh.index("set mode static") < ssh.index("set ip 10.10.106.11 255.255.255.0")
+    assert bootstrap.fmg_api_lines("apiadmin") == ["config system admin user", 'edit "apiadmin"', "set rpc-permit read-write", "next", "end"]
     print("OK  cloud-init: cli-default (execute vm-license als laatste regel), MIME optioneel (config.txt + LICENSE-TOKEN), ISO label config-2 round-trip, quoting, token-validatie, masking, FMG-CLI")
 
 

@@ -4,7 +4,7 @@ from http.server import HTTPServer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import requests
 from app import fmg as fmgmod
-from app.fmg import Fmg, FmgError, _login_retry
+from app.fmg import Fmg, FmgError, _login_retry, wait_fmg_ready, _license_state
 from tests import mock_fmg
 
 srv = HTTPServer(("127.0.0.1", 8097 + 3), mock_fmg.H)                 # 8100
@@ -62,4 +62,41 @@ try:
     raise SystemExit("had moeten falen")
 except FmgError as e:
     assert "refused" in str(e) and s.n == 5
+
+# progress: every failed attempt is reported (a long wait must be visible in the job log)
+msgs = []
+s = Stub(["x: refused"] * 2)
+_login_retry(s, 20, 15, msgs.append); assert len(msgs) == 2 and "inlogpoging 1/20" in msgs[0], msgs
+
+# Day-0 readiness: login works, but the licence is not active yet (FMG still has to reboot) -> wait, then continue
+assert _license_state({"License Status": "Valid"})[0]
+assert not _license_state({"License Status": "Invalid"})[0]
+assert not _license_state({"Serial Number": "FMG-VM0000000000"})[0]
+assert _license_state({"Version": "v8.0.0"})[0]                     # unknown fields: do not block
+
+
+class StatusStub(Stub):
+    def __init__(self, statuses):
+        super().__init__([])
+        self.statuses, self.timeout, self.session, self.logouts = list(statuses), 60, None, 0
+
+    def call(self, method, url, data=None):
+        return {"data": self.statuses.pop(0)}
+
+    def logout(self):
+        self.logouts += 1
+
+
+f = StatusStub([{"License Status": "Invalid"}, {"License Status": "Valid", "Version": "v8.0.0"}])
+msgs = []
+st = wait_fmg_ready(f, {"login_delay": 0}, msgs.append)
+assert st["License Status"] == "Valid" and f.n == 2 and f.logouts == 1 and f.timeout == 60, (st, f.n)
+assert any("licentie" in m for m in msgs), msgs
+# never licensed: stops with a clear message after the timeout
+f = StatusStub([{"License Status": "Invalid"}] * 5)
+try:
+    wait_fmg_ready(f, {"login_delay": 0, "fmg_ready_timeout": -1}, msgs.append)
+    raise SystemExit("had moeten falen")
+except FmgError as e:
+    assert "nog niet gelicenseerd" in str(e), str(e)
 print("OK  FMG-login: pad met /, geweigerd wachtwoord stopt na 2 pogingen, lockout (-23) wordt uitgewacht, niet-gereed wordt herhaald")
