@@ -82,6 +82,12 @@
 
       <div class="card">
         <h2><span class="num">03</span>Topologie</h2>
+        <div class="btnrow">
+          <button id="btn_csv_dl" title="Huidige invoer als CSV (zonder tokens en wachtwoorden)">CSV downloaden</button>
+          <button id="btn_csv_up">CSV importeren</button><input type="file" id="csv_file" accept=".csv,text/csv" hidden>
+          <span class="hint" id="csv_res"></span>
+        </div>
+        <div class="hint" id="csv_todo" hidden></div>
         <div class="fields">
           <div class="f"><label>ADOM-naam</label><input id="adom"></div>
           <div class="f"><label>Platform</label><input id="platform"></div>

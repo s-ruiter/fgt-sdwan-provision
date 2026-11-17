@@ -245,6 +245,29 @@ async function loadPve(msg) {
 }
 $("#btn_pve").onclick = () => loadPve();
 $("#pve_node").addEventListener("change", () => loadPve());
+$("#btn_csv_dl").onclick = async () => {
+  const r = await post("/api/csv/export", { topology: collect() });
+  if (!r.ok) { $("#csv_res").textContent = "Export mislukt"; return; }
+  const url = URL.createObjectURL(await r.blob()), a = document.createElement("a");
+  a.href = url; a.download = "sdwan-topologie.csv"; a.click(); URL.revokeObjectURL(url);
+  $("#csv_res").textContent = "Gedownload: vul het in en importeer het weer.";
+};
+$("#btn_csv_up").onclick = () => $("#csv_file").click();
+$("#csv_file").onchange = async (ev) => {
+  const f = ev.target.files[0]; ev.target.value = "";
+  if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  const r = await fetch("/api/csv/import", { method: "POST", body: fd }), j = await r.json().catch(() => ({}));
+  $("#csv_todo").hidden = true;
+  if (!r.ok) { $("#csv_res").textContent = "✕ " + (typeof j.detail === "string" ? j.detail : "import mislukt"); return; }
+  const toks = Object.fromEntries([...document.querySelectorAll("[data-tok]")].map((e) => [e.dataset.tok, e.value]));
+  const keep = collect(), { pve, ...rest } = j.topology;       // Proxmox-keuzes en tokens blijven zoals ze zijn
+  T = { ...keep, ...rest, pve: keep.pve };
+  draw(); markIpFields(); syncMethods();
+  document.querySelectorAll("[data-tok]").forEach((e) => { if (toks[e.dataset.tok]) e.value = toks[e.dataset.tok]; });
+  $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (j.notes.length ? ` (${j.notes.join("; ")})` : "");
+  if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Nog in te vullen/te corrigeren: " + j.todo.join(" · "); }
+};
 $("#btn_render").onclick = async () => {
   showErr([]);
   { const e = ipErrors(); if (e.length) return showErr(e); }

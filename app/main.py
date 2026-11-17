@@ -6,12 +6,12 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Union
 
-from . import cloudinit, db, images, model
+from . import cloudinit, csvio, db, images, model
 from .bootstrap import Masker
 from .pve import Pve, PveError
 from .fmg import Fmg, FmgError, pipeline
@@ -227,6 +227,32 @@ def render(r: RenderReq):
     return {"project": project, "inventory": inv, "configs": cfg, "warnings": plan["warnings"],
             "roles": [{"name": r["name"], "kind": r["kind"], "devices": r["devices"]} for r in plan["roles"]],
             "lines": {k: len(v.splitlines()) for k, v in cfg.items()}}
+
+
+@app.post("/api/csv/export")
+def csv_export(r: RenderReq):
+    """Current form state (or the defaults) as a CSV the user can fill in and re-import. No secrets."""
+    body = csvio.export_csv(model.merged(r.topology))
+    return Response(body, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="sdwan-topologie.csv"'})
+
+
+@app.post("/api/csv/import")
+async def csv_import(file: UploadFile = File(...)):
+    raw = await file.read()
+    if len(raw) > 1_000_000:
+        raise HTTPException(413, detail="CSV-bestand te groot")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1252")                      # Excel 'CSV (door lijst gescheiden)'
+    try:
+        topo, notes, todo = csvio.import_csv(text)
+    except csvio.CsvError as e:
+        raise HTTPException(422, detail=f"CSV: {e}")
+    return {"topology": topo, "notes": notes, "todo": todo,
+            "summary": f"{len(topo['hubs'])} hub(s), {len(topo['edges'])} branch(es), "
+                       f"{'multi-VRF met ' + str(len(topo['region']['vrfs'])) + ' VRF(s)' if topo['region'].get('multi_vrf', True) else 'single-VRF'}"}
 
 
 @app.post("/api/fmg/test")
