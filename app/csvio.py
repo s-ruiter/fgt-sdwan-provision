@@ -48,7 +48,6 @@ PVE_SETTINGS = [
     ("pve.node", "Node", "str"), ("pve.disk_storage", "Disk-storage", "str"),
     ("pve.import_storage", "Import-storage", "str"), ("pve.iso_storage", "ISO-storage", "str"),
     ("pve.default_bridge", "Standaard bridge", "str"), ("pve.cpu_type", "CPU-type", "str"),
-    ("pve.license_mode", "Licentie in Day-0 (cli of mime)", "str"),
     ("pve.fmg.cores", "FortiManager vCPU", "int"), ("pve.fmg.memory_mb", "FortiManager RAM (MB)", "int"),
     ("pve.fmg.data_disk_gb", "FortiManager datadisk (GB)", "int"), ("pve.fmg.bridge", "FortiManager bridge", "str"),
     ("pve.fmg.vlan", "FortiManager VLAN", "optint"),
