@@ -15,6 +15,7 @@
       <nav>
         <a href="#/deploy" data-nav="deploy">Uitrol</a>
         <a href="#/images" data-nav="images">Images</a>
+        <a href="#/servers" data-nav="servers">Servers</a>
         <a href="#/about" data-nav="about">Over</a>
       </nav>
     </div>
@@ -47,12 +48,10 @@
       <div class="card" id="sec_pve">
         <h2><span class="num">02</span>Proxmox &amp; images <small>(voor methode Day-0)</small></h2>
         <div class="fields">
-          <div class="f"><label>Proxmox URL</label><input id="pve_url" placeholder="https://pve.example:8006"></div>
-          <div class="f"><label>API token-ID</label><input id="pve_tid" placeholder="user@pam!naam"></div>
-          <div class="f"><label>API token-secret</label><input id="pve_secret" type="password" autocomplete="off"></div>
+          <div class="f"><label>Proxmox-server</label><select id="pve_server"></select></div>
         </div>
-        <div class="inline"><input type="checkbox" id="pve_tls" checked><label for="pve_tls">TLS-certificaat controleren</label></div>
-        <div class="btnrow"><button id="btn_pve">Proxmox testen</button><span class="hint" id="pve_res"></span></div>
+        <div class="btnrow"><button id="btn_pve">Storages &amp; bridges laden</button><span class="hint" id="pve_res"></span></div>
+        <div class="hint" id="pve_none" hidden>Nog geen server. Voeg er een toe op de pagina <a href="#/servers" style="color:var(--accent)">Servers</a>; je hoeft dat maar één keer te doen.</div>
         <div class="fields">
           <div class="f"><label>Node</label><input id="pve_node" list="dl_nodes"></div>
           <div class="f"><label>Disk-storage</label><input id="pve_dstore" list="dl_images"></div>
@@ -135,6 +134,28 @@
       <div class="card"><ul class="steps" id="pl"></ul></div>
       <div class="card"><h2>Log</h2><pre class="log" id="log"></pre></div>
       <a class="back" href="#/deploy"><span class="i"><svg viewBox="0 0 24 24"><path d="M19 12H5m6-6l-6 6 6 6"/></svg></span>Nieuwe uitrol</a>
+    </section>
+
+    <section id="v_servers" hidden>
+      <h1>Servers</h1>
+      <div id="srv_err"></div>
+      <div class="card">
+        <h2><span class="num">01</span>Proxmox-servers</h2>
+        <div id="srv_list"></div>
+        <div class="hint">Opgeslagen servers staan bij elke uitrol klaar. De token-secret wordt bewaard in de container (database met rechten 0600) en nooit teruggetoond. Per server onthoudt de tool ook je laatste keuzes (node, storages, bridges, VM-grootte).</div>
+      </div>
+      <div class="card">
+        <h2><span class="num">02</span><span id="srv_form_title">Server toevoegen</span></h2>
+        <div class="fields">
+          <div class="f"><label>Naam</label><input id="srv_name" placeholder="pve-lab"></div>
+          <div class="f"><label>URL</label><input id="srv_url" placeholder="https://pve.example:8006"></div>
+          <div class="f"><label>API token-ID</label><input id="srv_tid" placeholder="user@pam!naam"></div>
+          <div class="f"><label>API token-secret</label><input id="srv_secret" type="password" autocomplete="new-password"></div>
+        </div>
+        <div class="inline"><input type="checkbox" id="srv_tls" checked><label for="srv_tls">TLS-certificaat controleren (uitzetten bij een zelfondertekend certificaat)</label></div>
+        <div class="btnrow"><button id="srv_test">Testen</button><span class="hint" id="srv_res"></span></div>
+        <div class="actions"><button id="srv_cancel" hidden>Annuleren</button><button id="srv_save" class="primary">Opslaan</button></div>
+      </div>
     </section>
 
     <section id="v_images" hidden>

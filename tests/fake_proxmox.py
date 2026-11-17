@@ -46,6 +46,13 @@ class H(BaseHTTPRequestHandler):
         path = re.sub(r"^/api2/json", "", u.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         STATE["calls"].append((method, path))
+        if path == "/__auth":
+            out = json.dumps({"auth": STATE.get("auth")}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            return self.wfile.write(out)
+        STATE["auth"] = self.headers.get("Authorization", "")
         if not self.headers.get("Authorization", "").startswith("PVEAPIToken="):
             return self._send(None, 401, "No ticket")
         body = self._body()

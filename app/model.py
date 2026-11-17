@@ -41,7 +41,7 @@ DEFAULTS = {
         "initial_ip": DEFAULT_INITIAL_IP,
     },
     "pve": {                                # Proxmox target for day-0 deployment (secret token is sent separately)
-        "url": "", "token_id": "", "verify_tls": True, "node": "",
+        "server_id": None, "url": "", "token_id": "", "verify_tls": True, "node": "",
         "disk_storage": "", "import_storage": "", "iso_storage": "",
         "default_bridge": "vmbr0", "cpu_type": "host", "license_mode": "cli",
         "ports": {f"port{i}": {"bridge": "", "vlan": None} for i in range(1, 9)},

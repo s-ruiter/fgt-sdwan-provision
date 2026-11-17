@@ -206,3 +206,6 @@ ol.about li:last-child { border-bottom: 0; }
 ol.about li:before { content: counter(s, decimal-leading-zero); font: 400 12px/20px var(--mono); color: var(--muted); }
 ol.about li b { font-weight: 600; } ol.about li span { color: var(--text-2); }
 @media (max-width: 800px) { ol.about li { grid-template-columns: 28px 1fr; } ol.about li span { grid-column: 2; } .steps li .t { flex-basis: 120px; } }
+
+.actions-cell button.link { margin: 0 2px; }
+.actions-cell .hint { margin-right: 8px; }

@@ -136,3 +136,70 @@ r = requests.post(f"{APP}/api/deploy", json=body)
 assert r.status_code == 422 and any("FortiManager: image" in e for e in r.json()["detail"]), r.text
 requests.delete(f"{APP}/api/images/{img_fgt}")
 print("OK  ontbrekende FMG-image gemeld; image verwijderd")
+
+# 5. saved Proxmox servers: CRUD, secret is write-only, stored secret is what Proxmox sees, last-used, dry-run deploy
+import os, stat
+SECRET = "pve-secret-abc123"
+srv = {"name": "pve-lab", "url": PVE, "token_id": "root@pam!deploy", "token_secret": SECRET, "verify_tls": True}
+r = requests.post(f"{APP}/api/servers", json=dict(srv, token_secret=None))
+assert r.status_code == 422, r.text
+r = requests.post(f"{APP}/api/servers", json=srv)
+assert r.status_code == 201 and "token_secret" not in r.json() and r.json()["has_secret"], r.text
+sid = r.json()["id"]
+assert requests.post(f"{APP}/api/servers", json=srv).status_code == 409
+assert requests.post(f"{APP}/api/servers", json=dict(srv, name="x", url="ftp://nope")).status_code == 422
+assert SECRET not in requests.get(f"{APP}/api/servers").text
+dd = os.environ.get("E2E_DATA_DIR")
+if dd:
+    mode = stat.S_IMODE(os.stat(os.path.join(dd, "fgt-sdwan.db")).st_mode)
+    assert mode == 0o600, oct(mode)
+print("OK  servers: secret verplicht, duplicaat 409, URL-validatie, secret nooit in API-antwoord" + (", db-bestand 0600" if dd else ""))
+
+r = requests.post(f"{APP}/api/servers/{sid}/test", json={"node": "pve1"})
+assert r.status_code == 200 and r.json()["version"] == "9.0.3" and r.json()["bridges"] == ["vmbr0", "vmbr1"], r.text
+assert requests.get(f"{PVE}/__auth").json()["auth"] == f"PVEAPIToken=root@pam!deploy={SECRET}"
+r = requests.put(f"{APP}/api/servers/{sid}", json=dict(srv, name="pve-lab2", token_secret=None))
+assert r.status_code == 200 and r.json()["name"] == "pve-lab2"
+requests.post(f"{APP}/api/servers/{sid}/test", json={})
+assert requests.get(f"{PVE}/__auth").json()["auth"].endswith("=" + SECRET), "oud secret moet bewaard blijven bij bewerken zonder secret"
+r = requests.put(f"{APP}/api/servers/{sid}", json=dict(srv, name="pve-lab2", url="http://127.0.0.1:9999", token_secret=None))
+assert r.status_code == 422 and "opnieuw" in r.json()["detail"], r.text
+print("OK  opgeslagen secret wordt echt gebruikt richting Proxmox; bewerken zonder secret behoudt hem; URL wijzigen eist nieuw secret")
+
+for role in ("fgt", "fmg"):
+    r = requests.post(f"{APP}/api/images", data={"role": role}, files={"file": ("fortios.qcow2" if role == "fgt" else "fmg.qcow2", b"QFI\xfb" + struct.pack(">I", 3) + b"\0" * 16 + struct.pack(">Q", 2 * 1024 ** 3) + b"\0" * 64)})
+    assert r.status_code == 200, r.text
+imgs = {i["role"]: i["id"] for i in requests.get(f"{APP}/api/images").json()}
+topo2 = copy.deepcopy(topo)
+topo2["pve"].update(url="", token_id="", server_id=sid, node="pve1", disk_storage="local-lvm", import_storage="local", iso_storage="local",
+                    default_bridge="vmbr1", license_mode="cli")
+topo2["pve"]["fgt"] = {"cores": 4, "memory_mb": 4096}
+names = [d["name"] for d in topo2["hubs"] + topo2["edges"]]
+body = {"topology": topo2, "dry_run": True, "fmg": {"username": "admin", "password": "Mock-Pass-1"},
+        "bootstrap": {"fmg": "day0", "fgt": "day0"}, "images": imgs,
+        "secrets": {"fmg_token": "ABCDEFGHIJ0123456789", "fgt_tokens": {n: "ABCDEFGHIJ012345678" + str(i) for i, n in enumerate(names)}, "fgt_new_pw": "Sup3r-Secret-Pw"}}
+r = requests.post(f"{APP}/api/deploy", json=body)
+assert r.status_code == 200, r.text            # no pve_token_secret in the request: it comes from the database
+jid = r.json()["job"]
+for _ in range(60):
+    j = requests.get(f"{APP}/api/jobs/{jid}").json()
+    if j["state"] != "running":
+        break
+    time.sleep(0.5)
+assert j["state"] == "done" and SECRET not in json.dumps(j) and j["steps"]["pve_fgt"] == "ok", j["events"][-3:]
+lu = requests.get(f"{APP}/api/servers/{sid}/last-used").json()
+assert lu["node"] == "pve1" and lu["default_bridge"] == "vmbr1" and lu["fgt"]["cores"] == 4 and "url" not in lu and "token_id" not in lu, lu
+assert [s["last"] for s in requests.get(f"{APP}/api/servers").json()] == [True]
+print("OK  deploy met server_id zonder secret in het verzoek; laatst gebruikte keuzes (node, storages, bridge, vCPU) bewaard; server gemarkeerd als laatst gebruikt")
+
+r = requests.post(f"{APP}/api/deploy", json=dict(body, topology=dict(topo2, pve=dict(topo2["pve"], server_id=9999))))
+assert r.status_code == 422 and "niet gevonden" in r.json()["detail"][0], r.text
+r = requests.post(f"{APP}/api/deploy", json=dict(body, topology=dict(topo2, pve=dict(topo2["pve"], server_id=None))))
+assert r.status_code == 422 and any("kies een server" in e for e in r.json()["detail"]), r.text
+assert requests.delete(f"{APP}/api/servers/{sid}").status_code == 204
+assert requests.get(f"{APP}/api/servers/{sid}/last-used").json() == {} and requests.get(f"{APP}/api/servers").json() == []
+r = requests.post(f"{APP}/api/deploy", json=body)
+assert r.status_code == 422 and "niet gevonden" in r.json()["detail"][0], r.text
+for i in imgs.values():
+    requests.delete(f"{APP}/api/images/{i}")
+print("OK  onbekende/geen server geweigerd; verwijderen ruimt ook last-used op")

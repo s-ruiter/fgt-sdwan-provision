@@ -17,14 +17,24 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 // ---- routing ----------------------------------------------------------------
 function route() {
   const r = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0];
-  const view = ["deploy", "progress", "images", "about"].includes(r) ? r : "deploy";
-  for (const v of ["deploy", "progress", "images", "about"]) $("#v_" + v).hidden = v !== view;
+  const VIEWS = ["deploy", "progress", "images", "servers", "about"];
+  const view = VIEWS.includes(r) ? r : "deploy";
+  for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === (view === "progress" ? "deploy" : view)));
   window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", route);
 
 // ---- topology form ----------------------------------------------------------
+function pveFill(p) {
+  $("#pve_node").value = p.node;
+  $("#pve_dstore").value = p.disk_storage; $("#pve_istore").value = p.import_storage; $("#pve_isostore").value = p.iso_storage;
+  $("#pve_br").value = p.default_bridge; $("#pve_cpu").value = p.cpu_type; $("#pve_lic").value = p.license_mode;
+  $("#fgt_cores").value = p.fgt.cores; $("#fgt_mem").value = p.fgt.memory_mb;
+  $("#fmg_cores").value = p.fmg.cores; $("#fmg_mem").value = p.fmg.memory_mb; $("#fmg_disk").value = p.fmg.data_disk_gb; $("#fmg_br").value = p.fmg.bridge; $("#fmg_vlan").value = p.fmg.vlan ?? "";
+  $("#ports").innerHTML = "<thead><tr><th>Poort</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
+    Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><input data-f="bridge" list="dl_br" value="${esc(v.bridge)}"></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
+}
 const WAN = [["isp1_intf", "wan1-poort (ZTP)"], ["isp2_intf", "ISP2-poort"], ["mpls_intf", "MPLS-poort"]];
 function dev(kind, d, i) {
   const hub = kind === "hubs";
@@ -45,13 +55,7 @@ function draw() {
   $("#dns1").value = T.dns_primary; $("#dns2").value = T.dns_secondary; $("#wan1_access").value = T.wan1_access;
   $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port; $("#fm_init").value = T.fmgr.initial_ip;
   $("#r_name").value = T.region.name; $("#r_as").value = T.region.bgp_as; $("#r_lo").value = T.region.lo_summary;
-  $("#pve_url").value = p.url; $("#pve_tid").value = p.token_id; $("#pve_tls").checked = !!p.verify_tls; $("#pve_node").value = p.node;
-  $("#pve_dstore").value = p.disk_storage; $("#pve_istore").value = p.import_storage; $("#pve_isostore").value = p.iso_storage;
-  $("#pve_br").value = p.default_bridge; $("#pve_cpu").value = p.cpu_type; $("#pve_lic").value = p.license_mode;
-  $("#fgt_cores").value = p.fgt.cores; $("#fgt_mem").value = p.fgt.memory_mb;
-  $("#fmg_cores").value = p.fmg.cores; $("#fmg_mem").value = p.fmg.memory_mb; $("#fmg_disk").value = p.fmg.data_disk_gb; $("#fmg_br").value = p.fmg.bridge; $("#fmg_vlan").value = p.fmg.vlan ?? "";
-  $("#ports").innerHTML = "<thead><tr><th>Poort</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
-    Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><input data-f="bridge" list="dl_br" value="${esc(v.bridge)}"></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
+  pveFill(p);
   $("#vrfs").innerHTML = "<thead><tr><th>VRF-id</th><th>LAN-summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
@@ -63,7 +67,7 @@ function collect() {
   t.dns_primary = $("#dns1").value.trim(); t.dns_secondary = $("#dns2").value.trim(); t.wan1_access = $("#wan1_access").value.trim();
   t.fmgr = { name: $("#fm_name").value.trim(), ip: $("#fm_ip").value.trim(), gateway: $("#fm_gw").value.trim(), port: $("#fm_port").value.trim() || "port1", initial_ip: $("#fm_init").value.trim() };
   t.pve = {
-    url: $("#pve_url").value.trim(), token_id: $("#pve_tid").value.trim(), verify_tls: $("#pve_tls").checked, node: $("#pve_node").value.trim(),
+    server_id: $("#pve_server").value ? +$("#pve_server").value : null, url: "", token_id: "", verify_tls: true, node: $("#pve_node").value.trim(),
     disk_storage: $("#pve_dstore").value.trim(), import_storage: $("#pve_istore").value.trim(), iso_storage: $("#pve_isostore").value.trim(),
     default_bridge: $("#pve_br").value.trim(), cpu_type: $("#pve_cpu").value.trim() || "host", license_mode: $("#pve_lic").value,
     fgt: { cores: +$("#fgt_cores").value, memory_mb: +$("#fgt_mem").value },
@@ -85,7 +89,7 @@ function collect() {
 function secrets() {
   const tok = {};
   document.querySelectorAll("[data-tok]").forEach((i) => { if (i.value.trim()) tok[i.dataset.tok] = i.value.trim(); });
-  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: $("#fmg_initpw").value, fgt_initial_pw: $("#fgt_initpw").value, fgt_new_pw: $("#fgt_newpw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: $("#pve_secret").value };
+  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: $("#fmg_initpw").value, fgt_initial_pw: $("#fgt_initpw").value, fgt_new_pw: $("#fgt_newpw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
 }
 const fmgCfg = () => ({ host: $("#fmg_host").value.trim() || null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
 
@@ -144,9 +148,11 @@ $("#btn_test").onclick = async () => {
   $("#test_res").className = "hint " + (r.ok ? "ok" : "error"); $("#test_res").textContent = r.ok ? `OK — ${j.hostname} ${j.version}` : "Fout: " + j.detail;
 };
 $("#btn_pve").onclick = async () => {
-  $("#pve_res").className = "hint"; $("#pve_res").textContent = "…";
-  const r = await post("/api/pve/test", { url: $("#pve_url").value.trim(), token_id: $("#pve_tid").value.trim(), token_secret: $("#pve_secret").value, verify_tls: $("#pve_tls").checked, node: $("#pve_node").value.trim() || null });
-  const j = await json(r);
+  const sid = $("#pve_server").value;
+  $("#pve_res").className = "hint";
+  if (!sid) { $("#pve_res").className = "hint error"; $("#pve_res").textContent = "Kies eerst een server"; return; }
+  $("#pve_res").textContent = "…";
+  const r = await post(`/api/servers/${sid}/test`, { node: $("#pve_node").value.trim() || null }), j = await json(r);
   if (!r.ok) { $("#pve_res").className = "hint error"; $("#pve_res").textContent = "Fout: " + j.detail; return; }
   const fill = (id, a) => ($(id).innerHTML = (a || []).map((x) => `<option value="${x}">`).join(""));
   fill("#dl_nodes", j.nodes); fill("#dl_images", j.image_storages); fill("#dl_import", j.import_storages); fill("#dl_iso", j.iso_storages); fill("#dl_br", j.bridges);
@@ -209,6 +215,69 @@ $("#btn_deploy").onclick = async () => {
   });
 };
 
+// ---- servers ----------------------------------------------------------------
+let SERVERS = [], EDIT = null;
+function srvReset() {
+  EDIT = null; $("#srv_form_title").textContent = "Server toevoegen";
+  for (const id of ["name", "url", "tid", "secret"]) $("#srv_" + id).value = "";
+  $("#srv_secret").placeholder = ""; $("#srv_tls").checked = true; $("#srv_cancel").hidden = true; $("#srv_res").textContent = ""; $("#srv_res").className = "hint";
+}
+function srvDraw() {
+  $("#srv_list").innerHTML = SERVERS.length
+    ? `<table><thead><tr><th>Naam</th><th>URL</th><th>Token-ID</th><th>TLS</th><th></th></tr></thead><tbody>` +
+      SERVERS.map((s) => `<tr><td>${esc(s.name)}</td><td class="mono">${esc(s.url)}</td><td class="mono">${esc(s.token_id)}</td><td>${s.verify_tls ? "gecontroleerd" : "niet gecontroleerd"}</td><td class="actions-cell"><span class="hint" id="srv_t${s.id}"></span> <button class="link" data-st="${s.id}">Testen</button><button class="link" data-se="${s.id}">Bewerken</button><button class="icon danger" data-sd="${s.id}" title="Verwijderen"><span class="i"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span></button></td></tr>`).join("") + "</tbody></table>"
+    : '<p class="muted">Nog geen servers. Voeg hieronder je eerste Proxmox-server toe.</p>';
+  const sel = $("#pve_server"), cur = sel.value;
+  sel.innerHTML = '<option value="">— kies een server —</option>' + SERVERS.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
+  if (cur && SERVERS.some((s) => String(s.id) === cur)) sel.value = cur;
+  $("#pve_none").hidden = SERVERS.length > 0;
+}
+async function serversLoad(selectLast) {
+  SERVERS = await (await fetch("/api/servers")).json();
+  srvDraw();
+  if (selectLast && !$("#pve_server").value) {
+    const l = SERVERS.find((s) => s.last) || (SERVERS.length === 1 ? SERVERS[0] : null);
+    if (l) { $("#pve_server").value = l.id; await applyLast(l.id); }
+  }
+}
+async function applyLast(sid) {
+  if (!sid) return;
+  const last = await (await fetch(`/api/servers/${sid}/last-used`)).json();
+  if (!Object.keys(last).length) return;
+  T.pve = Object.assign({}, T.pve, last, { ports: Object.assign({}, T.pve.ports, last.ports || {}) });
+  pveFill(T.pve);
+}
+$("#pve_server").addEventListener("change", () => { for (const d of ["nodes", "images", "import", "iso", "br"]) $("#dl_" + d).innerHTML = ""; $("#pve_res").textContent = ""; applyLast($("#pve_server").value); });
+$("#srv_list").addEventListener("click", async (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.sd) {
+    const s = SERVERS.find((x) => String(x.id) === t.dataset.sd);
+    if (confirm(`Server '${s.name}' verwijderen?`)) { await fetch("/api/servers/" + s.id, { method: "DELETE" }); if (EDIT === s.id) srvReset(); await serversLoad(); }
+  } else if (t.dataset.se) {
+    const s = SERVERS.find((x) => String(x.id) === t.dataset.se);
+    EDIT = s.id; $("#srv_form_title").textContent = `Server bewerken: ${s.name}`;
+    $("#srv_name").value = s.name; $("#srv_url").value = s.url; $("#srv_tid").value = s.token_id; $("#srv_secret").value = ""; $("#srv_secret").placeholder = "ongewijzigd laten";
+    $("#srv_tls").checked = s.verify_tls; $("#srv_cancel").hidden = false; $("#srv_name").scrollIntoView({ block: "center" });
+  } else if (t.dataset.st) {
+    const out = $("#srv_t" + t.dataset.st); out.className = "hint"; out.textContent = "…";
+    const r = await post(`/api/servers/${t.dataset.st}/test`, {}), j = await json(r);
+    out.className = "hint " + (r.ok ? (j.warning ? "warn" : "ok") : "error"); out.textContent = r.ok ? `OK · PVE ${j.version}` + (j.warning ? " ⚠" : "") : "Fout: " + j.detail;
+  }
+});
+$("#srv_cancel").onclick = srvReset;
+const srvBody = () => ({ name: $("#srv_name").value.trim(), url: $("#srv_url").value.trim(), token_id: $("#srv_tid").value.trim(), token_secret: $("#srv_secret").value || null, verify_tls: $("#srv_tls").checked });
+$("#srv_save").onclick = async () => {
+  showErr([], "#srv_err");
+  const r = await fetch(EDIT ? "/api/servers/" + EDIT : "/api/servers", { method: EDIT ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(srvBody()) }), j = await json(r);
+  if (!r.ok) return showErr(errList(j), "#srv_err");
+  srvReset(); await serversLoad(true);   // first server: select it on the deploy page right away
+};
+$("#srv_test").onclick = async () => {
+  const b = srvBody(), out = $("#srv_res"); out.className = "hint"; out.textContent = "…";
+  const r = EDIT && !b.token_secret ? await post(`/api/servers/${EDIT}/test`, {}) : await post("/api/pve/test", { url: b.url, token_id: b.token_id, token_secret: b.token_secret || "", verify_tls: b.verify_tls }), j = await json(r);
+  out.className = "hint " + (r.ok ? (j.warning ? "warn" : "ok") : "error"); out.textContent = r.ok ? `OK — Proxmox VE ${j.version}` + (j.warning ? " · ⚠ " + j.warning : "") : "Fout: " + j.detail;
+};
+
 // ---- init -------------------------------------------------------------------
 (async () => {
   const a = await (await fetch("/api/about")).json();
@@ -216,5 +285,5 @@ $("#btn_deploy").onclick = async () => {
   $("#steps").innerHTML = a.steps.map((s) => `<li><b>${esc(s.title)}</b><span>${esc(s.desc)}</span></li>`).join("");
   $("#orch").textContent = a.orchestrator_present ? "Orchestrator-templates gevonden: " + a.orchestrator : "⚠ Orchestrator-templates niet gevonden op " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
-  draw(); stepsDraw(); await imgLoad(); route();
+  draw(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
 })();

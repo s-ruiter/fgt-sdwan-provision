@@ -11,16 +11,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Union
 
-from . import cloudinit, images, model
+from . import cloudinit, db, images, model
 from .bootstrap import Masker
 from .pve import Pve, PveError
 from .fmg import Fmg, FmgError, pipeline
 from .render import render_inventory
 
-ORCH_DIR = os.environ.get("ORCH_DIR", "/opt/sdwan-advpn-reference")
-DATA_DIR = os.environ.get("DATA_DIR", str(Path(__file__).resolve().parent.parent / "data"))
+from .config import DATA_DIR, ORCH_DIR
+from .routes_servers import router as servers_router
 STATIC = Path(__file__).resolve().parent.parent / "static"
 app = FastAPI(title="FGT SD-WAN Provision")
+app.include_router(servers_router)
 JOBS = {}
 
 STEPS = [
@@ -114,9 +115,12 @@ def _check_bootstrap(topo, r):
             errs.append(f"onbekende bootstrap-methode '{m}'")
     devs = topo["hubs"] + topo["edges"]
     if "day0" in (mf, mg):
-        errs += model.validate_pve(topo)
-        if not s.pve_token_secret:
-            errs.append("Proxmox: token-secret ontbreekt")
+        if not topo["pve"].get("server_id") and not topo["pve"].get("url"):
+            errs.append("Proxmox: kies een server (menu Servers) of voeg er een toe")
+        else:
+            errs += model.validate_pve(topo)
+            if not s.pve_token_secret:
+                errs.append("Proxmox: token-secret ontbreekt")
         for role, m in (("fmg", mf), ("fgt", mg)):
             if m == "day0":
                 try:
@@ -268,8 +272,17 @@ def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
 @app.post("/api/deploy")
 def deploy(r: DeployReq):
     topo = model.merged(r.topology)
+    sid = topo["pve"].get("server_id")
+    if sid:                                    # saved server: url/token-id/secret come from the database
+        row = db.get_server(db.connect(DATA_DIR), sid)
+        if row is None:
+            raise HTTPException(422, detail=["Proxmox-server niet gevonden (is hij verwijderd?)"])
+        topo["pve"].update(url=row["url"], token_id=row["token_id"], verify_tls=bool(row["verify_tls"]))
+        r.secrets.pve_token_secret = row["token_secret"]
     _, _, cfg = _render(topo)
     _check_bootstrap(topo, r)
+    if sid:                                    # remember this server's choices for the next run
+        db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"])
     s = r.secrets
     mask = Masker(s.fmg_token, s.fmg_initial_pw, s.fgt_initial_pw, s.fgt_new_pw, r.fmg.password, r.fmg.api_token,
                   s.pve_token_secret, *s.fgt_tokens.values())
