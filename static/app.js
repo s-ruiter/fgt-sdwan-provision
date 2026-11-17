@@ -162,6 +162,55 @@ function secrets() {
 }
 const fmgCfg = () => ({ host: null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
 
+// ---- images -----------------------------------------------------------------
+function imgDraw() {
+  for (const r of ["fgt", "fmg"]) {
+    const s = $("#img_" + r), cur = s.value, l = IMGS.filter((i) => i.role === r);
+    s.innerHTML = l.length ? l.map((i) => `<option value="${i.id}">${esc(i.filename)}${i.version ? " (v" + i.version + ")" : ""}</option>`).join("") : '<option value="">— nog geen image —</option>';
+    if (cur && l.some((i) => i.id === cur)) s.value = cur;
+  }
+  $("#img_list").innerHTML = IMGS.length
+    ? `<table class="imgtbl"><thead><tr><th>Rol</th><th>Bestand</th><th>Versie</th><th>Virtueel</th><th>SHA-256</th><th></th></tr></thead><tbody>` +
+      IMGS.map((i) => `<tr><td>${i.role === "fgt" ? "FortiGate" : "FortiManager"}</td><td class="mono">${esc(i.filename)}${i.warnings.map((w) => `<div class="hint warn">⚠ ${esc(w)}</div>`).join("")}</td><td class="mono">${i.version ? "v" + i.version + (i.build ? " b" + i.build : "") : "—"}</td><td class="mono">${i.virtual_gb} GB</td><td class="mono" title="${i.sha256}">${i.sha256.slice(0, 16)}…</td><td class="actions-cell"><button class="icon danger" data-del="${i.id}" title="Verwijderen"><span class="i"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span></button></td></tr>`).join("") + "</tbody></table>"
+    : '<p class="muted">Nog geen images geüpload.</p>';
+}
+async function imgLoad() { IMGS = await (await fetch("/api/images")).json(); imgDraw(); }
+function upload(role, file) {
+  if (!file) return;
+  const fd = new FormData(); fd.append("role", role); fd.append("file", file);
+  const x = new XMLHttpRequest(), dz = $("#dz_" + role), bar = $("#bar_" + role);
+  dz.classList.add("has"); dz.querySelector("b").textContent = file.name; dz.querySelector("small").textContent = fmtBytes(file.size) + " · uploaden…";
+  x.open("POST", "/api/images");
+  x.upload.onprogress = (e) => { if (e.lengthComputable) bar.style.transform = `scaleX(${e.loaded / e.total})`; };
+  x.onload = async () => {
+    bar.style.transform = "scaleX(0)";
+    if (x.status === 200) {
+      const m = JSON.parse(x.responseText);
+      dz.querySelector("small").textContent = `${fmtBytes(file.size)} · ${m.virtual_gb} GB virtueel · klaar`;
+      showErr([], "#img_err"); await imgLoad();
+    } else {
+      let d; try { d = JSON.parse(x.responseText).detail; } catch (_) { d = x.responseText; }
+      dz.classList.remove("has"); dz.querySelector("b").textContent = "Sleep het bestand hierheen of klik"; dz.querySelector("small").textContent = ".zip of .qcow2";
+      showErr(["Upload mislukt: " + d], "#img_err");
+    }
+  };
+  x.send(fd);
+}
+for (const role of ["fgt", "fmg"]) {
+  const dz = $("#dz_" + role), inp = $("#up_" + role);
+  dz.addEventListener("click", () => inp.click());
+  inp.addEventListener("change", () => { upload(role, inp.files[0]); inp.value = ""; });
+  dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("over"); });
+  dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+  dz.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("over"); upload(role, e.dataTransfer.files[0]); });
+}
+$("#img_list").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-del]");
+  if (b && confirm("Image verwijderen?")) { await fetch("/api/images/" + b.dataset.del, { method: "DELETE" }); imgLoad(); }
+});
+
+// ---- actions ----------------------------------------------------------------
+
 // ---- actions ----------------------------------------------------------------
 // Proxmox data (nodes, storages per node, bridges) is fetched from the saved server and shown as dropdowns
 async function loadPve(msg) {
@@ -184,26 +233,47 @@ async function loadPve(msg) {
 }
 $("#btn_pve").onclick = () => loadPve();
 $("#pve_node").addEventListener("change", () => loadPve());
-$("#btn_csv_dl").onclick = async () => {
-  const r = await post("/api/csv/export", { topology: collect() });
+async function csvDownload(full) {
+  const r = await post("/api/csv/export", { topology: collect(), full });
   if (!r.ok) { $("#csv_res").textContent = "Export mislukt"; return; }
   const url = URL.createObjectURL(await r.blob()), a = document.createElement("a");
-  a.href = url; a.download = "sdwan-topologie.csv"; a.click(); URL.revokeObjectURL(url);
-  $("#csv_res").textContent = "Gedownload: vul het in en importeer het weer.";
-};
+  a.href = url; a.download = full ? "sdwan-volledig.csv" : "sdwan-devices.csv"; a.click(); URL.revokeObjectURL(url);
+  $("#csv_res").textContent = full ? "Volledige export gedownload (instellingen + devices)." : "Gedownload: vul het in en importeer het weer.";
+}
+$("#btn_csv_dl").onclick = () => csvDownload(false);
+$("#btn_csv_full").onclick = () => csvDownload(true);
+const deepMerge = (a, b) => { for (const [k, v] of Object.entries(b)) a[k] = v && typeof v === "object" && !Array.isArray(v) && a[k] && typeof a[k] === "object" ? deepMerge({ ...a[k] }, v) : v; return a; };
+async function csvPost(f, apply) {
+  const fd = new FormData(); fd.append("file", f); fd.append("topology", JSON.stringify(collect())); fd.append("apply_settings", apply ? "1" : "");
+  const r = await fetch("/api/csv/import", { method: "POST", body: fd });
+  return [r, await r.json().catch(() => ({}))];
+}
 $("#btn_csv_up").onclick = () => $("#csv_file").click();
 $("#csv_file").onchange = async (ev) => {
   const f = ev.target.files[0]; ev.target.value = "";
   if (!f) return;
-  const fd = new FormData(); fd.append("file", f); fd.append("topology", JSON.stringify(collect()));
-  const r = await fetch("/api/csv/import", { method: "POST", body: fd }), j = await r.json().catch(() => ({}));
+  const fail = (j) => { $("#csv_res").textContent = "✕ " + (typeof j.detail === "string" ? j.detail : "import mislukt"); };
   $("#csv_todo").hidden = true;
-  if (!r.ok) { $("#csv_res").textContent = "✕ " + (typeof j.detail === "string" ? j.detail : "import mislukt"); return; }
+  let [r, j] = await csvPost(f, false);
+  if (!r.ok) return fail(j);
+  let applied = false;
+  if (j.has_settings && confirm("Dit bestand bevat ook instellingen (ADOM, DNS, regio, VRF's, FortiManager, Proxmox).\n\nOK = instellingen én devices overnemen\nAnnuleren = alleen de devices overnemen (instellingen blijven zoals ze nu in de tool staan)")) {
+    [r, j] = await csvPost(f, true);
+    if (!r.ok) return fail(j);
+    applied = true;
+  }
   const toks = Object.fromEntries([...document.querySelectorAll("[data-tok]")].map((e) => [e.dataset.tok, e.value]));
-  T = { ...collect(), hubs: j.hubs, edges: j.edges };              // only the devices: every other setting stays as typed in the GUI
-  draw(); markIpFields();
+  let nt = { ...collect(), hubs: j.hubs, edges: j.edges }, srv = null, extra = [];
+  if (applied) {
+    const { pve: sp = {}, ...rest } = j.settings, sname = sp.server_name; delete sp.server_name;
+    nt = deepMerge(JSON.parse(JSON.stringify(nt)), rest);
+    nt.pve = deepMerge(JSON.parse(JSON.stringify(nt.pve)), sp);
+    if (sname) { srv = SERVERS.find((s) => s.name === sname); if (srv) $("#pve_server").value = srv.id; else extra.push(`Proxmox-server '${sname}' bestaat niet: kies of voeg er een toe op de pagina Servers`); }
+  }
+  T = nt; draw(); markIpFields();
   document.querySelectorAll("[data-tok]").forEach((e) => { if (toks[e.dataset.tok]) e.value = toks[e.dataset.tok]; });
-  $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (j.notes.length ? ` (${j.notes.join("; ")})` : "");
+  if (srv) await loadPve();
+  $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + ([...j.notes, ...extra].length ? ` (${[...j.notes, ...extra].join("; ")})` : "");
   if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Nog in te vullen/te corrigeren: " + j.todo.join(" · "); }
 };
 $("#btn_render").onclick = async () => {

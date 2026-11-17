@@ -229,17 +229,28 @@ def render(r: RenderReq):
             "lines": {k: len(v.splitlines()) for k, v in cfg.items()}}
 
 
+class ExportReq(BaseModel):
+    topology: dict
+    full: bool = False                     # True: settings + devices (reusable deployment); False: devices only
+
+
 @app.post("/api/csv/export")
-def csv_export(r: RenderReq):
-    """Current form state (or the defaults) as a CSV the user can fill in and re-import. No secrets."""
-    body = csvio.export_csv(model.merged(r.topology))
-    return Response(body, media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": 'attachment; filename="sdwan-topologie.csv"'})
+def csv_export(r: ExportReq):
+    """Current form state as CSV. Never contains tokens or passwords."""
+    topo = model.merged(r.topology)
+    name = ""
+    sid = (topo.get("pve") or {}).get("server_id")
+    if r.full and sid:
+        row = db.get_server(db.connect(DATA_DIR), sid)
+        name = row["name"] if row else ""
+    body = csvio.export_csv(topo, full=r.full, server_name=name)
+    fn = "sdwan-volledig.csv" if r.full else "sdwan-devices.csv"
+    return Response(body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
 @app.post("/api/csv/import")
-async def csv_import(file: UploadFile = File(...), topology: str = Form("{}")):
-    """Devices only. The current GUI settings are sent along so LAN count / VRF mode are validated against them."""
+async def csv_import(file: UploadFile = File(...), topology: str = Form("{}"), apply_settings: str = Form("")):
+    """Devices; with apply_settings also [algemeen]/[vrf]/[proxmox]. The current GUI settings are sent along for validation."""
     raw = await file.read()
     if len(raw) > 1_000_000:
         raise HTTPException(413, detail="CSV-bestand te groot")
@@ -252,11 +263,11 @@ async def csv_import(file: UploadFile = File(...), topology: str = Form("{}")):
     except ValueError:
         raise HTTPException(422, detail="CSV: ongeldige topologie in het verzoek")
     try:
-        hubs, edges, notes, todo = csvio.import_devices(text, current)
+        res = csvio.import_devices(text, current, bool(apply_settings))
     except csvio.CsvError as e:
         raise HTTPException(422, detail=f"CSV: {e}")
-    return {"hubs": hubs, "edges": edges, "notes": notes, "todo": todo,
-            "summary": f"{len(hubs)} hub(s), {len(edges)} branch(es)"}
+    res["summary"] = f"{len(res['hubs'])} hub(s), {len(res['edges'])} branch(es)" + (" + instellingen" if res["settings"] else "")
+    return res
 
 
 @app.post("/api/fmg/test")

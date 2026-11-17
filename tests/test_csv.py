@@ -15,6 +15,11 @@ def topo(multi):
     return t
 
 
+def imp(text, cur, apply=False):
+    r = csvio.import_devices(text, cur, apply)
+    return r["hubs"], r["edges"], r["notes"], r["todo"]
+
+
 def cols(text):
     return next(l for l in text.splitlines() if l.startswith("type"))
 
@@ -35,33 +40,67 @@ assert "lan3_intf" in cols(csvio.export_csv(three))
 
 # round-trip over the GUI settings, both delimiters; settings are not touched (import returns devices only)
 for delim in (";", ","):
-    hubs, edges, notes, todo = csvio.import_devices(csvio.export_csv(m, delim), m)
+    hubs, edges, notes, todo = imp(csvio.export_csv(m, delim), m)
     assert [d["name"] for d in hubs] == ["site1-H1", "site1-H2"] and len(edges) == 3 and notes == [] and todo == [], (todo, notes)
     assert hubs[0]["wan1_gw"] == "100.64.1.6" and hubs[0]["isp2_ip"] == m["hubs"][0]["isp2_ip"] and "isp2_ip" not in edges[0]
     assert edges[1]["isp2_intf"] == "" and edges[0]["lans"] == m["edges"][0]["lans"]
 # single-VRF GUI + multi-VRF layout in the file: extra LAN's dropped with a note
-hubs, edges, notes, todo = csvio.import_devices(em, s)
+hubs, edges, notes, todo = imp(em, s)
 assert all(len(d["lans"]) <= 1 for d in hubs + edges) and any("lan2+" in n for n in notes), notes
 # multi-VRF GUI with a single-VRF file: lan2 missing -> validation todo is only advisory, import still succeeds
-hubs, edges, notes, todo = csvio.import_devices(es, m)
+hubs, edges, notes, todo = imp(es, m)
 assert len(edges) == 3
 # [algemeen]/[vrf] in an old file are ignored with a note
 old = "[algemeen]\nsleutel;waarde\nadom;HACK\n[vrf]\nid;lan_summary\n99;10.0.0.0/8\n" + em.split("[devices]")[0].count("x") * "" + "[devices]" + em.split("[devices]")[1]
-hubs, edges, notes, todo = csvio.import_devices(old, m)
-assert sum("genegeerd" in n for n in notes) == 2 and len(hubs) == 2
+hubs, edges, notes, todo = imp(old, m)
+assert sum("genegeerd" in n for n in notes) == 1 and len(hubs) == 2
 # blank template -> serials missing is a todo, not an error
-h2, e2, _, todo = csvio.import_devices(csvio.export_csv(model.merged({})), model.merged({}))
+h2, e2, _, todo = imp(csvio.export_csv(model.merged({})), model.merged({}))
 assert any("serienummer" in e for e in todo) and len(h2) == 2
 # isp1_ip derived, aliases, Excel-ish whitespace
-h3, e3, _, _ = csvio.import_devices("[devices]\ntype;name;serial;wan1_mode;wan1_ip\n Hub ;H;X;static;100.64.1.1/29\nspoke;E;Y;;\n", m)
+h3, e3, _, _ = imp("[devices]\ntype;name;serial;wan1_mode;wan1_ip\n Hub ;H;X;static;100.64.1.1/29\nspoke;E;Y;;\n", m)
 assert h3[0]["isp1_ip"] == "100.64.1.1" and e3[0]["wan1_mode"] == "dhcp"
 # errors name the row/column
-for bad, needle in [("", "[devices]"), ("[algemeen]\nk;v\n", "[devices]"), ("a;b\n", "buiten een sectie"),
+for bad, needle in [("", "[devices]"), ("[algemeen]\nk;v\n", "[devices]"), ("[bogus]\n", "onbekende sectie"), ("a;b\n", "buiten een sectie"),
                     ("[devices]\ntype;name\nrouter;A\n", "type 'router'"), ("[devices]\ntype;name\nhub;A\nhub;A\n", "dubbel"),
                     ("[devices]\nname\nA\n", "kolom 'type'"), ("[devices]\ntype;name;wan1_mode\nhub;A;pppoe\n", "static of dhcp")]:
     try:
-        csvio.import_devices(bad, m)
+        imp(bad, m)
         raise SystemExit(f"geen fout voor {bad!r}")
     except csvio.CsvError as e:
         assert needle in str(e), (bad, str(e))
-print("OK  CSV (alleen [devices]): export zonder instellingen/geheimen, LAN-kolommen per modus, import raakt de GUI-instellingen niet, oude secties genegeerd, fouten per rij")
+# ---- full export: settings + devices, importable for a next deployment -------------------------------------------
+for multi in (True, False):
+    g = topo(multi)
+    g["pve"].update(node="pve01", disk_storage="local-lvm", import_storage="local", iso_storage="local", default_bridge="vmbr0", server_id=7)
+    g["pve"]["fmg"].update(cores=6, bridge="vmbr1", vlan=106)
+    g["pve"]["ports"]["port1"].update(bridge="vmbr0", vlan=20)
+    g["hub2hub"], g["region"]["bgp_as"] = True, 65099
+    if multi:
+        g["region"]["vrfs"][1]["dia"] = True
+    full = csvio.export_csv(g, full=True, server_name="pve01")
+    assert all(x in full for x in ("[algemeen]", "[proxmox]", "[devices]")) and ("[vrf]" in full) == multi
+    assert "region.lan_summary" in full.split("[proxmox]")[0] or multi
+    assert "token" not in "\n".join(l for l in full.splitlines() if not l.startswith("#")).lower().replace("pve.", "")
+    # devices-only import ignores the settings (note), full import applies them
+    r = csvio.import_devices(full, topo(not multi))
+    assert r["settings"] == {} and r["has_settings"] and any("genegeerd" in n for n in r["notes"])
+    r = csvio.import_devices(full, topo(not multi), True)
+    st = r["settings"]
+    assert st["adom"] == "ACME" and st["psk"] == "Lab;Psk,1" and st["hub2hub"] is True and st["region"]["bgp_as"] == 65099
+    assert st["region"]["multi_vrf"] is multi and st["fmgr"]["ip"] == "10.0.0.5/24" and st["dns_primary"] == "1.1.1.1"
+    assert st["pve"]["server_name"] == "pve01" and st["pve"]["node"] == "pve01" and st["pve"]["fmg"]["cores"] == 6
+    assert st["pve"]["fmg"]["vlan"] == 106 and st["pve"]["ports"]["port1"]["vlan"] == 20 and st["pve"]["ports"]["port2"]["vlan"] is None
+    assert ("vrfs" in st["region"]) == multi and (not multi or st["region"]["vrfs"][1]["dia"] is True)
+    assert r["todo"] == [], r["todo"]          # validated against the *imported* settings (mode matches the LAN columns)
+    assert [d["name"] for d in r["hubs"]] == ["site1-H1", "site1-H2"] and len(r["edges"]) == 3
+    assert "server_id" not in str(st)           # DB ids are not portable: only the server name travels
+# a bad value in a settings section only matters when settings are applied
+bad = csvio.export_csv(topo(True), full=True, server_name="x").replace("region.bgp_as;65001", "region.bgp_as;abc")
+assert imp(bad, topo(True))[0]
+try:
+    csvio.import_devices(bad, topo(True), True)
+    raise SystemExit("geen fout")
+except csvio.CsvError as e:
+    assert "geen getal" in str(e) and "region.bgp_as" in str(e)
+print("OK  CSV (alleen [devices]): export zonder instellingen/geheimen, LAN-kolommen per modus, import raakt de GUI-instellingen niet, oude secties genegeerd, fouten per rij; volledige export (algemeen/vrf/proxmox) round-trip, alleen met opt-in")

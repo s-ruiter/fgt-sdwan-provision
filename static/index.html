@@ -111,6 +111,10 @@
         <div class="hint">Per FortiGate vul je hieronder het serienummer, de wan1-adressering (statisch of DHCP) en het FortiFlex-token in. De tool maakt de VM's via Day-0 (cloud-init) op Proxmox: IP, wachtwoord, FMG-koppeling en token gaan mee in de config-drive.</div>
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
+        <div class="btnrow" style="margin-top:18px">
+          <button id="btn_csv_full" title="Instellingen (ADOM, DNS, regio, VRF's, FortiManager, Proxmox) + alle devices; geen tokens of wachtwoorden">Alles exporteren naar CSV</button>
+          <span class="hint">Instellingen + devices, importeerbaar voor een volgende uitrol. Zonder tokens en wachtwoorden; de IPsec-PSK staat er wel leesbaar in.</span>
+        </div>
       </div>
 
       <div class="card">
