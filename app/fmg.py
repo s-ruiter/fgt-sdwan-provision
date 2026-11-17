@@ -17,6 +17,7 @@ class Fmg:
         self.base = (host if host.startswith("http") else f"https://{host}").rstrip("/") + "/jsonrpc"
         self.u, self.p, self.token, self.dry = username, password, api_token, dry_run
         self.session, self.n, self.log = None, 0, log
+        self.timeout = 60
 
     def call(self, method, url, data=None, **extra):
         self.n += 1
@@ -33,7 +34,7 @@ class Fmg:
             return {"status": {"code": 0, "message": "dry-run"}, "url": url}
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         try:
-            r = requests.post(self.base, json=body, headers=headers, verify=False, timeout=60)
+            r = requests.post(self.base, json=body, headers=headers, verify=False, timeout=self.timeout)
             j = r.json()
         except Exception as e:  # network / non-JSON
             raise FmgError(f"{method} {url}: {e}")
@@ -196,12 +197,14 @@ def _pve_vms(topo, boot, which, step, emit, state):
     emit(step, "ok", "VM('s) aangemaakt en gestart")
 
 
-def _login_retry(fmg, attempts, delay):
+def _login_retry(fmg, attempts, delay, progress=None):
     """A FortiManager that just booted is not ready for a while, so connection problems are retried. A refused login is
     not: repeating a wrong password locks the account (default: 3 failures), so that stops after two tries with a clear
-    message, and an active lockout (-23) is waited out instead of being hammered."""
+    message, and an active lockout (-23) is waited out instead of being hammered.
+    progress(msg) (optional) reports every failed attempt, so a long wait is visible in the job log."""
     last, refused = None, 0
-    for _ in range(attempts):
+    progress = progress or (lambda _m: None)
+    for n in range(1, attempts + 1):
         try:
             fmg.login()
             return
@@ -210,6 +213,7 @@ def _login_retry(fmg, attempts, delay):
             m = re.search(r"\((-?\d+)\)", str(e))
             code = int(m.group(1)) if m else None
             if code == -23:                                   # lockout / login limit: wait it out (default lockout 60 s)
+                progress(f"inlogpoging {n}/{attempts}: account tijdelijk geblokkeerd, 70 s wachten")
                 time.sleep(max(delay, 70))
                 continue
             if code in (-22, -11):                            # login refused
@@ -221,8 +225,50 @@ def _login_retry(fmg, attempts, delay):
                                        "end (een nieuwe FortiManager heeft rpc-permit none voor admin). Daarna opnieuw uitrollen.")
                     raise FmgError(f"inloggen op de FortiManager is geweigerd ({e}). Controleer gebruikersnaam en wachtwoord; "
                                    "herhaald proberen met een fout wachtwoord blokkeert het account tijdelijk.")
+            progress(f"inlogpoging {n}/{attempts}: FortiManager nog niet klaar ({str(e)[:160]}); opnieuw over {delay} s")
             time.sleep(delay)
     raise last
+
+
+def _license_state(st):
+    """(ok, text) from /sys/status of a FortiManager. Unknown fields count as ok: only a clear 'not licensed' waits."""
+    lic = str(st.get("License Status") or st.get("license_status") or "").strip()
+    sn = str(st.get("Serial Number") or st.get("serial") or "").strip()
+    if lic and lic.lower() not in ("valid", "1"):
+        return False, f"licentie {lic}"
+    if sn and re.fullmatch(r"FMG-?VM0+", sn, re.I):
+        return False, f"serienummer {sn} (nog ongelicenseerd)"
+    return True, lic or "?"
+
+
+def wait_fmg_ready(fmg, boot, progress):
+    """Day-0: log in once the FortiManager answers and wait until its FortiFlex licence is active.
+    After the licence the FMG reboots and initialises its database; port 443 can already be open before that reboot,
+    so a login alone is not enough. Returns /sys/status data."""
+    attempts, delay = boot.get("login_attempts", 60), boot.get("login_delay", 15)
+    timeout = boot.get("fmg_ready_timeout", 1800)
+    end = time.time() + timeout
+    old_timeout, fmg.timeout = fmg.timeout, 20             # a booting FMG can accept TCP and never answer
+    try:
+        while True:
+            _login_retry(fmg, attempts, delay, progress)
+            try:
+                st = fmg.call("get", "/sys/status").get("data", {}) or {}
+            except FmgError as e:
+                st, ok, why = {}, False, f"status niet leesbaar ({str(e)[:120]})"
+            else:
+                ok, why = _license_state(st)
+            if ok:
+                return st
+            progress(f"ingelogd, maar {why}; wachten tot de licentie actief is (FortiManager herstart na de licentie)")
+            fmg.logout()
+            fmg.session = None
+            if time.time() > end:
+                raise FmgError(f"FortiManager is na {timeout} s nog niet gelicenseerd ({why}). Controleer op de console "
+                               "'get system status' en 'diagnose debug cloudinit show' (is de FortiFlex-token toegepast?)")
+            time.sleep(delay)
+    finally:
+        fmg.timeout = old_timeout
 
 
 def osmr(topo):
@@ -262,10 +308,10 @@ def pipeline(topo, configs, fmg, emit, boot=None):
 
     emit("preflight", "running", "FortiManager bereikbaar? versie controleren")
     if m_fmg == "day0" and not boot.get("dry"):
-        _login_retry(fmg, boot.get("login_attempts", 20), boot.get("login_delay", 15))   # FMG may still be rebooting
+        st = wait_fmg_ready(fmg, boot, lambda m: emit("preflight", "running", m))   # FMG may still be rebooting
     else:
         fmg.login()
-    st = fmg.call("get", "/sys/status").get("data", {}) if not fmg.dry else {"Version": "dry-run"}
+        st = fmg.call("get", "/sys/status").get("data", {}) if not fmg.dry else {"Version": "dry-run"}
     ver = st.get("Version", "?")
     emit("preflight", "ok", f"verbonden, versie: {ver}")
     if m_fmg == "day0" and not boot.get("dry"):
