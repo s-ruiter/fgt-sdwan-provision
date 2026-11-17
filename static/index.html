@@ -81,7 +81,7 @@
       <div class="card">
         <h2><span class="num">03</span>Topologie</h2>
         <div class="btnrow">
-          <button id="btn_csv_dl" title="De devices als CSV, met LAN-kolommen volgens de gekozen modus (multi-VRF of single-VRF); zonder tokens en wachtwoorden">CSV downloaden (devices)</button>
+          <button id="btn_csv_dl" title="De devices als CSV (incl. ingevulde FortiFlex-tokens), met LAN-kolommen volgens de gekozen modus; zonder wachtwoorden">CSV downloaden (devices)</button>
           <button id="btn_csv_up">CSV importeren (devices)</button><input type="file" id="csv_file" accept=".csv,text/csv" hidden>
           <span class="hint" id="csv_res"></span>
         </div>
@@ -102,8 +102,8 @@
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
         <div class="btnrow" style="margin-top:18px">
-          <button id="btn_csv_full" title="Instellingen (ADOM, DNS, regio, VRF's, FortiManager, Proxmox) + alle devices; geen tokens of wachtwoorden">Alles exporteren naar CSV</button>
-          <span class="hint">Instellingen + devices, importeerbaar voor een volgende uitrol. Zonder tokens en wachtwoorden; de IPsec-PSK staat er wel leesbaar in.</span>
+          <button id="btn_csv_full" title="Instellingen (ADOM, VRF's, FortiManager, Proxmox) + alle devices incl. FortiFlex-tokens; geen wachtwoorden">Alles exporteren naar CSV</button>
+          <span class="hint">Instellingen + devices, importeerbaar voor een volgende uitrol. Bevat de ingevulde FortiFlex-tokens (behandel het bestand als geheim); nooit wachtwoorden.</span>
         </div>
       </div>
 

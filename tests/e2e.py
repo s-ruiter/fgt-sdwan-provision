@@ -34,7 +34,8 @@ assert "<PSK-wordt-bij-de-uitrol-gegenereerd>" in cfg["CLI HUB1_02-Overlay"]    
 assert "Variabelen" in cfg and "$(loopback)" in cfg["CLI SPOKES-1_02-Overlay"] and "10.200.1.1" not in cfg["CLI SPOKES-1_02-Overlay"]
 assert "set vrf-select 1" in cfg["CLI HUB1_00-Mgmt"] and "set gateway $(wan1_gw)" in cfg["CLI HUB1_00-Mgmt"]
 assert "set gateway" not in cfg["CLI SPOKES-1_00-Mgmt"]
-assert "H1_ISP1" in cfg["SD-WAN SPOKES-1"] and "Corporate" in cfg["Policy SPOKES-1"]
+assert "H1_WAN1" in cfg["SD-WAN SPOKES-1"] and "H1_WAN2" in cfg["SD-WAN SPOKES-1"] and "Corporate" in cfg["Policy SPOKES-1"]
+assert not any(x in allcfg + str(cfg) for x in ("MPLS", "mpls", "ISP1", "ISP2", "isp1", "isp2")), "MPLS/ISP-namen mogen niet meer voorkomen"
 print("OK  render: templates met $(var), CLI/SD-WAN/Policy tabs:", len(cfg))
 for needle in ("set vrf 11", "set vrf 12", "vrf11_leak"):
     assert needle in allcfg, needle

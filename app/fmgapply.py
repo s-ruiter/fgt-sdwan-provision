@@ -19,8 +19,8 @@ def plan_calls(topo, plan):
     base = f"/pm/config/adom/{adom}"
     calls = []
 
-    def add(stage, method, url, data, ignore=False):
-        calls.append({"stage": stage, "method": method, "url": url, "data": data, "ignore": ignore})
+    def add(stage, method, url, data, ignore=False, soft=False):
+        calls.append({"stage": stage, "method": method, "url": url, "data": data, "ignore": ignore, "soft": soft})
 
     roles = plan["roles"]
     group = lambda r: r["name"].lower()
@@ -136,6 +136,8 @@ def apply_plan(fmg, topo, plan, emit, step="templates"):
                 low = str(e).lower()
                 if c["ignore"] and ("exist" in low or "duplicate" in low):
                     pass
+                elif c.get("soft"):
+                    emit(step, "warn", f"{st}: {e}")
                 else:
                     raise FmgError(f"{st}: {e}")
             n += 1

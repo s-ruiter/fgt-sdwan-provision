@@ -84,8 +84,8 @@ def symbolize(meta, reg, is_hub):
             m[k] = reg.var(k, "name", meta[k])
         elif re.fullmatch(r"lan\d*_ip", k):
             m[k] = reg.var(k, "cidr", meta[k])
-    if meta.get("isp1_addr", "dhcp") != "dhcp":
-        m["isp1_addr"] = reg.var("wan1_ip", "cidr", meta["isp1_addr"])
+    if meta.get("wan1_addr", "dhcp") != "dhcp":
+        m["wan1_addr"] = reg.var("wan1_ip", "cidr", meta["wan1_addr"])
     return m
 
 
@@ -220,7 +220,7 @@ def mgmt_cli(dev, pe=PE_VRF):
     """ZTP/management fragment: default route for a static wan1 + FMG tunnel follows the VRF move of wan1."""
     lines = []
     if dev.get("wan1_mode") == "static":
-        lines += ["config router static", "  edit 1", "    set gateway $(wan1_gw)", '    set device "$(isp1_intf)"',
+        lines += ["config router static", "  edit 1", "    set gateway $(wan1_gw)", '    set device "$(wan1_intf)"',
                   *([f"    set vrf {pe}"] if pe else []), "  next", "end"]
     if pe:
         lines += ["config system central-management", f"  set vrf-select {pe}", "end"]
@@ -241,7 +241,7 @@ def build_plan(topo, orch_dir):
         values = {v: reg.value(v) for v in set(VAR_RE.findall("\n".join(list(s["core"].values()) + [s["sdwan"], s["firewall"]])))}
         if d.get("wan1_mode") == "static":
             values["wan1_gw"] = d["wan1_gw"].strip()
-        values["isp1_intf"] = d["isp1_intf"]
+        values["wan1_intf"] = d["wan1_intf"]
         s.update(is_hub=is_hub, dev=d, mgmt=mg, values=values)
         per[name] = s
 
@@ -310,7 +310,7 @@ def _literal_intfs(role, per):
     """Native SD-WAN members cannot hold a metadata variable as interface: use the port name, which must be the
     same on every device of the role (otherwise the user must align the ports or split the role)."""
     lit = {}
-    for var in ("isp1_intf", "isp2_intf", "mpls_intf"):
+    for var in ("wan1_intf", "wan2_intf"):
         vals = {per[d]["values"].get(var) for d in role["devices"]}
         if len(vals) > 1:
             raise ValueError(f"Rol {role['name']} ({', '.join(role['devices'])}): {var} verschilt per device ({sorted(map(str, vals))}); "

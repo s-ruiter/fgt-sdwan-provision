@@ -47,7 +47,7 @@ class Masker:
 def fgt_network_lines(dev, topo):
     """Config that gives wan1 an address and points the FortiGate at FortiManager.
     The interface address change is LAST: it drops the session when the IP moves."""
-    port = dev["isp1_intf"]
+    port = dev["wan1_intf"]
     fmg_ip = split_cidr(topo["fmgr"]["ip"])[0]
     access = topo.get("wan1_access", "ping https ssh fgfm")
     lines = ["config system dns", f"set primary {topo['dns_primary']}"]

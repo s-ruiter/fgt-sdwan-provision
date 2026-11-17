@@ -5,11 +5,13 @@ Proxmox ...) are set in the GUI. A *full* export additionally contains `[algemee
 so a complete deployment can be reused; on import those sections are only applied when the caller asks for it.
 
     [devices]
-    type;name;serial;loopback;isp1_intf;isp2_intf;mpls_intf;wan1_mode;wan1_ip;wan1_gw;isp1_ip;isp2_ip;mpls_ip;lan1_intf;lan1_ip;...
+    type;name;serial;fortiflex_token;loopback;wan1_intf;wan2_intf;wan1_mode;wan1_ip;wan1_gw;wan1_hub_ip;wan2_ip;lan1_intf;lan1_ip;...
 
 type = hub | branch. The LAN columns follow the current GUI mode: one pair (lan1_*) for single-VRF, one pair per VRF
 for multi-VRF (lan1_* belongs to the first VRF, lan2_* to the second ...). Hub-only columns are empty for branches.
-Lines starting with `#` and empty lines are ignored; the delimiter (; or ,) is detected. No tokens or passwords.
+Lines starting with `#` and empty lines are ignored; the delimiter (; or ,) is detected. The FortiFlex tokens
+(column fortiflex_token, and fmgr.fortiflex_token in a full export) are in the file, so treat it as a secret; admin
+passwords and the Proxmox secret never are.
 """
 import csv
 import io
@@ -17,9 +19,13 @@ import re
 
 from . import model
 
-DEV_COLS = ["type", "name", "serial", "loopback", "isp1_intf", "isp2_intf", "mpls_intf", "wan1_mode", "wan1_ip",
-            "wan1_gw", "isp1_ip", "isp2_ip", "mpls_ip"]
-HUB_ONLY = ("isp1_ip", "isp2_ip", "mpls_ip")
+DEV_COLS = ["type", "name", "serial", "fortiflex_token", "loopback", "wan1_intf", "wan2_intf", "wan1_mode", "wan1_ip",
+            "wan1_gw", "wan1_hub_ip", "wan2_ip"]
+HUB_ONLY = ("wan1_hub_ip", "wan2_ip")
+# column names of earlier files; MPLS is no longer used
+ALIASES = {"isp1_intf": "wan1_intf", "isp2_intf": "wan2_intf", "isp1_ip": "wan1_hub_ip", "isp2_ip": "wan2_ip"}
+DROPPED = ("mpls_intf", "mpls_ip")
+_TOKEN = re.compile(r"^[A-Za-z0-9]{10,64}$")
 MAX_LANS = 4
 
 # (dotted key into the topology, explanation, kind)   kind: str | int | bool | optint (blank = none)
@@ -31,9 +37,11 @@ SETTINGS = [
     ("fmgr.ip", "FortiManager IP/prefix, bv. 10.0.0.5/24", "str"),
     ("fmgr.gateway", "FortiManager gateway", "str"),
     ("fmgr.port", "FortiManager poort (ZTP)", "str"),
+    ("fmgr.fortiflex_token", "FortiFlex-token van de FortiManager (GEHEIM: behandel dit bestand als een wachtwoord)", "str"),
     ("region.multi_vrf", "Multi-VRF (ja/nee)", "bool"),
     ("region.lan_summary", "LAN-summary (alleen single-VRF)", "str"),
 ]
+SETTINGS_LABEL = {k: lbl for k, lbl, _ in SETTINGS}
 PVE_SETTINGS = [
     ("pve.server", "Naam van de opgeslagen Proxmox-server (pagina Servers)", "str"),
     ("pve.node", "Node", "str"), ("pve.disk_storage", "Disk-storage", "str"),
@@ -94,9 +102,12 @@ def lan_count(t):
     return min(max(len(r.get("vrfs", [])), 1), MAX_LANS) if model._multi(t) else 1
 
 
-def export_csv(topo, delim=";", full=False, server_name=""):
-    """full=True: also [algemeen], [vrf] (multi-VRF) and [proxmox], so a whole deployment can be reused."""
+def export_csv(topo, delim=";", full=False, server_name="", tokens=None):
+    """full=True: also [algemeen], [vrf] (multi-VRF) and [proxmox], so a whole deployment can be reused.
+    tokens = {"fmg": "...", "devices": {name: token}} (FortiFlex tokens typed in the GUI)."""
     t = model.merged(topo)
+    tokens = tokens or {}
+    t["fmgr"]["fortiflex_token"] = tokens.get("fmg", "") or ""
     multi, nl = model._multi(t), lan_count(t)
     out = io.StringIO()
     w = csv.writer(out, delimiter=delim, lineterminator="\n")
@@ -104,7 +115,7 @@ def export_csv(topo, delim=";", full=False, server_name=""):
         w.writerow(["# fgt-sdwan-provision: volledige export (instellingen + devices). Importeerbaar voor een volgende uitrol."])
     else:
         w.writerow(["# fgt-sdwan-provision: alleen de devices. Algemene instellingen (ADOM, DNS, regio, VRF's, FortiManager ...) vul je in de tool in."])
-    w.writerow(["# type = hub of branch. Serienummers zijn verplicht. Geen tokens of wachtwoorden in dit bestand: die voer je in de tool in."])
+    w.writerow(["# type = hub of branch. Serienummers zijn verplicht. De FortiFlex-tokens staan wel in dit bestand: behandel het als geheim. Admin-wachtwoorden staan er nooit in."])
     w.writerow(["# " + (f"Multi-VRF: lan1_* hoort bij de eerste VRF, lan2_* bij de tweede, enzovoort ({nl} LAN per device)."
                          if multi else "Single-VRF: per device één LAN (lan1_*).")])
     w.writerow([])
@@ -140,6 +151,8 @@ def export_csv(topo, delim=";", full=False, server_name=""):
                 i, s = int(c[3]) - 1, c.split("_")[1]
                 lans = d.get("lans", [])
                 row.append(lans[i].get(s, "") if i < len(lans) else "")
+            elif c == "fortiflex_token":
+                row.append((tokens.get("devices") or {}).get(d.get("name"), "") or "")
             elif c in HUB_ONLY and kind != "hub":
                 row.append("")
             else:
@@ -183,7 +196,8 @@ def _parse_settings(sections):
 
 
 def parse_devices(text, with_settings=False):
-    """-> (hubs, edges, notes, settings). settings is {} unless with_settings. Raises CsvError naming the row/column."""
+    """-> (hubs, edges, notes, settings, has_settings, tokens). settings is {} unless with_settings.
+    tokens = {device name: FortiFlex token}. Raises CsvError naming the row/column."""
     notes, sections, cur = [], {}, None
     for cells in _rows(text):
         m = re.fullmatch(r"\[(\w+)\]", cells[0])
@@ -197,7 +211,7 @@ def parse_devices(text, with_settings=False):
             raise CsvError("regel buiten een sectie; begin met [devices]")
         s = sections[cur]
         if s["header"] is None:
-            s["header"] = [c.lower() for c in cells]
+            s["header"] = [ALIASES.get(c.lower(), c.lower()) if cur == "devices" else c.lower() for c in cells]
         else:
             s["rows"].append(cells)
     if "devices" not in sections or sections["devices"]["header"] is None:
@@ -213,7 +227,9 @@ def parse_devices(text, with_settings=False):
     for col in ("type", "name"):
         if col not in h:
             raise CsvError(f"[devices] kolom '{col}' ontbreekt")
-    hubs, edges, seen = [], [], set()
+    hubs, edges, seen, tokens = [], [], set(), {}
+    if any(col in h for col in DROPPED):
+        notes.append("MPLS-kolommen genegeerd (MPLS wordt niet meer gebruikt)")
     for n, r in enumerate(sections["devices"]["rows"], start=1):
         c = dict(zip(h, r + [""] * (len(h) - len(r))))
         kind = {"hub": "hub", "branch": "branch", "edge": "branch", "spoke": "branch"}.get(c["type"].lower())
@@ -225,26 +241,34 @@ def parse_devices(text, with_settings=False):
             raise CsvError(f"[devices] naam '{c['name']}' komt dubbel voor")
         seen.add(c["name"])
         d = {"name": c["name"], "serial": c.get("serial", ""), "loopback": c.get("loopback", ""),
-             "isp1_intf": c.get("isp1_intf", ""), "isp2_intf": c.get("isp2_intf", ""), "mpls_intf": c.get("mpls_intf", ""),
+             "wan1_intf": c.get("wan1_intf", ""), "wan2_intf": c.get("wan2_intf", ""),
              "wan1_mode": (c.get("wan1_mode") or ("static" if kind == "hub" else "dhcp")).lower(),
              "wan1_ip": c.get("wan1_ip", ""), "wan1_gw": c.get("wan1_gw", ""), "initial_ip": model.DEFAULT_INITIAL_IP}
         if d["wan1_mode"] not in ("static", "dhcp"):
             raise CsvError(f"[devices] {c['name']}: wan1_mode '{d['wan1_mode']}' moet static of dhcp zijn")
+        tok = c.get("fortiflex_token", "")
+        if tok:
+            if not _TOKEN.match(tok):
+                raise CsvError(f"[devices] {c['name']}: fortiflex_token ongeldig (10-64 letters/cijfers)")
+            tokens[c["name"]] = tok
         if kind == "hub":
             for k in HUB_ONLY:
                 d[k] = c.get(k, "")
-            if not d["isp1_ip"] and d["wan1_mode"] == "static" and "/" in d["wan1_ip"]:
-                d["isp1_ip"] = d["wan1_ip"].split("/")[0]          # hub underlay address follows a static wan1
+            if not d["wan1_hub_ip"] and d["wan1_mode"] == "static" and "/" in d["wan1_ip"]:
+                d["wan1_hub_ip"] = d["wan1_ip"].split("/")[0]          # hub underlay address follows a static wan1
         d["lans"] = [{"intf": c.get(f"lan{i}_intf", ""), "ip": c.get(f"lan{i}_ip", "")} for i in range(1, MAX_LANS + 1)
                      if c.get(f"lan{i}_intf") or c.get(f"lan{i}_ip")]
         (hubs if kind == "hub" else edges).append(d)
-    return hubs, edges, notes, settings, has_settings
+    return hubs, edges, notes, settings, has_settings, tokens
 
 
 def import_devices(text, current, apply_settings=False):
     """Devices over the current GUI topology; with apply_settings the [algemeen]/[vrf]/[proxmox] sections too.
     -> dict(hubs, edges, notes, todo, settings, has_settings); todo = what validation of the merged result still wants."""
-    hubs, edges, notes, settings, has_settings = parse_devices(text, apply_settings)
+    hubs, edges, notes, settings, has_settings, tokens = parse_devices(text, apply_settings)
+    fmg_token = (settings.get("fmgr") or {}).pop("fortiflex_token", "")      # a secret, not part of the topology
+    if fmg_token and not _TOKEN.match(fmg_token):
+        raise CsvError("[algemeen] fmgr.fortiflex_token ongeldig (10-64 letters/cijfers)")
     base = model.merged(current)
     if settings:
         model._deep(base, {k: v for k, v in settings.items() if k != "pve"})
@@ -257,4 +281,4 @@ def import_devices(text, current, apply_settings=False):
             d["lans"] = d["lans"][:1]
     base["hubs"], base["edges"] = hubs, edges
     return {"hubs": hubs, "edges": edges, "notes": notes, "todo": model.validate(base), "settings": settings,
-            "has_settings": has_settings}
+            "has_settings": has_settings, "tokens": tokens, "fmg_token": fmg_token}

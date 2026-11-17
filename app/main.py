@@ -237,18 +237,19 @@ def render(r: RenderReq):
 class ExportReq(BaseModel):
     topology: dict
     full: bool = False                     # True: settings + devices (reusable deployment); False: devices only
+    tokens: dict = {}                      # {"fmg": token, "devices": {name: token}}: FortiFlex tokens typed in the GUI
 
 
 @app.post("/api/csv/export")
 def csv_export(r: ExportReq):
-    """Current form state as CSV. Never contains tokens or passwords."""
+    """Current form state as CSV. Contains the FortiFlex tokens (sent along), never admin passwords or the Proxmox secret."""
     topo = model.merged(r.topology)
     name = ""
     sid = (topo.get("pve") or {}).get("server_id")
     if r.full and sid:
         row = db.get_server(db.connect(DATA_DIR), sid)
         name = row["name"] if row else ""
-    body = csvio.export_csv(topo, full=r.full, server_name=name)
+    body = csvio.export_csv(topo, full=r.full, server_name=name, tokens=r.tokens)
     fn = "sdwan-volledig.csv" if r.full else "sdwan-devices.csv"
     return Response(body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 

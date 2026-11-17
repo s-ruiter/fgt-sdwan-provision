@@ -30,7 +30,7 @@ em, es = csvio.export_csv(m), csvio.export_csv(s)
 for txt in (em, es):
     body = "\n".join(l for l in txt.splitlines() if not l.lstrip("\ufeff").startswith("#")).lower()
     assert txt.startswith("\ufeff") and "[devices]" in txt and "[algemeen]" not in txt and "[vrf]" not in txt
-    assert not any(w in body for w in ("acme", "adom", "dns", "psk", "token", "secret", "wachtwoord", "password"))
+    assert not any(w in body for w in ("acme", "adom", "dns", "psk", "secret", "wachtwoord", "password"))
     assert "initial_ip" not in txt
 # LAN columns follow the mode
 assert "lan2_intf" in cols(em) and "lan3_intf" not in cols(em)
@@ -42,8 +42,8 @@ assert "lan3_intf" in cols(csvio.export_csv(three))
 for delim in (";", ","):
     hubs, edges, notes, todo = imp(csvio.export_csv(m, delim), m)
     assert [d["name"] for d in hubs] == ["site1-H1", "site1-H2"] and len(edges) == 3 and notes == [] and todo == [], (todo, notes)
-    assert hubs[0]["wan1_gw"] == "100.64.1.6" and hubs[0]["isp2_ip"] == m["hubs"][0]["isp2_ip"] and "isp2_ip" not in edges[0]
-    assert edges[1]["isp2_intf"] == "" and edges[0]["lans"] == m["edges"][0]["lans"]
+    assert hubs[0]["wan1_gw"] == "100.64.1.6" and hubs[0]["wan2_ip"] == m["hubs"][0]["wan2_ip"] and "wan2_ip" not in edges[0]
+    assert edges[1]["wan2_intf"] == "" and edges[0]["lans"] == m["edges"][0]["lans"]
 # single-VRF GUI + multi-VRF layout in the file: extra LAN's dropped with a note
 hubs, edges, notes, todo = imp(em, s)
 assert all(len(d["lans"]) <= 1 for d in hubs + edges) and any("lan2+" in n for n in notes), notes
@@ -57,9 +57,9 @@ assert sum("genegeerd" in n for n in notes) == 1 and len(hubs) == 2
 # blank template -> serials missing is a todo, not an error
 h2, e2, _, todo = imp(csvio.export_csv(model.merged({})), model.merged({}))
 assert any("serienummer" in e for e in todo) and len(h2) == 2
-# isp1_ip derived, aliases, Excel-ish whitespace
+# wan1_hub_ip derived, aliases, Excel-ish whitespace
 h3, e3, _, _ = imp("[devices]\ntype;name;serial;wan1_mode;wan1_ip\n Hub ;H;X;static;100.64.1.1/29\nspoke;E;Y;;\n", m)
-assert h3[0]["isp1_ip"] == "100.64.1.1" and e3[0]["wan1_mode"] == "dhcp"
+assert h3[0]["wan1_hub_ip"] == "100.64.1.1" and e3[0]["wan1_mode"] == "dhcp"
 # errors name the row/column
 for bad, needle in [("", "[devices]"), ("[algemeen]\nk;v\n", "[devices]"), ("[bogus]\n", "onbekende sectie"), ("a;b\n", "buiten een sectie"),
                     ("[devices]\ntype;name\nrouter;A\n", "type 'router'"), ("[devices]\ntype;name\nhub;A\nhub;A\n", "dubbel"),
@@ -81,7 +81,9 @@ for multi in (True, False):
     full = csvio.export_csv(g, full=True, server_name="pve01")
     assert all(x in full for x in ("[algemeen]", "[proxmox]", "[devices]")) and ("[vrf]" in full) == multi
     assert "region.lan_summary" in full.split("[proxmox]")[0] or multi
-    assert "token" not in "\n".join(l for l in full.splitlines() if not l.startswith("#")).lower().replace("pve.", "")
+    body_full = "\n".join(l for l in full.splitlines() if not l.startswith("#"))
+    assert [l for l in body_full.splitlines() if l.startswith("fmgr.fortiflex_token;")] == ["fmgr.fortiflex_token;;" + csvio.SETTINGS_LABEL["fmgr.fortiflex_token"]]   # key present, value empty
+    assert not any(w in body_full.replace(csvio.SETTINGS_LABEL["fmgr.fortiflex_token"], "").lower() for w in ("secret", "password", "wachtwoord"))
     # devices-only import ignores the settings (note), full import applies them
     r = csvio.import_devices(full, topo(not multi))
     assert r["settings"] == {} and r["has_settings"] and any("genegeerd" in n for n in r["notes"])
@@ -113,4 +115,30 @@ try:
     raise SystemExit("geen fout")
 except csvio.CsvError as e:
     assert "geen getal" in str(e) and "pve.fmg.cores" in str(e)
+# ---- WAN naming, no MPLS, FortiFlex tokens ----------------------------------------------------------------------
+for bad in ("isp", "mpls", "MPLS"):
+    assert bad not in em + es, bad
+assert "wan1_intf" in cols(em) and "wan2_intf" in cols(em) and "wan2_ip" in cols(em) and "fortiflex_token" in cols(em)
+# earlier files (isp*/mpls* columns) still import: aliases + a note about the dropped MPLS columns
+oldf = "[devices]\ntype;name;serial;loopback;isp1_intf;isp2_intf;mpls_intf;wan1_mode;wan1_ip;wan1_gw;isp1_ip;isp2_ip;mpls_ip;lan1_intf;lan1_ip\n" \
+       "hub;H1;FGVMMLTM260000001;10.200.1.253;port1;port2;port4;static;100.64.1.1/29;100.64.1.6;100.64.1.1;100.64.1.9;172.16.1.5;port5;10.1.0.1/24\n"
+r = csvio.import_devices(oldf, s)
+assert r["hubs"][0]["wan1_intf"] == "port1" and r["hubs"][0]["wan2_intf"] == "port2" and r["hubs"][0]["wan2_ip"] == "100.64.1.9"
+assert r["hubs"][0]["wan1_hub_ip"] == "100.64.1.1" and "mpls_intf" not in r["hubs"][0] and any("MPLS" in n for n in r["notes"])
+# tokens: in the file (devices column + FMG in a full export), validated, returned separately, never in the topology
+tk = {"fmg": "FMGTOKEN0123456789", "devices": {"site1-H1": "FGTTOKENHUB1ABCDEF", "site1-3": "FGTTOKENSITE3ABCDE"}}
+for full in (False, True):
+    txt = csvio.export_csv(m, full=full, tokens=tk)
+    assert "FGTTOKENHUB1ABCDEF" in txt and "FGTTOKENSITE3ABCDE" in txt and ("FMGTOKEN0123456789" in txt) == full
+    r = csvio.import_devices(txt, m, True)
+    assert r["tokens"] == tk["devices"] and r["fmg_token"] == ("FMGTOKEN0123456789" if full else ""), (r["tokens"], r["fmg_token"])
+    assert "token" not in str(r["settings"]).lower() and "token" not in str(r["hubs"] + r["edges"]).lower()   # not part of the topology
+    assert not any(w in "\n".join(l for l in txt.splitlines() if not l.startswith("#")).replace(csvio.SETTINGS_LABEL["fmgr.fortiflex_token"], "").lower()
+                   for w in ("secret", "password", "wachtwoord"))
+assert csvio.import_devices(csvio.export_csv(m, tokens=tk), m)["tokens"] == tk["devices"]          # also without opt-in: devices
+try:
+    csvio.import_devices(csvio.export_csv(m, tokens={"devices": {"site1-H1": "kort"}}), m)
+    raise SystemExit("geen fout voor ongeldig token")
+except csvio.CsvError as e:
+    assert "site1-H1" in str(e) and "fortiflex_token" in str(e)
 print("OK  CSV (alleen [devices]): export zonder instellingen/geheimen, LAN-kolommen per modus, import raakt de GUI-instellingen niet, oude secties genegeerd, fouten per rij; volledige export (algemeen/vrf/proxmox) round-trip, alleen met opt-in")

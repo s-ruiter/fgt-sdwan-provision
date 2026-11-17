@@ -7,17 +7,17 @@ import re
 DEFAULT_INITIAL_IP = "192.168.1.99"   # factory default of FortiGate-VM / FortiManager-VM port1
 
 
-def _hub(name, lo, isp1, isp2, mpls, lan):
+def _hub(name, lo, wan1, wan2, lan):
     return {"name": name, "serial": "", "loopback": lo,
-            "isp1_intf": "port1", "isp2_intf": "port2", "mpls_intf": "port4",
-            "wan1_mode": "static", "wan1_ip": f"{isp1}/29", "wan1_gw": "", "initial_ip": DEFAULT_INITIAL_IP,
-            "isp1_ip": isp1, "isp2_ip": isp2, "mpls_ip": mpls,
+            "wan1_intf": "port1", "wan2_intf": "port2",
+            "wan1_mode": "static", "wan1_ip": f"{wan1}/29", "wan1_gw": "", "initial_ip": DEFAULT_INITIAL_IP,
+            "wan1_hub_ip": wan1, "wan2_ip": wan2,
             "lans": [{"intf": "port5", "ip": lan}]}
 
 
-def _edge(name, lo, n, isp2=True):
+def _edge(name, lo, n, wan2=True):
     return {"name": name, "serial": "", "loopback": lo,
-            "isp1_intf": "port1", "isp2_intf": "port2" if isp2 else "", "mpls_intf": "port4",
+            "wan1_intf": "port1", "wan2_intf": "port2" if wan2 else "",
             "wan1_mode": "dhcp", "wan1_ip": "", "wan1_gw": "", "initial_ip": DEFAULT_INITIAL_IP,
             "lans": [{"intf": "port5", "ip": f"10.0.{n}.1/24"}, {"intf": "port6", "ip": f"10.0.10{n}.1/24"}]}
 
@@ -60,12 +60,12 @@ DEFAULTS = {
         ],
     },
     "hubs": [
-        _hub("site1-H1", "10.200.1.253", "100.64.1.1", "100.64.1.9", "172.16.1.5", "10.1.0.1/24"),
-        _hub("site1-H2", "10.200.1.254", "100.64.2.1", "100.64.2.9", "172.16.2.5", "10.2.0.1/24"),
+        _hub("site1-H1", "10.200.1.253", "100.64.1.1", "100.64.1.9", "10.1.0.1/24"),
+        _hub("site1-H2", "10.200.1.254", "100.64.2.1", "100.64.2.9", "10.2.0.1/24"),
     ],
     "edges": [
         _edge("site1-1", "10.200.1.1", 1),
-        _edge("site1-2", "10.200.1.2", 2, isp2=False),
+        _edge("site1-2", "10.200.1.2", 2, wan2=False),
         _edge("site1-3", "10.200.1.3", 3),
     ],
 }
@@ -174,8 +174,8 @@ def validate(t):
                     err.append(f"{n}: LAN{k+1} ongeldig IP/prefix")
             if _multi(t) and len(d.get("lans", [])) > len(r.get("vrfs", [])):
                 err.append(f"{n}: meer LAN's dan VRF's")
-            if not d.get("isp1_intf"):
-                err.append(f"{n}: wan1 (isp1_intf, bv. port1) is verplicht: ZTP/FMG-verbinding loopt hierover")
+            if not d.get("wan1_intf"):
+                err.append(f"{n}: wan1-poort (bv. port1) is verplicht: ZTP/FMG-verbinding loopt hierover")
             mode = d.get("wan1_mode")
             if mode not in ("static", "dhcp"):
                 err.append(f"{n}: wan1_mode moet 'static' of 'dhcp' zijn")
@@ -187,9 +187,9 @@ def validate(t):
             if d.get("initial_ip") and not _ip(d["initial_ip"]):
                 err.append(f"{n}: ongeldig initieel IP")
     for h in t.get("hubs", []):
-        for k in ("isp1", "isp2", "mpls"):
-            if h.get(f"{k}_intf") and not _ip(h.get(f"{k}_ip", "")):
-                err.append(f"{h.get('name')}: {k}_ip (hub-underlay IP) ongeldig")
+        for k, key in (("wan1", "wan1_hub_ip"), ("wan2", "wan2_ip")):
+            if h.get(f"{k}_intf") and not _ip(h.get(key, "")):
+                err.append(f"{h.get('name')}: {k.upper()} hub-IP ongeldig")
     return err
 
 
@@ -197,11 +197,11 @@ def _lan_var(k, suffix):
     return f"lan{'' if k == 0 else k + 1}_{suffix}"
 
 
-def hub_isp1_ip(h):
+def hub_wan1_ip(h):
     """Hub underlay address the branches connect to; follows wan1 when that is static."""
     if h.get("wan1_mode") == "static" and h.get("wan1_ip"):
         return split_cidr(h["wan1_ip"])[0]
-    return h.get("isp1_ip")
+    return h.get("wan1_hub_ip")
 
 
 def _multi(t):
@@ -224,12 +224,11 @@ def build(t):
         regions[reg_name]["vrfs"] = [{"id": v["id"], "lan_summary": v["lan_summary"]} for v in vrfs]
     access = json.dumps(t.get("wan1_access", "ping https ssh fgfm").split())
     ifaces = [
-        # wan1: address mode comes from the inventory (isp1_addr = 'dhcp' or a.b.c.d/nn);
+        # wan1: address mode comes from the inventory (wan1_addr = 'dhcp' or a.b.c.d/nn);
         # 'access' keeps SSH/HTTPS/fgfm, otherwise the template resets allowaccess to 'ping'.
-        "{'name': isp1_intf, 'role': 'wan', 'ol_type': 'ISP1', 'ip': isp1_addr, 'dia': true, "
+        "{'name': wan1_intf, 'role': 'wan', 'ol_type': 'WAN1', 'ip': wan1_addr, 'dia': true, "
         f"'access': {access}}}",
-        "{'name': isp2_intf, 'role': 'wan', 'ol_type': 'ISP2', 'ip': 'dhcp', 'dia': true}",
-        "{'name': mpls_intf, 'role': 'wan', 'ol_type': 'MPLS', 'ip': 'dhcp', 'transport_group': 2}",
+        "{'name': wan2_intf, 'role': 'wan', 'ol_type': 'WAN2', 'ip': 'dhcp', 'dia': true}",
     ]
     for k, v in enumerate(vrfs):
         dia = ", 'allow_dia': true" if v.get("dia") else ""
@@ -240,13 +239,10 @@ def build(t):
     hubs = {}
     for n, h in enumerate(t["hubs"], start=1):
         ov = {}
-        ips = {"isp1": hub_isp1_ip(h), "isp2": h.get("isp2_ip"), "mpls": h.get("mpls_ip")}
-        for j, (ol, key) in enumerate((("ISP1", "isp1"), ("ISP2", "isp2"), ("MPLS", "mpls"))):
+        ips = {"wan1": hub_wan1_ip(h), "wan2": h.get("wan2_ip")}
+        for j, (ol, key) in enumerate((("WAN1", "wan1"), ("WAN2", "wan2"))):
             if h.get(f"{key}_intf") and ips[key]:
-                o = {"wan_ip": ips[key], "network_id": str(n * 10 + j + 1)}
-                if ol != "MPLS":
-                    o["hub2hub"] = False
-                ov[ol] = o
+                ov[ol] = {"wan_ip": ips[key], "network_id": str(n * 10 + j + 1), "hub2hub": False}
         hubs[h["name"]] = {"lo_bgp": h["loopback"], "overlays": ov}
     parts = [
         "{% set cert_auth = false %}",
@@ -268,8 +264,8 @@ def build(t):
 
     def meta(d):
         m = {"hostname": d["name"], "loopback": d["loopback"], "profile": "OneSizeFitsAll", "region": reg_name,
-             "isp1_addr": d["wan1_ip"].strip() if d.get("wan1_mode") == "static" else "dhcp"}
-        for k in ("isp1_intf", "isp2_intf", "mpls_intf"):
+             "wan1_addr": d["wan1_ip"].strip() if d.get("wan1_mode") == "static" else "dhcp"}
+        for k in ("wan1_intf", "wan2_intf"):
             if d.get(k):
                 m[k] = d[k]
         for k, l in enumerate(d.get("lans", [])[:None if multi else 1]):
@@ -293,7 +289,7 @@ def underlay_fragment(t, d):
     out = [f"# ZTP underlay (fgt-sdwan-provision) - {d['name']}"]
     if d.get("wan1_mode") == "static":
         out += ["config router static", "  edit 1", f"    set gateway {d['wan1_gw'].strip()}",
-                f"    set device \"{d['isp1_intf']}\"", *([f"    set vrf {pe}"] if pe else []), "  next", "end"]
+                f"    set device \"{d['wan1_intf']}\"", *([f"    set vrf {pe}"] if pe else []), "  next", "end"]
     out += ["config system dns", f"  set primary {t['dns_primary']}"]
     if t.get("dns_secondary"):
         out.append(f"  set secondary {t['dns_secondary']}")

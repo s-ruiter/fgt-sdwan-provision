@@ -21,7 +21,7 @@ def _port_no(name):
 
 def fgt_nics(dev, cfg):
     """One virtio NIC per port up to the highest portN the device uses; bridge/VLAN from the per-port table."""
-    used = [dev.get(k) for k in ("isp1_intf", "isp2_intf", "mpls_intf")] + [l.get("intf") for l in dev.get("lans", [])]
+    used = [dev.get(k) for k in ("wan1_intf", "wan2_intf")] + [l.get("intf") for l in dev.get("lans", [])]
     nums = [n for n in map(_port_no, used) if n]
     top = max(nums or [1])
     ports = cfg.get("ports", {})

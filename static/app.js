@@ -49,7 +49,7 @@ function ipProblem(kind, v) {
   return "";
 }
 const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip" };
-const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip", isp2_ip: "ip", mpls_ip: "ip" };
+const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip", wan2_ip: "ip" };
 function markIpFields() {
   for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
   document.querySelectorAll(".dev [data-f]").forEach((el) => {
@@ -102,7 +102,7 @@ function pveFill(p) {
   $("#ports").innerHTML = "<thead><tr><th>Poort</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
     Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
 }
-const WAN = [["isp1_intf", "wan1-poort (ZTP)"], ["isp2_intf", "ISP2-poort"], ["mpls_intf", "MPLS-poort"]];
+const WAN = [["wan1_intf", "wan1-poort (ZTP)"], ["wan2_intf", "wan2-poort"]];
 function dev(kind, d, i) {
   const hub = kind === "hubs";
   let h = `<div class="dev" data-k="${kind}" data-i="${i}"><b>${esc(d.name)}</b><div class="fields">`;
@@ -111,7 +111,7 @@ function dev(kind, d, i) {
   h += `<div class="f"><label>wan1-adressering</label><select data-f="wan1_mode"><option value="static"${d.wan1_mode === "static" ? " selected" : ""}>Statisch</option><option value="dhcp"${d.wan1_mode === "dhcp" ? " selected" : ""}>Dynamisch (DHCP)</option></select></div>`;
   h += fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway (statisch)", d.wan1_gw);
   h += `<div class="f"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
-  if (hub) ["isp2", "mpls"].forEach((k) => (h += fld(k + "_ip", k.toUpperCase() + " hub-IP", d[k + "_ip"])));
+  if (hub) h += fld("wan2_ip", "wan2 hub-IP", d.wan2_ip);
   (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
   return h + "</div></div>";
 }
@@ -229,8 +229,13 @@ async function loadPve(msg) {
 }
 $("#btn_pve").onclick = () => loadPve();
 $("#pve_node").addEventListener("change", () => loadPve());
+function csvTokens() {
+  const devices = {};
+  document.querySelectorAll("[data-tok]").forEach((e) => { if (e.value.trim()) devices[e.dataset.tok] = e.value.trim(); });
+  return { fmg: $("#fm_token").value.trim(), devices };
+}
 async function csvDownload(full) {
-  const r = await post("/api/csv/export", { topology: collect(), full });
+  const r = await post("/api/csv/export", { topology: collect(), full, tokens: csvTokens() });
   if (!r.ok) { $("#csv_res").textContent = "Export mislukt"; return; }
   const url = URL.createObjectURL(await r.blob()), a = document.createElement("a");
   a.href = url; a.download = full ? "sdwan-volledig.csv" : "sdwan-devices.csv"; a.click(); URL.revokeObjectURL(url);
@@ -267,9 +272,11 @@ $("#csv_file").onchange = async (ev) => {
     if (sname) { srv = SERVERS.find((s) => s.name === sname); if (srv) $("#pve_server").value = srv.id; else extra.push(`Proxmox-server '${sname}' bestaat niet: kies of voeg er een toe op de pagina Servers`); }
   }
   T = nt; draw(); markIpFields();
-  document.querySelectorAll("[data-tok]").forEach((e) => { if (toks[e.dataset.tok]) e.value = toks[e.dataset.tok]; });
+  const imp = j.tokens || {};
+  document.querySelectorAll("[data-tok]").forEach((e) => { const v = imp[e.dataset.tok] || toks[e.dataset.tok]; if (v) e.value = v; });
+  if (j.fmg_token) $("#fm_token").value = j.fmg_token;
   if (srv) await loadPve();
-  $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + ([...j.notes, ...extra].length ? ` (${[...j.notes, ...extra].join("; ")})` : "");
+  $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (Object.keys(imp).length || j.fmg_token ? ` · FortiFlex-tokens: ${Object.keys(imp).length + (j.fmg_token ? 1 : 0)}` : "") + ([...j.notes, ...extra].length ? ` (${[...j.notes, ...extra].join("; ")})` : "");
   if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Nog in te vullen/te corrigeren: " + j.todo.join(" · "); }
 };
 $("#btn_render").onclick = async () => {
