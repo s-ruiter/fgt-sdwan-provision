@@ -1,62 +1,67 @@
-"""CSV export/import round-trip and error handling (no servers).  python -m tests.test_csv"""
+"""CSV (devices only): export, import over the current GUI settings, errors.  python -m tests.test_csv"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import csvio, model
 
-t = model.merged({})
-t["adom"], t["dns_primary"], t["psk"] = "ACME", "1.1.1.1", "Lab;Psk,1"          # delimiter characters in a value
-t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
-t["region"]["multi_vrf"] = False
-t["region"]["lan_summary"] = "10.0.0.0/8"
-for i, d in enumerate(t["hubs"] + t["edges"]):
-    d["serial"] = f"FGVMMLTM2600{i:04d}"
-t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.64.1.6", "100.64.2.6"
 
-txt = csvio.export_csv(t)
-assert txt.startswith("\ufeff") and "[algemeen]" in txt and "[devices]" in txt
-body = "\n".join(l for l in txt.splitlines() if not l.lstrip("\ufeff").startswith("#")).lower()
-assert not any(w in body for w in ("token", "secret", "wachtwoord", "password"))
-# round-trip (both delimiters)
-for delim in (";", ","):
-    back, notes, todo = csvio.import_csv(csvio.export_csv(t, delim))
-    for k in ("adom", "dns_primary", "psk", "os_ver", "platform", "hub2hub", "lo_summary", "wan1_access"):
-        assert back[k] == t[k], (k, back[k], t[k])
-    assert back["fmgr"]["ip"] == "10.0.0.5/24" and back["region"]["multi_vrf"] is False and back["region"]["bgp_as"] == 65001
-    assert back["region"]["vrfs"] == t["region"]["vrfs"]
-    assert [d["name"] for d in back["hubs"]] == ["site1-H1", "site1-H2"] and len(back["edges"]) == 3
-    assert back["hubs"][0]["wan1_gw"] == "100.64.1.6" and back["hubs"][0]["isp2_ip"] == t["hubs"][0]["isp2_ip"]
-    assert back["edges"][1]["isp2_intf"] == "" and back["edges"][0]["lans"] == t["edges"][0]["lans"][:1]
-    assert "isp2_ip" not in back["edges"][0] and todo == [] and notes == [], (todo, notes)
-# the file differs per mode
+def topo(multi):
+    t = model.merged({})
+    t["region"]["multi_vrf"] = multi
+    t["adom"], t["dns_primary"], t["psk"] = "ACME", "1.1.1.1", "Lab;Psk,1"
+    t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
+    for i, d in enumerate(t["hubs"] + t["edges"]):
+        d["serial"] = f"FGVMMLTM2600{i:04d}"
+    t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.64.1.6", "100.64.2.6"
+    return t
+
+
 def cols(text):
     return next(l for l in text.splitlines() if l.startswith("type"))
-single, multi = csvio.export_csv(t), csvio.export_csv(dict(t, region=dict(t["region"], multi_vrf=True)))
-assert "[vrf]" not in single and "region.lan_summary" in single and "lan1_intf" in cols(single) and "lan2_intf" not in cols(single)
-assert "[vrf]" in multi and "region.lan_summary" not in multi and "lan2_intf" in cols(multi) and "lan3_intf" not in cols(multi)
-three = dict(t["region"], multi_vrf=True, vrfs=t["region"]["vrfs"] + [{"id": 13, "lan_summary": "10.0.0.0/14", "dia": False}])
-assert "lan3_intf" in cols(csvio.export_csv(dict(t, region=three)))          # one LAN column pair per VRF
-# importing the multi-VRF layout into single-VRF mode: extra LANs and [vrf] are ignored with a note
-mixed = multi.replace("region.multi_vrf;ja", "region.multi_vrf;nee")
-bm, nm, _ = csvio.import_csv(mixed)
-assert all(len(d["lans"]) <= 1 for d in bm["hubs"] + bm["edges"]) and any("[vrf] genegeerd" in n for n in nm) and any("lan2+" in n for n in nm), nm
-# blank template: serials missing -> todo list, not an error
-blank, _, todo = csvio.import_csv(csvio.export_csv(model.merged({})))
-assert any("serienummer" in e for e in todo) and len(blank["hubs"]) == 2
-# Excel-ish: cp1252-style, extra spaces, 'Ja', unknown key, branch alias
-x = "[algemeen]\nsleutel;waarde\n adom ; X1 \nregion.multi_vrf;Ja\nfoo.bar;1\n[devices]\ntype;name;serial;isp1_intf\nhub;H1;FGVMMLTM260000001;port1\nspoke;E1;FGVMMLTM260000002;port1\n"
-b, notes, _ = csvio.import_csv(x)
-assert b["adom"] == "X1" and b["region"]["multi_vrf"] is True and notes and "foo.bar" in notes[0]
-assert b["hubs"][0]["wan1_mode"] == "static" and b["edges"][0]["wan1_mode"] == "dhcp"
-b2, _, td = csvio.import_csv("[devices]\ntype;name;serial;wan1_mode;wan1_ip\nhub;H;X;static;100.64.1.1/29\n")
-assert b2["hubs"][0]["isp1_ip"] == "100.64.1.1"
+
+
+m, s = topo(True), topo(False)
+em, es = csvio.export_csv(m), csvio.export_csv(s)
+# only [devices]; nothing from the GUI settings, no secrets
+for txt in (em, es):
+    body = "\n".join(l for l in txt.splitlines() if not l.lstrip("\ufeff").startswith("#")).lower()
+    assert txt.startswith("\ufeff") and "[devices]" in txt and "[algemeen]" not in txt and "[vrf]" not in txt
+    assert not any(w in body for w in ("acme", "lab;psk", "1.1.1.1", "adom", "dns", "psk", "token", "secret", "wachtwoord", "password"))
+    assert "initial_ip" not in txt
+# LAN columns follow the mode
+assert "lan2_intf" in cols(em) and "lan3_intf" not in cols(em)
+assert "lan1_intf" in cols(es) and "lan2_intf" not in cols(es)
+three = dict(m, region=dict(m["region"], vrfs=m["region"]["vrfs"] + [{"id": 13, "lan_summary": "10.0.0.0/14", "dia": False}]))
+assert "lan3_intf" in cols(csvio.export_csv(three))
+
+# round-trip over the GUI settings, both delimiters; settings are not touched (import returns devices only)
+for delim in (";", ","):
+    hubs, edges, notes, todo = csvio.import_devices(csvio.export_csv(m, delim), m)
+    assert [d["name"] for d in hubs] == ["site1-H1", "site1-H2"] and len(edges) == 3 and notes == [] and todo == [], (todo, notes)
+    assert hubs[0]["wan1_gw"] == "100.64.1.6" and hubs[0]["isp2_ip"] == m["hubs"][0]["isp2_ip"] and "isp2_ip" not in edges[0]
+    assert edges[1]["isp2_intf"] == "" and edges[0]["lans"] == m["edges"][0]["lans"]
+# single-VRF GUI + multi-VRF layout in the file: extra LAN's dropped with a note
+hubs, edges, notes, todo = csvio.import_devices(em, s)
+assert all(len(d["lans"]) <= 1 for d in hubs + edges) and any("lan2+" in n for n in notes), notes
+# multi-VRF GUI with a single-VRF file: lan2 missing -> validation todo is only advisory, import still succeeds
+hubs, edges, notes, todo = csvio.import_devices(es, m)
+assert len(edges) == 3
+# [algemeen]/[vrf] in an old file are ignored with a note
+old = "[algemeen]\nsleutel;waarde\nadom;HACK\n[vrf]\nid;lan_summary\n99;10.0.0.0/8\n" + em.split("[devices]")[0].count("x") * "" + "[devices]" + em.split("[devices]")[1]
+hubs, edges, notes, todo = csvio.import_devices(old, m)
+assert sum("genegeerd" in n for n in notes) == 2 and len(hubs) == 2
+# blank template -> serials missing is a todo, not an error
+h2, e2, _, todo = csvio.import_devices(csvio.export_csv(model.merged({})), model.merged({}))
+assert any("serienummer" in e for e in todo) and len(h2) == 2
+# isp1_ip derived, aliases, Excel-ish whitespace
+h3, e3, _, _ = csvio.import_devices("[devices]\ntype;name;serial;wan1_mode;wan1_ip\n Hub ;H;X;static;100.64.1.1/29\nspoke;E;Y;;\n", m)
+assert h3[0]["isp1_ip"] == "100.64.1.1" and e3[0]["wan1_mode"] == "dhcp"
 # errors name the row/column
-for bad, needle in [("", "geen secties"), ("[x]\n", "onbekende sectie"), ("a;b\n", "buiten een sectie"),
+for bad, needle in [("", "[devices]"), ("[algemeen]\nk;v\n", "[devices]"), ("a;b\n", "buiten een sectie"),
                     ("[devices]\ntype;name\nrouter;A\n", "type 'router'"), ("[devices]\ntype;name\nhub;A\nhub;A\n", "dubbel"),
-                    ("[algemeen]\nk;v\nregion.bgp_as;abc\n", "geen getal"), ("[algemeen]\nk;v\nhub2hub;misschien\n", "ja/nee"),
-                    ("[vrf]\nid;lan_summary\nx;10.0.0.0/8\n", "geen getal"), ("[devices]\nname\nA\n", "kolom 'type'")]:
+                    ("[devices]\nname\nA\n", "kolom 'type'"), ("[devices]\ntype;name;wan1_mode\nhub;A;pppoe\n", "static of dhcp")]:
     try:
-        csvio.import_csv(bad)
+        csvio.import_devices(bad, m)
         raise SystemExit(f"geen fout voor {bad!r}")
     except csvio.CsvError as e:
         assert needle in str(e), (bad, str(e))
-print("OK  CSV: export zonder geheimen, round-trip (; en ,), blanco -> todo, Excel-varianten, duidelijke fouten")
+print("OK  CSV (alleen [devices]): export zonder instellingen/geheimen, LAN-kolommen per modus, import raakt de GUI-instellingen niet, oude secties genegeerd, fouten per rij")

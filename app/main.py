@@ -238,7 +238,8 @@ def csv_export(r: RenderReq):
 
 
 @app.post("/api/csv/import")
-async def csv_import(file: UploadFile = File(...)):
+async def csv_import(file: UploadFile = File(...), topology: str = Form("{}")):
+    """Devices only. The current GUI settings are sent along so LAN count / VRF mode are validated against them."""
     raw = await file.read()
     if len(raw) > 1_000_000:
         raise HTTPException(413, detail="CSV-bestand te groot")
@@ -247,12 +248,15 @@ async def csv_import(file: UploadFile = File(...)):
     except UnicodeDecodeError:
         text = raw.decode("cp1252")                      # Excel 'CSV (door lijst gescheiden)'
     try:
-        topo, notes, todo = csvio.import_csv(text)
+        current = json.loads(topology or "{}")
+    except ValueError:
+        raise HTTPException(422, detail="CSV: ongeldige topologie in het verzoek")
+    try:
+        hubs, edges, notes, todo = csvio.import_devices(text, current)
     except csvio.CsvError as e:
         raise HTTPException(422, detail=f"CSV: {e}")
-    return {"topology": topo, "notes": notes, "todo": todo,
-            "summary": f"{len(topo['hubs'])} hub(s), {len(topo['edges'])} branch(es), "
-                       f"{'multi-VRF met ' + str(len(topo['region']['vrfs'])) + ' VRF(s)' if topo['region'].get('multi_vrf', True) else 'single-VRF'}"}
+    return {"hubs": hubs, "edges": edges, "notes": notes, "todo": todo,
+            "summary": f"{len(hubs)} hub(s), {len(edges)} branch(es)"}
 
 
 @app.post("/api/fmg/test")

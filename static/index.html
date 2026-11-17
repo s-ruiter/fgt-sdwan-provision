@@ -27,7 +27,7 @@
       <div id="errors"></div>
 
       <div class="card" id="sec_pve">
-        <h2><span class="num">01</span>Proxmox &amp; images <small>(voor methode Day-0)</small></h2>
+        <h2><span class="num">01</span>Proxmox &amp; images <small>(de VM's worden via Day-0 aangemaakt)</small></h2>
         <div class="fields">
           <div class="f"><label>Proxmox-server</label><select id="pve_server"></select></div>
         </div>
@@ -66,28 +66,24 @@
       </div>
 
       <div class="card">
-        <h2><span class="num">02</span>FortiManager <small>(altijd een vast IP)</small></h2>
+        <h2><span class="num">02</span>FortiManager <small>(altijd een vast IP; Day-0)</small></h2>
         <div class="fields">
           <div class="f"><label>Hostnaam</label><input id="fm_name"></div>
           <div class="f"><label>Vast IP (a.b.c.d/nn)</label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
           <div class="f"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
           <div class="f"><label>Poort</label><input id="fm_port"></div>
           <div class="f"><label>ADOM-naam</label><input id="adom"></div>
-          <div class="f" data-ssh="fmg" hidden><label>Initieel IP (factory, alleen SSH)</label><input id="fm_init"></div>
           <div class="f"><label>Admin-gebruiker</label><input id="fmg_user" value="admin"></div>
           <div class="f"><label>Admin- en SSH-wachtwoord</label><input id="fmg_pass" type="password" autocomplete="off"></div>
           <div class="f"><label>FortiFlex-token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
-        <div class="f" style="max-width:420px"><label>Methode</label>
-          <select id="m_fmg"><option value="day0" selected>Day-0: tool maakt de VM op Proxmox (cloud-init)</option><option value="ssh">SSH: bestaande VM (factory, initieel IP)</option><option value="none">Geen (al ingericht)</option></select></div>
-        <div class="btnrow" id="row_test" hidden><button id="btn_test">Verbinding testen</button><span class="hint" id="test_res"></span></div>
       </div>
 
       <div class="card">
         <h2><span class="num">03</span>Topologie</h2>
         <div class="btnrow">
-          <button id="btn_csv_dl" title="Huidige invoer als CSV, in het formaat van de gekozen modus (multi-VRF of single-VRF); zonder tokens en wachtwoorden">CSV downloaden</button>
-          <button id="btn_csv_up">CSV importeren</button><input type="file" id="csv_file" accept=".csv,text/csv" hidden>
+          <button id="btn_csv_dl" title="De devices als CSV, met LAN-kolommen volgens de gekozen modus (multi-VRF of single-VRF); zonder tokens en wachtwoorden">CSV downloaden (devices)</button>
+          <button id="btn_csv_up">CSV importeren (devices)</button><input type="file" id="csv_file" accept=".csv,text/csv" hidden>
           <span class="hint" id="csv_res"></span>
         </div>
         <div class="hint" id="csv_todo" hidden></div>
@@ -112,9 +108,7 @@
         <div class="fields">
           <div class="f"><label>Admin- en SSH-wachtwoord FortiGates</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
         </div>
-        <div class="f" style="max-width:420px"><label>Methode</label>
-          <select id="m_fgt"><option value="day0" selected>Day-0: tool maakt de VM's op Proxmox (cloud-init)</option><option value="ssh">SSH: bestaande VM's (factory, initieel IP)</option><option value="none">Geen (al ingericht)</option></select></div>
-        <div class="hint">Per FortiGate vul je hierboven wan1-adressering, het FortiFlex-token en (alleen voor SSH) het initiële IP in. Met Day-0 gaan IP, wachtwoord, FMG-koppeling en token mee in de config-drive; initieel IP is dan niet nodig.</div>
+        <div class="hint">Per FortiGate vul je hieronder het serienummer, de wan1-adressering (statisch of DHCP) en het FortiFlex-token in. De tool maakt de VM's via Day-0 (cloud-init) op Proxmox: IP, wachtwoord, FMG-koppeling en token gaan mee in de config-drive.</div>
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
       </div>

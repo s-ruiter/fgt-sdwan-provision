@@ -48,8 +48,8 @@ function ipProblem(kind, v) {
   }
   return "";
 }
-const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip", fm_init: "ip", dns1: "ip", dns2: "ip" };
-const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip", initial_ip: "ip", isp2_ip: "ip", mpls_ip: "ip" };
+const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip", dns1: "ip", dns2: "ip" };
+const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip", isp2_ip: "ip", mpls_ip: "ip" };
 function markIpFields() {
   for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
   document.querySelectorAll(".dev [data-f]").forEach((el) => {
@@ -110,7 +110,6 @@ function dev(kind, d, i) {
   WAN.forEach(([k, l]) => (h += fld(k, l, d[k])));
   h += `<div class="f"><label>wan1-adressering</label><select data-f="wan1_mode"><option value="static"${d.wan1_mode === "static" ? " selected" : ""}>Statisch</option><option value="dhcp"${d.wan1_mode === "dhcp" ? " selected" : ""}>Dynamisch (DHCP)</option></select></div>`;
   h += fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway (statisch)", d.wan1_gw);
-  h += `<div class="f" data-ssh="fgt" hidden><label>Initieel IP (alleen SSH)</label><input data-f="initial_ip" value="${esc(d.initial_ip)}"></div>`;
   h += `<div class="f"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
   if (hub) ["isp2", "mpls"].forEach((k) => (h += fld(k + "_ip", k.toUpperCase() + " hub-IP", d[k + "_ip"])));
   (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
@@ -120,7 +119,7 @@ function draw() {
   const p = T.pve;
   $("#adom").value = T.adom; $("#platform").value = T.platform; $("#psk").value = T.psk; $("#hub2hub").checked = !!T.hub2hub;
   $("#dns1").value = T.dns_primary; $("#dns2").value = T.dns_secondary; $("#wan1_access").value = T.wan1_access;
-  $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port; $("#fm_init").value = T.fmgr.initial_ip;
+  $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port;
   $("#r_name").value = T.region.name; $("#r_as").value = T.region.bgp_as; $("#r_lo").value = T.region.lo_summary;
   pveFill(p);
   const mv = T.region.multi_vrf !== false;
@@ -134,7 +133,7 @@ function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);
   t.adom = $("#adom").value.trim(); t.platform = $("#platform").value.trim(); t.psk = $("#psk").value; t.hub2hub = $("#hub2hub").checked;
   t.dns_primary = $("#dns1").value.trim(); t.dns_secondary = $("#dns2").value.trim(); t.wan1_access = $("#wan1_access").value.trim();
-  t.fmgr = { name: $("#fm_name").value.trim(), ip: $("#fm_ip").value.trim(), gateway: $("#fm_gw").value.trim(), port: $("#fm_port").value.trim() || "port1", initial_ip: $("#fm_init").value.trim() };
+  t.fmgr = { ...T.fmgr, name: $("#fm_name").value.trim(), ip: $("#fm_ip").value.trim(), gateway: $("#fm_gw").value.trim(), port: $("#fm_port").value.trim() || "port1" };
   t.pve = {
     server_id: $("#pve_server").value ? +$("#pve_server").value : null, url: "", token_id: "", verify_tls: true, node: $("#pve_node").value.trim(),
     disk_storage: $("#pve_dstore").value.trim(), import_storage: $("#pve_istore").value.trim(), iso_storage: $("#pve_isostore").value.trim(),
@@ -163,67 +162,7 @@ function secrets() {
 }
 const fmgCfg = () => ({ host: null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
 
-// "initial IP" is only relevant for the SSH method (existing factory VMs)
-function syncMethods() {
-  $("#row_test").hidden = $("#m_fmg").value !== "none";   // connection test only makes sense for an FMG that already runs
-  document.querySelectorAll("[data-ssh]").forEach((el) => (el.hidden = $(el.dataset.ssh === "fmg" ? "#m_fmg" : "#m_fgt").value !== "ssh"));
-}
-$("#m_fmg").addEventListener("change", syncMethods); $("#m_fgt").addEventListener("change", syncMethods);
-
-// ---- images -----------------------------------------------------------------
-function imgDraw() {
-  for (const r of ["fgt", "fmg"]) {
-    const s = $("#img_" + r), cur = s.value, l = IMGS.filter((i) => i.role === r);
-    s.innerHTML = l.length ? l.map((i) => `<option value="${i.id}">${esc(i.filename)}${i.version ? " (v" + i.version + ")" : ""}</option>`).join("") : '<option value="">— nog geen image —</option>';
-    if (cur && l.some((i) => i.id === cur)) s.value = cur;
-  }
-  $("#img_list").innerHTML = IMGS.length
-    ? `<table class="imgtbl"><thead><tr><th>Rol</th><th>Bestand</th><th>Versie</th><th>Virtueel</th><th>SHA-256</th><th></th></tr></thead><tbody>` +
-      IMGS.map((i) => `<tr><td>${i.role === "fgt" ? "FortiGate" : "FortiManager"}</td><td class="mono">${esc(i.filename)}${i.warnings.map((w) => `<div class="hint warn">⚠ ${esc(w)}</div>`).join("")}</td><td class="mono">${i.version ? "v" + i.version + (i.build ? " b" + i.build : "") : "—"}</td><td class="mono">${i.virtual_gb} GB</td><td class="mono" title="${i.sha256}">${i.sha256.slice(0, 16)}…</td><td class="actions-cell"><button class="icon danger" data-del="${i.id}" title="Verwijderen"><span class="i"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span></button></td></tr>`).join("") + "</tbody></table>"
-    : '<p class="muted">Nog geen images geüpload.</p>';
-}
-async function imgLoad() { IMGS = await (await fetch("/api/images")).json(); imgDraw(); }
-function upload(role, file) {
-  if (!file) return;
-  const fd = new FormData(); fd.append("role", role); fd.append("file", file);
-  const x = new XMLHttpRequest(), dz = $("#dz_" + role), bar = $("#bar_" + role);
-  dz.classList.add("has"); dz.querySelector("b").textContent = file.name; dz.querySelector("small").textContent = fmtBytes(file.size) + " · uploaden…";
-  x.open("POST", "/api/images");
-  x.upload.onprogress = (e) => { if (e.lengthComputable) bar.style.transform = `scaleX(${e.loaded / e.total})`; };
-  x.onload = async () => {
-    bar.style.transform = "scaleX(0)";
-    if (x.status === 200) {
-      const m = JSON.parse(x.responseText);
-      dz.querySelector("small").textContent = `${fmtBytes(file.size)} · ${m.virtual_gb} GB virtueel · klaar`;
-      showErr([], "#img_err"); await imgLoad();
-    } else {
-      let d; try { d = JSON.parse(x.responseText).detail; } catch (_) { d = x.responseText; }
-      dz.classList.remove("has"); dz.querySelector("b").textContent = "Sleep het bestand hierheen of klik"; dz.querySelector("small").textContent = ".zip of .qcow2";
-      showErr(["Upload mislukt: " + d], "#img_err");
-    }
-  };
-  x.send(fd);
-}
-for (const role of ["fgt", "fmg"]) {
-  const dz = $("#dz_" + role), inp = $("#up_" + role);
-  dz.addEventListener("click", () => inp.click());
-  inp.addEventListener("change", () => { upload(role, inp.files[0]); inp.value = ""; });
-  dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("over"); });
-  dz.addEventListener("dragleave", () => dz.classList.remove("over"));
-  dz.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("over"); upload(role, e.dataTransfer.files[0]); });
-}
-$("#img_list").addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-del]");
-  if (b && confirm("Image verwijderen?")) { await fetch("/api/images/" + b.dataset.del, { method: "DELETE" }); imgLoad(); }
-});
-
 // ---- actions ----------------------------------------------------------------
-$("#btn_test").onclick = async () => {
-  $("#test_res").className = "hint"; $("#test_res").textContent = "…";
-  const c = fmgCfg(); c.host = c.host || $("#fm_ip").value.split("/")[0];
-  const r = await post("/api/fmg/test", c), j = await json(r);
-  $("#test_res").className = "hint " + (r.ok ? "ok" : "error"); $("#test_res").textContent = r.ok ? `OK — ${j.hostname} ${j.version}` : "Fout: " + j.detail;
-};
 // Proxmox data (nodes, storages per node, bridges) is fetched from the saved server and shown as dropdowns
 async function loadPve(msg) {
   const sid = $("#pve_server").value, out = $("#pve_res");
@@ -256,14 +195,13 @@ $("#btn_csv_up").onclick = () => $("#csv_file").click();
 $("#csv_file").onchange = async (ev) => {
   const f = ev.target.files[0]; ev.target.value = "";
   if (!f) return;
-  const fd = new FormData(); fd.append("file", f);
+  const fd = new FormData(); fd.append("file", f); fd.append("topology", JSON.stringify(collect()));
   const r = await fetch("/api/csv/import", { method: "POST", body: fd }), j = await r.json().catch(() => ({}));
   $("#csv_todo").hidden = true;
   if (!r.ok) { $("#csv_res").textContent = "✕ " + (typeof j.detail === "string" ? j.detail : "import mislukt"); return; }
   const toks = Object.fromEntries([...document.querySelectorAll("[data-tok]")].map((e) => [e.dataset.tok, e.value]));
-  const keep = collect(), { pve, ...rest } = j.topology;       // Proxmox-keuzes en tokens blijven zoals ze zijn
-  T = { ...keep, ...rest, pve: keep.pve };
-  draw(); markIpFields(); syncMethods();
+  T = { ...collect(), hubs: j.hubs, edges: j.edges };              // only the devices: every other setting stays as typed in the GUI
+  draw(); markIpFields();
   document.querySelectorAll("[data-tok]").forEach((e) => { if (toks[e.dataset.tok]) e.value = toks[e.dataset.tok]; });
   $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (j.notes.length ? ` (${j.notes.join("; ")})` : "");
   if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Nog in te vullen/te corrigeren: " + j.todo.join(" · "); }
@@ -296,8 +234,8 @@ function stepsDraw(states = {}) {
 $("#btn_deploy").onclick = async () => {
   showErr([]);
   { const e = ipErrors(); if (e.length) return showErr(e); }
-  const dry = $("#dry").checked, mf = $("#m_fmg").value, mg = $("#m_fgt").value;
-  if (!dry && !confirm("Dit schrijft naar FortiManager" + (mf !== "none" || mg !== "none" ? ", maakt/configureert en licenseert de apparaten (die herstarten)" : "") + ". Doorgaan?")) return;
+  const dry = $("#dry").checked, mf = "day0", mg = "day0";   // always Day-0
+  if (!dry && !confirm("Dit schrijft naar FortiManager" + ", maakt de VM's op Proxmox, configureert en licenseert ze (ze herstarten)" + ". Doorgaan?")) return;
   const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: $("#img_fgt").value || null, fmg: $("#img_fmg").value || null } });
   const j = await json(r);
   if (!r.ok) return showErr(errList(j));
@@ -394,6 +332,6 @@ $("#srv_test").onclick = async () => {
   $("#steps").innerHTML = a.steps.map((s) => `<li><b>${esc(s.title)}</b><span>${esc(s.desc)}</span></li>`).join("");
   $("#orch").textContent = a.orchestrator_present ? "Orchestrator-templates gevonden: " + a.orchestrator : "⚠ Orchestrator-templates niet gevonden op " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
-  $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: false }]; draw(); markIpFields(); syncMethods(); });
-  draw(); markIpFields(); syncMethods(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
+  $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: false }]; draw(); markIpFields(); });
+  draw(); markIpFields(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
 })();
