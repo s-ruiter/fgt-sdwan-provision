@@ -1,5 +1,7 @@
 # fgt-sdwan-provision
 
+_UI: dezelfde look & feel als [Spawnpad](https://github.com/s-ruiter/Spawnpad) (Geist, rode accenten, kaarten; lettertype onder SIL OFL, zie `static/fonts/LICENSE.TXT`)._
+
 Deploy tool voor een Fortinet **SD-WAN/ADVPN multi-VRF** topologie via **FortiManager 8.0.x**:
 2 hubs + 3 branches in één regio, ontworpen als LXC op Proxmox met een web-UI.
 

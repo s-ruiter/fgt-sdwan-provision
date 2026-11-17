@@ -317,4 +317,13 @@ def stream(jid: str):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    """Static UI files revalidate on every load, so an update of the tool shows up without a hard refresh."""
+    resp = await call_next(request)
+    if not request.url.path.startswith("/api"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 app.mount("/", StaticFiles(directory=str(STATIC), html=True), name="static")
