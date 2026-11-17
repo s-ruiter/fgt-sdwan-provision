@@ -209,3 +209,5 @@ ol.about li b { font-weight: 600; } ol.about li span { color: var(--text-2); }
 
 .actions-cell button.link { margin: 0 2px; }
 .actions-cell .hint { margin-right: 8px; }
+
+input.bad { border-color: var(--bad) !important; box-shadow: 0 0 0 2px rgb(218 41 28 / .18) !important; }

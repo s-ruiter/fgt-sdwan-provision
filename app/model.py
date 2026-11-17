@@ -74,15 +74,25 @@ _TOKEN = re.compile(r"^[A-Za-z0-9]{10,64}$")
 
 
 def _ip(v, net=False):
+    """Plain IPv4 address (net=False) or, leniently, an IPv4 interface/network such as 10.0.0.0/14 (net=True)."""
     try:
-        (ipaddress.ip_interface if net else ipaddress.ip_address)(str(v).strip())
+        (ipaddress.IPv4Interface if net else ipaddress.IPv4Address)(str(v).strip())
         return True
     except ValueError:
         return False
 
 
 def _cidr(v):
-    return _ip(v, True) and "/" in str(v)
+    """Host address with prefix, strictly a.b.c.d/nn (1-32). Network/broadcast addresses are refused up to /30."""
+    s = str(v).strip()
+    if not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}/\d{1,2}", s):
+        return False
+    try:
+        i = ipaddress.IPv4Interface(s)
+    except ValueError:
+        return False
+    n = i.network
+    return n.prefixlen >= 31 or i.ip not in (n.network_address, n.broadcast_address)
 
 
 def split_cidr(v):
@@ -155,7 +165,7 @@ def validate(t):
             if not _ip(d.get("loopback", "")):
                 err.append(f"{n}: ongeldig loopback-adres")
             for k, l in enumerate(d.get("lans", [])):
-                if l.get("intf") and not _ip(l.get("ip", ""), True):
+                if l.get("intf") and not _cidr(l.get("ip", "")):
                     err.append(f"{n}: LAN{k+1} ongeldig IP/prefix")
             if len(d.get("lans", [])) > len(r.get("vrfs", [])):
                 err.append(f"{n}: meer LAN's dan VRF's")

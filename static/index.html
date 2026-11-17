@@ -31,12 +31,12 @@
         <div class="fields">
           <div class="f"><label>Hostnaam</label><input id="fm_name"></div>
           <div class="f"><label>Vast IP (a.b.c.d/nn)</label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
-          <div class="f"><label>Gateway</label><input id="fm_gw"></div>
+          <div class="f"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
           <div class="f"><label>Poort</label><input id="fm_port"></div>
           <div class="f" data-ssh="fmg" hidden><label>Initieel IP (factory, alleen SSH)</label><input id="fm_init"></div>
           <div class="f"><label>Admin-gebruiker</label><input id="fmg_user" value="admin"></div>
           <div class="f"><label>Admin- en SSH-wachtwoord</label><input id="fmg_pass" type="password" autocomplete="off"></div>
-          <div class="f"><label>FortiFlex-token</label><input id="fm_token" type="password" autocomplete="off"></div>
+          <div class="f"><label>FortiFlex-token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
         <div class="f" style="max-width:420px"><label>Methode</label>
           <select id="m_fmg"><option value="day0" selected>Day-0: tool maakt de VM op Proxmox (cloud-init)</option><option value="ssh">SSH: bestaande VM (factory, initieel IP)</option><option value="none">Geen (al ingericht)</option></select></div>

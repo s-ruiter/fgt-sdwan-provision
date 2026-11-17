@@ -25,6 +25,60 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 
+// ---- IP format checks ---------------------------------------------------------
+// kinds: "ip" = a.b.c.d, "cidr" = a.b.c.d/nn (host address + prefix). Empty is allowed here; required-ness is checked by the server.
+const OCT = "(25[0-5]|2[0-4]\\d|1?\\d?\\d)";
+const RE_IP = new RegExp(`^${OCT}(\\.${OCT}){3}$`);
+const RE_CIDR = new RegExp(`^${OCT}(\\.${OCT}){3}/(3[0-2]|[12]?\\d)$`);
+const ipNum = (s) => s.split(".").reduce((a, o) => a * 256 + +o, 0);
+function maskToPrefix(m) {                     // 255.255.255.0 -> 24 (null if not a contiguous mask)
+  if (!RE_IP.test(m)) return null;
+  const bits = ipNum(m).toString(2).padStart(32, "0");
+  return /^1*0*$/.test(bits) ? bits.indexOf("0") === -1 ? 32 : bits.indexOf("0") : null;
+}
+function ipProblem(kind, v) {
+  if (!v) return "";
+  if (kind === "ip") return RE_IP.test(v) ? "" : "Geen geldig IPv4-adres (a.b.c.d)";
+  if (!RE_CIDR.test(v)) return "Gebruik a.b.c.d/nn, bijvoorbeeld 10.0.0.5/24";
+  const [a, p] = v.split("/"), pre = +p;
+  if (pre <= 30) {
+    const size = 2 ** (32 - pre), net = Math.floor(ipNum(a) / size) * size;
+    if (ipNum(a) === net) return "Dit is het netwerkadres, geen host-adres";
+    if (ipNum(a) === net + size - 1) return "Dit is het broadcast-adres, geen host-adres";
+  }
+  return "";
+}
+const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip", fm_init: "ip", dns1: "ip", dns2: "ip" };
+const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip", initial_ip: "ip", isp2_ip: "ip", mpls_ip: "ip" };
+function markIpFields() {
+  for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
+  document.querySelectorAll(".dev [data-f]").forEach((el) => {
+    const f = el.dataset.f, k = KIND_BY_FIELD[f] || (/^lan\d+_ip$/.test(f) ? "cidr" : null);
+    if (k) el.dataset.ip = k;
+  });
+}
+function checkIp(el) {
+  let v = el.value.trim();
+  const m = v.match(/^(.+)\/(\d+\.\d+\.\d+\.\d+)$/);   // 10.0.0.5/255.255.255.0 -> 10.0.0.5/24
+  if (el.dataset.ip === "cidr" && m && maskToPrefix(m[2]) !== null) { v = `${m[1]}/${maskToPrefix(m[2])}`; el.value = v; }
+  const p = ipProblem(el.dataset.ip, v);
+  el.classList.toggle("bad", !!p); el.title = p;
+  return p;
+}
+document.addEventListener("input", (e) => { if (e.target.dataset && e.target.dataset.ip && e.target.classList.contains("bad")) checkIp(e.target); });
+document.addEventListener("focusout", (e) => { if (e.target.dataset && e.target.dataset.ip) checkIp(e.target); });
+// static WAN fields only matter when the device uses a static wan1
+function ipErrors() {
+  const out = [];
+  document.querySelectorAll("[data-ip]").forEach((el) => {
+    const dev = el.closest(".dev");
+    if (dev && /^wan1_(ip|gw)$/.test(el.dataset.f) && dev.querySelector("[data-f=wan1_mode]").value !== "static") { el.classList.remove("bad"); return; }
+    const p = checkIp(el);
+    if (p) out.push(`${dev ? dev.querySelector("b").textContent + ": " : ""}${(el.closest(".f") || el.parentElement).querySelector("label")?.textContent || el.id} — ${p}`);
+  });
+  return out;
+}
+
 // ---- topology form ----------------------------------------------------------
 let PVE_OPT = { nodes: [], image_storages: [], import_storages: [], iso_storages: [], bridges: [] };
 const names = (l) => (l || []).map((x) => (typeof x === "string" ? x : x.name));
@@ -57,7 +111,7 @@ function dev(kind, d, i) {
   h += `<div class="f"><label>wan1-adressering</label><select data-f="wan1_mode"><option value="static"${d.wan1_mode === "static" ? " selected" : ""}>Statisch</option><option value="dhcp"${d.wan1_mode === "dhcp" ? " selected" : ""}>Dynamisch (DHCP)</option></select></div>`;
   h += fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway (statisch)", d.wan1_gw);
   h += `<div class="f" data-ssh="fgt" hidden><label>Initieel IP (alleen SSH)</label><input data-f="initial_ip" value="${esc(d.initial_ip)}"></div>`;
-  h += `<div class="f"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" type="password" autocomplete="off"></div>`;
+  h += `<div class="f"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
   if (hub) ["isp2", "mpls"].forEach((k) => (h += fld(k + "_ip", k.toUpperCase() + " hub-IP", d[k + "_ip"])));
   (d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
   return h + "</div></div>";
@@ -190,6 +244,7 @@ $("#btn_pve").onclick = () => loadPve();
 $("#pve_node").addEventListener("change", () => loadPve());
 $("#btn_render").onclick = async () => {
   showErr([]);
+  { const e = ipErrors(); if (e.length) return showErr(e); }
   const r = await post("/api/render", { topology: collect() }), j = await json(r);
   if (!r.ok) return showErr(errList(j));
   $("#preview").hidden = false;
@@ -201,6 +256,7 @@ $("#btn_render").onclick = async () => {
 };
 $("#btn_d0").onclick = async () => {
   showErr([]);
+  { const e = ipErrors(); if (e.length) return showErr(e); }
   const r = await post("/api/cloudinit/preview", { topology: collect(), device: $("#d0_dev").value }), j = await json(r);
   if (!r.ok) return showErr(errList(j));
   $("#d0_out").hidden = false;
@@ -213,6 +269,7 @@ function stepsDraw(states = {}) {
 }
 $("#btn_deploy").onclick = async () => {
   showErr([]);
+  { const e = ipErrors(); if (e.length) return showErr(e); }
   const dry = $("#dry").checked, mf = $("#m_fmg").value, mg = $("#m_fgt").value;
   if (!dry && !confirm("Dit schrijft naar FortiManager" + (mf !== "none" || mg !== "none" ? ", maakt/configureert en licenseert de apparaten (die herstarten)" : "") + ". Doorgaan?")) return;
   const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: $("#img_fgt").value || null, fmg: $("#img_fmg").value || null } });
@@ -311,5 +368,5 @@ $("#srv_test").onclick = async () => {
   $("#steps").innerHTML = a.steps.map((s) => `<li><b>${esc(s.title)}</b><span>${esc(s.desc)}</span></li>`).join("");
   $("#orch").textContent = a.orchestrator_present ? "Orchestrator-templates gevonden: " + a.orchestrator : "⚠ Orchestrator-templates niet gevonden op " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
-  draw(); syncMethods(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
+  draw(); markIpFields(); syncMethods(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
 })();
