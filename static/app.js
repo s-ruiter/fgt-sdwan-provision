@@ -56,7 +56,7 @@ function dev(kind, d, i) {
   WAN.forEach(([k, l]) => (h += fld(k, l, d[k])));
   h += `<div class="f"><label>wan1-adressering</label><select data-f="wan1_mode"><option value="static"${d.wan1_mode === "static" ? " selected" : ""}>Statisch</option><option value="dhcp"${d.wan1_mode === "dhcp" ? " selected" : ""}>Dynamisch (DHCP)</option></select></div>`;
   h += fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway (statisch)", d.wan1_gw);
-  h += fld("initial_ip", "Initieel IP (alleen SSH)", d.initial_ip);
+  h += `<div class="f" data-ssh="fgt" hidden><label>Initieel IP (alleen SSH)</label><input data-f="initial_ip" value="${esc(d.initial_ip)}"></div>`;
   h += `<div class="f"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" type="password" autocomplete="off"></div>`;
   if (hub) ["isp2", "mpls"].forEach((k) => (h += fld(k + "_ip", k.toUpperCase() + " hub-IP", d[k + "_ip"])));
   (d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
@@ -104,7 +104,13 @@ function secrets() {
   document.querySelectorAll("[data-tok]").forEach((i) => { if (i.value.trim()) tok[i.dataset.tok] = i.value.trim(); });
   return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: "", fgt_initial_pw: "", fgt_new_pw: $("#fgt_newpw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
 }
-const fmgCfg = () => ({ host: $("#fmg_host").value.trim() || null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
+const fmgCfg = () => ({ host: null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
+
+// "initial IP" is only relevant for the SSH method (existing factory VMs)
+function syncMethods() {
+  document.querySelectorAll("[data-ssh]").forEach((el) => (el.hidden = $(el.dataset.ssh === "fmg" ? "#m_fmg" : "#m_fgt").value !== "ssh"));
+}
+$("#m_fmg").addEventListener("change", syncMethods); $("#m_fgt").addEventListener("change", syncMethods);
 
 // ---- images -----------------------------------------------------------------
 function imgDraw() {
@@ -304,5 +310,5 @@ $("#srv_test").onclick = async () => {
   $("#steps").innerHTML = a.steps.map((s) => `<li><b>${esc(s.title)}</b><span>${esc(s.desc)}</span></li>`).join("");
   $("#orch").textContent = a.orchestrator_present ? "Orchestrator-templates gevonden: " + a.orchestrator : "⚠ Orchestrator-templates niet gevonden op " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
-  draw(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
+  draw(); syncMethods(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
 })();
