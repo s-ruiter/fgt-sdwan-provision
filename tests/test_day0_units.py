@@ -112,9 +112,20 @@ def test_cloudinit():
     # before the route so the gateway is inside the port's subnet. The SSH path keeps the address change last (session drops).
     t2 = model.merged({})
     t2["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1", name="fmg")
-    d0 = cloudinit.fmg_cli(t2, "Pw-123456").splitlines()
+    d0_probe = cloudinit.fmg_cli(t2, "Pw-123456")
+    d0 = d0_probe.splitlines()
     assert d0.count("set mode static") == 1 and d0.index("set mode static") < d0.index("set ip 10.10.106.11 255.255.255.0"), d0
     assert d0.index("config system interface") < d0.index("config system route") and "set gateway 10.10.106.1" in d0, d0
+    # FortiManager Day-0: port1 forced to static (a new FMG VM can sit on DHCP and then ignores `set ip` alone); interface
+    # before the route so the gateway is inside the port's subnet. The SSH path keeps the address change last (session drops).
+    t2 = model.merged({})
+    t2["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1", name="fmg")
+    d0_probe = cloudinit.fmg_cli(t2, "Pw-123456")
+    d0 = d0_probe.splitlines()
+    assert d0.count("set mode static") == 1 and d0.index("set mode static") < d0.index("set ip 10.10.106.11 255.255.255.0"), d0
+    assert d0.index("config system interface") < d0.index("config system route") and "set gateway 10.10.106.1" in d0, d0
+    # FortiManager admin needs rpc-permit read-write (factory: none -> JSON-RPC login answers -11); FortiGates must not get it
+    assert "set rpc-permit read-write" in d0_probe and "set rpc-permit" not in cloudinit.fgt_cli(t2["hubs"][0], t2, "Pw-123456")
     from app import bootstrap
     ssh = bootstrap.fmg_network_lines(t2)
     assert "set mode static" in ssh and ssh.index("config system route") < ssh.index("config system interface"), ssh

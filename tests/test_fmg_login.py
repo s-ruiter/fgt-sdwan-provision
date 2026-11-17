@@ -42,13 +42,13 @@ try:
     raise SystemExit("had moeten falen")
 except FmgError as e:
     assert s.n == 2 and "geweigerd" in str(e) and "blokkeert" in str(e), (s.n, str(e))
-# -11 (no permission) is treated the same way
+# -11 (no permission): the factory admin has rpc-permit none -> the message says how to fix it
 s = Stub(["exec /sys/login/user: (-11) No permission for the resource"] * 20)
 try:
     _login_retry(s, 20, 15)
     raise SystemExit("had moeten falen")
-except FmgError:
-    assert s.n == 2
+except FmgError as e:
+    assert s.n == 2 and "rpc-permit read-write" in str(e), str(e)
 # not ready yet (connection errors): keeps trying, then succeeds
 s = Stub(["exec /sys/login/user: HTTPSConnectionPool refused"] * 3)
 slept.clear(); _login_retry(s, 20, 15); assert s.n == 4 and slept == [15, 15, 15], (s.n, slept)

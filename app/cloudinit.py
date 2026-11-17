@@ -29,7 +29,9 @@ def _admin(admin_pw, fmg):
     if not admin_pw:
         return []
     head = "config system admin user" if fmg else "config system admin"
-    return [head, 'edit "admin"', f"set password {q(admin_pw)}", "next", "end"]
+    # FortiManager: the factory `admin` has rpc-permit none, so the JSON-RPC login the tool uses answers -11 "No permission"
+    extra = ["set rpc-permit read-write"] if fmg else []
+    return [head, 'edit "admin"', f"set password {q(admin_pw)}", *extra, "next", "end"]
 
 
 def fgt_cli(dev, topo, admin_pw):

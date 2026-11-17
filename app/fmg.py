@@ -212,9 +212,13 @@ def _login_retry(fmg, attempts, delay):
             if code == -23:                                   # lockout / login limit: wait it out (default lockout 60 s)
                 time.sleep(max(delay, 70))
                 continue
-            if code in (-22, -11):                            # login refused (wrong user/password, or no permission)
+            if code in (-22, -11):                            # login refused
                 refused += 1
                 if refused >= 2:
+                    if code == -11:
+                        raise FmgError(f"inloggen via de FortiManager-API is niet toegestaan ({e}). De admin heeft geen API-toegang: "
+                                       "voer op de FortiManager uit: config system admin user / edit admin / set rpc-permit read-write / "
+                                       "end (een nieuwe FortiManager heeft rpc-permit none voor admin). Daarna opnieuw uitrollen.")
                     raise FmgError(f"inloggen op de FortiManager is geweigerd ({e}). Controleer gebruikersnaam en wachtwoord; "
                                    "herhaald proberen met een fout wachtwoord blokkeert het account tijdelijk.")
             time.sleep(delay)
