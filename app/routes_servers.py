@@ -67,9 +67,13 @@ def create_server(body: ServerIn):
                         (body.name.strip(), body.url.strip().rstrip("/"), body.token_id.strip(), body.token_secret,
                          int(body.verify_tls)))
     except sqlite3.IntegrityError:
+        c.rollback()
+        c.close()
         raise HTTPException(409, f"Er bestaat al een server met de naam '{body.name}'")
     c.commit()
-    return _out(db.get_server(c, cur.lastrowid), None)
+    out = _out(db.get_server(c, cur.lastrowid), None)
+    c.close()
+    return out
 
 
 @router.put("/{sid}")
@@ -86,9 +90,13 @@ def update_server(sid: int, body: ServerIn):
         c.execute("UPDATE servers SET name=?,url=?,token_id=?,token_secret=?,verify_tls=? WHERE id=?",
                   (body.name.strip(), url, tid, body.token_secret or old["token_secret"], int(body.verify_tls), sid))
     except sqlite3.IntegrityError:
+        c.rollback()
+        c.close()
         raise HTTPException(409, f"Er bestaat al een server met de naam '{body.name}'")
     c.commit()
-    return _out(db.get_server(c, sid), db.last_server(c))
+    out = _out(db.get_server(c, sid), db.last_server(c))
+    c.close()
+    return out
 
 
 @router.delete("/{sid}", status_code=204)

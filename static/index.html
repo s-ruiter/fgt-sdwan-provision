@@ -112,7 +112,7 @@
       <div class="card">
         <h2><span class="num">05</span>Preview &amp; uitrol</h2>
         <div class="btnrow">
-          <button id="btn_render">Config renderen</button>
+          <button id="btn_render">Templates genereren</button>
           <select id="d0_dev" style="width:auto"></select><button id="btn_d0">Day-0 preview</button>
         </div>
         <pre class="cfg" id="d0_out" hidden></pre>
@@ -173,7 +173,7 @@
       <h1>Over</h1>
       <div class="card">
         <h2><span class="num">01</span>Wat doet deze tool?</h2>
-        <p>Rolt via FortiManager 8.0 een SD-WAN/ADVPN-topologie met <b>meerdere VRF's</b> uit (hubs en branches in één regio). De config wordt hier gerenderd met Fortinet's Jinja Orchestrator (offline) en als CLI-script naar FortiManager gepusht &mdash; <b>geen Jinja-templates in FortiManager</b>. De tool kan ook de VM's zelf op Proxmox aanmaken (Day-0 met FortiFlex) of bestaande VM's bootstrappen over SSH.</p>
+        <p>Rolt via FortiManager 8.0 een SD-WAN/ADVPN-topologie met <b>meerdere VRF's</b> uit (hubs en branches in één regio). De tool maakt in FortiManager <b>native templates</b> aan (metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups en blueprints), afgeleid van Fortinet's Orchestrator &mdash; <b>geen Jinja in FortiManager</b>. De tool kan ook de VM's zelf op Proxmox aanmaken (Day-0 met FortiFlex) of bestaande VM's bootstrappen over SSH.</p>
         <p class="muted" id="orch"></p>
       </div>
       <div class="card"><h2><span class="num">02</span>Uitrolstappen</h2><ol class="about" id="steps"></ol></div>

@@ -15,7 +15,7 @@ import requests
 
 from app import cloudinit, model
 from app.fmg import Fmg, FmgError, pipeline
-from app.render import render_inventory
+from app import fmgtemplates
 from tests import fake_proxmox, mock_fmg
 from tests.test_day0_units import fake_qcow2, topo as base_topo
 
@@ -33,9 +33,7 @@ t["pve"]["ports"]["port1"] = {"bridge": "vmbr1", "vlan": 20}
 assert model.validate(t) == [] and model.validate_pve(t) == [], (model.validate(t), model.validate_pve(t))
 devs = t["hubs"] + t["edges"]
 project, inv = model.build(t)
-cfg = render_inventory(ORCH, project, inv)
-for d in devs:
-    cfg[d["name"]] = model.append_fragment(cfg[d["name"]], model.underlay_fragment(t, d))
+cfg = fmgtemplates.build_plan(t, ORCH)
 
 td = tempfile.mkdtemp()
 fgt_img, fmg_img = Path(td, "fortios.qcow2"), Path(td, "fmg.qcow2")
@@ -89,7 +87,7 @@ print({k: v for k, v in last.items()})
 assert all(v == "ok" for v in last.values()), last
 order = [s for s, _, _ in events]
 firsts = [order.index(s) for s in ("pve_fmg", "bootstrap_fmg", "preflight", "adom", "devices", "pve_fgt",
-                                   "bootstrap_fgt", "scripts", "install")]
+                                   "bootstrap_fgt", "templates", "install")]
 assert firsts == sorted(firsts), firsts
 
 vms = fake_proxmox.STATE["vms"]

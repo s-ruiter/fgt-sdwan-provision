@@ -4,7 +4,7 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-STATE = {"adoms": set(), "devices": set(), "scripts": [], "calls": []}
+STATE = {"adoms": set(), "devices": set(), "scripts": [], "calls": [], "bodies": []}
 MISSING = lambda u: {"status": {"code": -3, "message": "Object does not exist"}, "url": u}
 
 
@@ -18,6 +18,7 @@ class H(BaseHTTPRequestHandler):
         url = p["url"].lstrip("/")
         m = body["method"]
         STATE["calls"].append((m, url))
+        STATE["bodies"].append((m, url, p.get("data")))
 
         def ok(data=None):
             r = {"status": {"code": 0, "message": "OK"}, "url": p["url"]}
@@ -61,7 +62,7 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         out = json.dumps({"calls": STATE["calls"], "scripts": [s["name"] for s in STATE["scripts"]],
                           "script_sample": STATE["scripts"][0]["content"][:200] if STATE["scripts"] else "",
-                          "devices": sorted(STATE["devices"]), "adoms": sorted(STATE["adoms"]), "sets": STATE.get("sets", 0)}).encode()
+                          "devices": sorted(STATE["devices"]), "adoms": sorted(STATE["adoms"]), "sets": STATE.get("sets", 0), "bodies": STATE["bodies"]}).encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(out)))
         self.end_headers()

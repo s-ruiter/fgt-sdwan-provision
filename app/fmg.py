@@ -283,23 +283,10 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         else:
             emit("bootstrap_fgt", "skipped", "overgeslagen (niet gevraagd)")
 
-    emit("scripts", "running", "CLI-scripts (device database) aanmaken en uitvoeren")
-    for d, kind in devices:
-        name = f"{d['name']}-sdwan"
-        body = fmg_script_body(configs[d["name"]])
-        sdata = {"name": name, "type": "cli", "target": "device_database",
-                 "desc": f"SD-WAN multi-VRF {kind}", "content": body}
-        if not fmg.dry and fmg.exists(f"/dvmdb/adom/{adom}/script/{name}"):
-            fmg.call("set", f"/dvmdb/adom/{adom}/script/{name}", sdata)   # re-run: overwrite
-        else:
-            fmg.call("add", f"/dvmdb/adom/{adom}/script", [sdata])
-        r = fmg.call("exec", f"/dvmdb/adom/{adom}/script/execute",
-                     {"adom": adom, "script": name, "scope": [{"name": d["name"], "vdom": "root"}],
-                      "package": None})
-        tid = (r.get("data") or {}).get("task")
-        fmg.wait_task(tid)
-        emit("scripts", "running", f"{d['name']}: script uitgevoerd ({len(body.splitlines())} regels)")
-    emit("scripts", "ok", "alle scripts uitgevoerd op de device database")
+    from .fmgapply import apply_plan
+    emit("templates", "running", "templates, variabelen, policy packages en blueprints in ADOM aanmaken")
+    n = apply_plan(fmg, topo, configs, emit)
+    emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd")
 
     emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")
     wait = boot.get("online_timeout", 600 if m_fgt != "none" else 30)
@@ -310,6 +297,17 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     if not online:
         emit("install", "warn", "geen enkel device online: install overgeslagen; draai de uitrol opnieuw zodra ze online zijn")
         return
+    for role in configs["roles"]:                      # policy package per role, template group via the device group
+        tg = [{"name": d, "vdom": "root"} for d in role["devices"] if d not in offline]
+        if not tg:
+            continue
+        r = fmg.call("exec", "/securityconsole/install/package",
+                     {"adom": adom, "pkg": role["name"], "flags": ["none"], "scope": tg})
+        try:
+            fmg.wait_task((r.get("data") or {}).get("task"))
+            emit("install", "running", f"policy package {role['name']} geinstalleerd op {', '.join(d['name'] for d in tg)}")
+        except FmgError as e:
+            emit("install", "warn", f"policy package {role['name']}: {e}")
     r = fmg.call("exec", "/securityconsole/install/device",
                  {"adom": adom, "flags": ["none"], "scope": [{"name": d["name"], "vdom": "root"} for d in online]})
     tid = (r.get("data") or {}).get("task")

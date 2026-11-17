@@ -15,7 +15,7 @@ from . import cloudinit, db, images, model
 from .bootstrap import Masker
 from .pve import Pve, PveError
 from .fmg import Fmg, FmgError, pipeline
-from .render import render_inventory
+from . import fmgtemplates
 
 from .config import DATA_DIR, ORCH_DIR
 from .routes_servers import router as servers_router
@@ -32,8 +32,8 @@ STEPS = [
     ("devices", "Model devices", "2 hubs + 3 branches toevoegen met opgegeven serienummers"),
     ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1, DNS, FMG, FortiFlex-token) starten"),
     ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wachten tot ze gelicenseerd online zijn in FMG; of via SSH op bestaande VM's"),
-    ("scripts", "Configuratie", "Per device de gerenderde multi-VRF CLI-config als FMG-script uitvoeren"),
-    ("install", "Install", "Wachten tot FortiGates online zijn, dan device settings installeren"),
+    ("templates", "Templates", "Metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups en blueprints in de ADOM"),
+    ("install", "Install", "Wachten tot FortiGates online zijn, dan policy package en device settings installeren"),
 ]
 
 
@@ -93,12 +93,10 @@ def _render(topo):
         raise HTTPException(422, detail=errs)
     project, inv = model.build(topo)
     try:
-        cfg = render_inventory(ORCH_DIR, project, inv)
+        plan = fmgtemplates.build_plan(topo, ORCH_DIR)
     except Exception as e:
-        raise HTTPException(500, detail=[f"Renderen mislukt: {type(e).__name__}: {e}"])
-    for d in topo["hubs"] + topo["edges"]:
-        cfg[d["name"]] = model.append_fragment(cfg[d["name"]], model.underlay_fragment(topo, d))
-    return project, inv, cfg
+        raise HTTPException(500, detail=[f"Templates genereren mislukt: {type(e).__name__}: {e}"])
+    return project, inv, plan
 
 
 def _method(v):
@@ -224,8 +222,10 @@ def validate(r: RenderReq):
 @app.post("/api/render")
 def render(r: RenderReq):
     topo = model.merged(r.topology)
-    project, inv, cfg = _render(topo)
-    return {"project": project, "inventory": inv, "configs": cfg,
+    project, inv, plan = _render(topo)
+    cfg = fmgtemplates.preview(plan)
+    return {"project": project, "inventory": inv, "configs": cfg, "warnings": plan["warnings"],
+            "roles": [{"name": r["name"], "kind": r["kind"], "devices": r["devices"]} for r in plan["roles"]],
             "lines": {k: len(v.splitlines()) for k, v in cfg.items()}}
 
 
@@ -279,7 +279,7 @@ def deploy(r: DeployReq):
             raise HTTPException(422, detail=["Proxmox-server niet gevonden (is hij verwijderd?)"])
         topo["pve"].update(url=row["url"], token_id=row["token_id"], verify_tls=bool(row["verify_tls"]))
         r.secrets.pve_token_secret = row["token_secret"]
-    _, _, cfg = _render(topo)
+    _, _, cfg = _render(topo)          # cfg = template plan
     _check_bootstrap(topo, r)
     if sid:                                    # remember this server's choices for the next run
         db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"])

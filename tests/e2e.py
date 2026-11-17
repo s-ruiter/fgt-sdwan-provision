@@ -27,15 +27,14 @@ r = requests.post(f"{APP}/api/render", json={"topology": topo})
 assert r.status_code == 200, r.text
 cfg = r.json()["configs"]
 print("OK  render:", {k: v for k, v in r.json()["lines"].items()})
-h1 = cfg["site1-H1"]
-assert "Lab-Only-Psk-123" in h1 and "S3cr3t!" not in h1
 allcfg = "".join(cfg.values())
-# ZTP/underlay: static hubs get set mode static + default route in VRF 1 + allowaccess kept; DHCP edges stay dhcp
-assert "set mode static" in cfg["site1-H1"] and "set gateway 100.64.1.6" in cfg["site1-H1"]
-assert "set vrf-select 1" in cfg["site1-H1"] and 'set fmg "10.0.0.5"' in cfg["site1-1"]
-assert "set allowaccess ping https ssh fgfm" in cfg["site1-H1"] and "set allowaccess ping https ssh fgfm" in cfg["site1-1"]
-assert "set mode dhcp" in cfg["site1-1"] and "set gateway" not in cfg["site1-1"].split("# ZTP underlay")[1].split("config system dns")[0]
-print("OK  wan1 static (hub) / dhcp (branch), allowaccess behouden, FMG vrf-select in script")
+assert "Lab-Only-Psk-123" in cfg["CLI HUB1_02-Overlay"] and "S3cr3t!" not in allcfg
+# templates, geen per-device config: variabelen i.p.v. literals
+assert "Variabelen" in cfg and "$(loopback)" in cfg["CLI SPOKES-1_02-Overlay"] and "10.200.1.1" not in cfg["CLI SPOKES-1_02-Overlay"]
+assert "set vrf-select 1" in cfg["CLI HUB1_00-Mgmt"] and "set gateway $(wan1_gw)" in cfg["CLI HUB1_00-Mgmt"]
+assert "set gateway" not in cfg["CLI SPOKES-1_00-Mgmt"]
+assert "H1_ISP1" in cfg["SD-WAN SPOKES-1"] and "Corporate" in cfg["Policy SPOKES-1"]
+print("OK  render: templates met $(var), CLI/SD-WAN/Policy tabs:", len(cfg))
 for needle in ("set vrf 11", "set vrf 12", "vrf11_leak"):
     assert needle in allcfg, needle
 assert "vrf12_leak" not in allcfg  # VRF 12 heeft geen DIA
@@ -62,11 +61,15 @@ for run in (1, 2):
         for e in j["events"]:
             print("  ", e["t"], e["step"], e["status"], e["msg"])
     assert j["state"] == "done", j["events"][-1]
-    assert m["adoms"] == ["ACME-SDWAN"] and len(m["devices"]) == 5 and len(m["scripts"]) == 5, m
-    assert "execute batch" not in m["script_sample"]
-print("OK  pipeline (mock): 5 devices, 5 scripts, batch-wrapper gestript")
-print("OK  2e run idempotent: geen dubbele scripts, bestaande scripts bijgewerkt (set x%d)" % m["sets"])
-assert m["sets"] == 5
+    assert m["adoms"] == ["ACME-SDWAN"] and len(m["devices"]) == 5, m
+    urls = [u for _, u, _ in m["bodies"]]
+    assert any(u.startswith("pm/config/adom/ACME-SDWAN/obj/cli/template/SPOKES-1_02-Overlay") for u in urls)
+    assert any(u.startswith("pm/config/adom/ACME-SDWAN/obj/fmg/variable/lan_ip") for u in urls)
+    assert not any("/script" in u for u in urls), "geen scripts meer"
+    if run == 1:
+        n1 = len(urls)
+print("OK  pipeline (mock): 5 devices, templates/variabelen/pakketten/blueprints aangemaakt, geen scripts")
+print("OK  2e run idempotent: alleen set/replace/update-aanroepen (%d aanroepen na run 1)" % n1)
 
 # 3. bootstrap validation + dry-run via the API
 for i, d in enumerate(topo["hubs"] + topo["edges"]):
@@ -159,7 +162,7 @@ r = requests.post(f"{APP}/api/servers/{sid}/test", json={"node": "pve1"})
 assert r.status_code == 200 and r.json()["version"] == "9.0.3" and r.json()["bridges"] == ["vmbr0", "vmbr1"], r.text
 assert requests.get(f"{PVE}/__auth").json()["auth"] == f"PVEAPIToken=root@pam!deploy={SECRET}"
 r = requests.put(f"{APP}/api/servers/{sid}", json=dict(srv, name="pve-lab2", token_secret=None))
-assert r.status_code == 200 and r.json()["name"] == "pve-lab2"
+assert r.status_code == 200 and r.json()["name"] == "pve-lab2", r.text
 requests.post(f"{APP}/api/servers/{sid}/test", json={})
 assert requests.get(f"{PVE}/__auth").json()["auth"].endswith("=" + SECRET), "oud secret moet bewaard blijven bij bewerken zonder secret"
 r = requests.put(f"{APP}/api/servers/{sid}", json=dict(srv, name="pve-lab2", url="http://127.0.0.1:9999", token_secret=None))

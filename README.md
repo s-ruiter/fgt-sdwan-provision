@@ -6,7 +6,7 @@ Deploy tool voor een Fortinet **SD-WAN/ADVPN multi-VRF** topologie via **FortiMa
 2 hubs + 3 branches in één regio, ontworpen als LXC op Proxmox met een web-UI.
 
 - Config komt uit Fortinet's [Jinja Orchestrator](https://github.com/fortinet-solutions-cse/sdwan-advpn-reference) (release 7.6, `dynamic-bgp-on-lo`, multi-VRF), **offline gerenderd** in deze tool. Er worden **geen Jinja-templates in FortiManager** gebruikt.
-- De gerenderde CLI gaat per device als CLI-script (target: device database) naar FortiManager.
+- De Orchestrator wordt *symbolisch* gerenderd: per-device waarden worden FortiManager-metadata-variabelen (`$(loopback)`, `$(lan_ip_netmask)` ...). Daaruit maakt de tool **native FortiManager-objecten**: CLI-templates (underlay/overlay/routing/inter-VRF) + CLI-template-group, system template (DNS), native SD-WAN-template, static-route-template, policy package, interfaces/adressen/IP-pools, device group, template group en device blueprint. Eén set per hub (HUB1, HUB2) en per groep branches met identieke config (SPOKES-n; zelfde poortnamen vereist voor de native SD-WAN-template).
 - ADOM-naam en serienummers geeft de gebruiker op.
 
 ## Installeren (op de Proxmox-host, als root)
@@ -44,8 +44,8 @@ Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool
 5. **Model devices** – 5 devices met opgegeven serienummers
 6. **FortiGate-VM's** *(day0)* – per FortiGate een VM + ISO (hostname, admin-wachtwoord, wan1 statisch/DHCP, DNS, `central-management`, FortiFlex-token), starten
 7. **FortiGate ZTP** – day0: wachten tot ze gelicenseerd online zijn in FMG, daarna ISO's opruimen · ssh: zie hieronder
-8. **Configuratie** – per device script aanmaken/bijwerken + uitvoeren op de device database
-9. **Install** – installeert op de online devices (offline = waarschuwing, geen fout)
+8. **Templates** – variabelen, system/SD-WAN/CLI-templates, policy packages, template groups, blueprints (alleen set/replace/update: herhaalbaar)
+9. **Install** – policy package per rol op de online devices (offline = waarschuwing, geen fout)
 
 ## Images uploaden + Day-0 (cloud-init)
 
@@ -77,7 +77,7 @@ De UI heeft een **dry-run** (standaard aan): alle schrijvende calls worden gelog
 - Getest: renderer (IP/VRF/BGP-regels identiek aan Fortinet's `rendered/multi_vrf`), validatie, web-UI, de volledige pipeline **tegen een mock-FMG** (`tests/e2e.py`) en de ZTP-bootstrap over **echte SSH tegen een nagebootste FortiOS-CLI** (`tests/test_bootstrap.py`, `tests/test_pipeline_ztp.py`).
 - Day-0/Proxmox getest tegen een **nagebootste Proxmox-API** (`tests/fake_proxmox.py`): streaming-upload byte-voor-byte, ISO-inhoud teruggelezen, VM-parameters, NIC's, opruimen, idempotentie en rollback (`tests/test_day0_units.py`, `tests/test_pipeline_day0.py`).
 - **Niet getest tegen echte Proxmox 9 / FortiGate-VM's / FortiManager-VM**: of de FortiManager de config-drive leest (niet bevestigd; zo niet: methode `ssh`), het live loskoppelen van de ISO, de token-rechten (controleer op een FortiGate met `diagnose debug cloudinit show` of de config-drive is gevonden), de exacte prompts (wachtwoordwissel, `(y/n)` bij `execute vm-license`), of FortiManager `execute vm-license <token>` kent, en `vrf-select` onder `central-management`. De nepserver is geschreven uit documentatie, niet uit een echt apparaat.
-- **Niet getest tegen een echte FortiManager 8.0**: de JSON-RPC paden/payloads in `app/fmg.py` (ADOM aanmaken, `add_model` device, script exec, install) moeten in een lab worden geverifieerd.
+- **Niet getest tegen een echte FortiManager 8.0**: de JSON-RPC paden/payloads in `app/fmg.py` (ADOM, `add_model` device, template-/variabele-/package-/blueprint-objecten in `app/fmgapply.py`, install); de paden zijn overgenomen uit de Postman-collectie van `sdwan-fmg-provision` moeten in een lab worden geverifieerd.
 - `install.sh` is getest in een schone Debian 12 (Docker, `tests/test_install_docker.sh`) en `deploy.sh` tegen nagemaakte `pct`/`pveam`/`pvesh`/`pvesm` (`tests/test_deploy_fake_pve.sh`); het publieke `curl | bash`-pad is getest in een schone Debian 12 (`tests/test_install_remote_docker.sh`); het echte `pct create` op Proxmox 9 is nog niet gedraaid.
 - Alleen wan1 is statisch/DHCP te kiezen; ISP2/MPLS blijven DHCP zoals in de referentie.
 - Hub-naar-hub tunnels binnen de regio staan standaard uit (zoals in de referentie); aan te zetten in de UI.

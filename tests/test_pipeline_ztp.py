@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import model
 from app.bootstrap import Masker, Timing, ssh_connect
 from app.fmg import Fmg, pipeline
-from app.render import render_inventory
+from app import fmgtemplates
 from tests import mock_fmg
 from tests.fake_fortios import FakeDevice, State
 
@@ -27,9 +27,7 @@ for i, d in enumerate(devs):
     d["initial_ip"] = f"192.168.1.{10 + i}"
 assert model.validate(topo) == [], model.validate(topo)
 project, inv = model.build(topo)
-cfg = render_inventory(ORCH, project, inv)
-for d in devs:
-    cfg[d["name"]] = model.append_fragment(cfg[d["name"]], model.underlay_fragment(topo, d))
+cfg = fmgtemplates.build_plan(topo, ORCH)
 
 # fake devices: address -> device
 fakes = {"192.168.1.98": FakeDevice(State("FMG-VM0000000001"))}
@@ -79,12 +77,12 @@ for i, d in enumerate(devs):
     assert 'set fmg "10.0.0.5"' in st.cmds
 assert not any(TOK_FMG in m or NEWPW in m or any(t in m for t in TOKS.values()) for _, _, m in events)
 order = [s for s, _, _ in events]
-firsts = [order.index(s) for s in ("bootstrap_fmg", "preflight", "adom", "devices", "bootstrap_fgt", "scripts", "install")]
+firsts = [order.index(s) for s in ("bootstrap_fmg", "preflight", "adom", "devices", "bootstrap_fgt", "templates", "install")]
 assert firsts == sorted(firsts), firsts
 m = __import__("requests").get("http://127.0.0.1:8098").json()
-assert len(m["scripts"]) == 5 and len(m["devices"]) == 5
+assert len(m["devices"]) == 5 and any(c[1].startswith("pm/tmplgrp") for c in m["calls"]) and any(c[1] == "securityconsole/install/package" for c in m["calls"])
 print("OK  ZTP-pipeline: FMG + 5 FortiGates (2 static, 3 dhcp) gebootstrapt, gelicenseerd, geregistreerd,")
-print("    scripts+install erna; volgorde klopt; geen token/wachtwoord in events")
+print("    templates+install erna; volgorde klopt; geen token/wachtwoord in events")
 
 # dry-run: nothing touches the network, tokens masked
 events.clear()
