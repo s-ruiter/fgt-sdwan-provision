@@ -15,6 +15,10 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         p = body["params"][0]
+        if not p["url"].startswith("/"):                  # like a real FortiManager
+            out = json.dumps({"id": body["id"], "result": [{"status": {"code": -11, "message": "No permission for the resource"}, "url": p["url"]}]}).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+            return
         url = p["url"].lstrip("/")
         m = body["method"]
         STATE["calls"].append((m, url))

@@ -1,4 +1,5 @@
 """FortiManager JSON-RPC client and the deployment pipeline."""
+import re
 import time
 import requests
 import urllib3
@@ -19,6 +20,7 @@ class Fmg:
 
     def call(self, method, url, data=None, **extra):
         self.n += 1
+        url = url if url.startswith("/") else "/" + url          # a real FortiManager answers -11 "No permission" without it
         param = {"url": url}
         if data is not None:
             param["data"] = data
@@ -195,13 +197,26 @@ def _pve_vms(topo, boot, which, step, emit, state):
 
 
 def _login_retry(fmg, attempts, delay):
-    last = None
+    """A FortiManager that just booted is not ready for a while, so connection problems are retried. A refused login is
+    not: repeating a wrong password locks the account (default: 3 failures), so that stops after two tries with a clear
+    message, and an active lockout (-23) is waited out instead of being hammered."""
+    last, refused = None, 0
     for _ in range(attempts):
         try:
             fmg.login()
             return
         except FmgError as e:
             last = e
+            m = re.search(r"\((-?\d+)\)", str(e))
+            code = int(m.group(1)) if m else None
+            if code == -23:                                   # lockout / login limit: wait it out (default lockout 60 s)
+                time.sleep(max(delay, 70))
+                continue
+            if code in (-22, -11):                            # login refused (wrong user/password, or no permission)
+                refused += 1
+                if refused >= 2:
+                    raise FmgError(f"inloggen op de FortiManager is geweigerd ({e}). Controleer gebruikersnaam en wachtwoord; "
+                                   "herhaald proberen met een fout wachtwoord blokkeert het account tijdelijk.")
             time.sleep(delay)
     raise last
 
