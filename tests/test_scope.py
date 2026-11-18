@@ -74,7 +74,7 @@ last = {s_: st for s_, st, _ in ev if st != "info"}
 assert names() == {"fmg"}, names()
 skip = ("devices", "pve_fgt", "bootstrap_fgt", "install")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
-assert all(last[k] == "ok" for k in ("pve_fmg", "bootstrap_fmg", "preflight", "adom", "templates")), last
+assert all(last[k] == "ok" for k in ("pve_fmg", "bootstrap_fmg", "preflight", "fmg_settings", "adom", "templates")), last
 assert any(s_ == "pve_fgt" and "alleen FortiManager" in m for s_, _, m in ev)
 bodies = mock_fmg.STATE["bodies"]
 assert not any(u == "dvm/cmd/add/device" for _, u, _ in bodies)                     # no model devices
@@ -89,7 +89,7 @@ print("OK  alleen FortiManager: zonder serienummers/wan1-gateways; FMG-VM, ADOM 
 last, ev = run(scope="fgt")
 assert names() == {"fmg", *TOKS}, names()
 assert fake_proxmox.STATE["creates"] == 1 + len(devs), fake_proxmox.STATE["creates"]       # FMG not created again
-assert last["pve_fmg"] == last["bootstrap_fmg"] == "skipped", last
+assert last["pve_fmg"] == last["bootstrap_fmg"] == last["fmg_settings"] == "skipped", last
 assert any(s == "pve_fmg" and "alleen FortiGates" in m for s, _, m in ev)
 assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "pve_fgt", "bootstrap_fgt", "templates", "install")), last
 assert any(s == "adom" and "hergebruikt" in m for s, _, m in ev)

@@ -54,6 +54,7 @@ STEPS = [
     ("pve_fmg", "FortiManager-VM", "Image naar Proxmox, VM + datadisk + Day-0 config-drive (cloud-init) aanmaken en starten"),
     ("bootstrap_fmg", "FortiManager ZTP", "Vast IP, route, DNS en FortiFlex-licentie: via Day-0 (wachten) of via SSH (execute vm-license)"),
     ("preflight", "Preflight", "Verbinding en FortiManager-versie (8.0.x) controleren"),
+    ("fmg_settings", "FortiManager-instellingen", "Uitlogtimers 180 min, tijdzone Europe/Amsterdam, ADOMs in advanced mode, FortiAnalyzer-features aan (herstart)"),
     ("adom", "ADOM", "ADOM aanmaken op basis van jouw naam (bestaat hij al: hergebruiken)"),
     ("devices", "Model devices", "2 hubs + 3 branches toevoegen met opgegeven serienummers"),
     ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1, DNS, FMG, FortiFlex-token) starten"),

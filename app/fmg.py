@@ -279,6 +279,77 @@ def osmr(topo):
 
 SCOPES = ("all", "fmg", "fgt")
 
+# FortiManager system settings the tool always sets (names/values checked on a real FMG 8.0.2 via `option: syntax`).
+# The idle timeouts are in SECONDS on FMG 8.0 (factory 900 = 15 min). timezone is the numeric FortiOS code:
+# 28 = (GMT+1:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna.
+IDLE_TIMEOUT_S = 180 * 60
+FMG_SETTINGS = [
+    ("/cli/global/system/admin/setting", "uitlogtimers 180 min",
+     {"idle_timeout": IDLE_TIMEOUT_S, "idle_timeout_gui": IDLE_TIMEOUT_S, "idle_timeout_api": IDLE_TIMEOUT_S,
+      "idle_timeout_sso": IDLE_TIMEOUT_S}),
+    ("/cli/global/system/global", "tijdzone Europe/Amsterdam", {"timezone": "28"}),
+    ("/cli/global/system/global", "ADOMs aan, advanced mode", {"adom-status": "enable", "adom-mode": "advanced"}),
+]
+FAZ = ("/cli/global/system/global", "faz-status", "enable")
+
+
+def _same(cur, want):
+    return str(cur).strip().lower() == str(want).strip().lower()
+
+
+def _hostport(fmg):
+    from urllib.parse import urlparse
+    u = urlparse(fmg.base)
+    return u.hostname, u.port or 443
+
+
+def apply_fmg_settings(fmg, boot, emit, step="fmg_settings"):
+    """Idempotent: read each setting, only set what differs. FortiAnalyzer features go last: enabling them reboots the
+    FortiManager, so the tool waits for the reboot and logs in again."""
+    if fmg.dry:
+        for _, what, vals in FMG_SETTINGS:
+            emit(step, "running", f"[dry-run] {what}: {vals}")
+        emit(step, "ok", "dry-run: FortiAnalyzer-features aan (herstart) niet uitgevoerd")
+        return
+    cache = {}
+
+    def cur(url):
+        if url not in cache:
+            cache[url] = fmg.call("get", url).get("data") or {}
+        return cache[url]
+
+    for url, what, vals in FMG_SETTINGS:
+        diff = {k: v for k, v in vals.items() if not _same(cur(url).get(k), v)}
+        if diff:
+            fmg.call("set", url, diff)
+            cur(url).update(diff)
+            emit(step, "running", f"{what}: ingesteld")
+        else:
+            emit(step, "running", f"{what}: stond al goed")
+    url, key, val = FAZ
+    if _same(cur(url).get(key), val):
+        emit(step, "ok", "FortiManager-instellingen in orde (FortiAnalyzer-features stonden al aan)")
+        return
+    emit(step, "running", "FortiAnalyzer-features aanzetten: de FortiManager herstart daarna")
+    try:
+        fmg.call("set", url, {key: val})
+    except FmgError as e:                                     # the reboot can cut the answer off
+        emit(step, "running", f"verbinding verbroken tijdens aanzetten ({str(e)[:120]}), herstart verwacht")
+    from . import bootstrap as bs
+    waiter, (host, port) = boot.get("waiter") or bs.wait_tcp, _hostport(fmg)
+    if waiter(host, port, False, boot.get("faz_down_timeout", 300)):
+        emit(step, "running", "FortiManager herstart; wachten tot hij terug is")
+    else:
+        emit(step, "warn", "geen herstart gezien binnen de wachttijd; verder met inloggen")
+    if not waiter(host, port, True, boot.get("fmg_boot_timeout", 900)):
+        raise FmgError(f"FortiManager komt na het aanzetten van FortiAnalyzer-features niet terug op {host}:{port}")
+    fmg.session = None
+    st = wait_fmg_ready(fmg, boot, lambda m: emit(step, "running", m))
+    got = (fmg.call("get", url).get("data") or {}).get(key)
+    if not _same(got, val):
+        raise FmgError(f"FortiAnalyzer-features staan na de herstart nog op '{got}'")
+    emit(step, "ok", f"FortiManager-instellingen in orde; FortiAnalyzer-features aan (versie {st.get('Version', '?')})")
+
 
 def pipeline(topo, configs, fmg, emit, boot=None):
     """boot (optional) = {'dry','fmg','fgt' (method), 'scope', tokens/creds ...}. Raises on fatal error.
@@ -336,6 +407,12 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         pv.cleanup_isos(boot["pve_client"], topo["pve"], [topo["fmgr"].get("name") or "fmg"], state, emit, "bootstrap_fmg")
     if not fmg.dry and f"v{topo['os_ver']}" not in ver:
         raise FmgError(f"FortiManager draait {ver}, maar de ADOM-versie is {topo['os_ver']}: kies de ADOM-versie van je FortiManager")
+
+    if scope == "fgt":
+        emit("fmg_settings", "skipped", "overgeslagen (alleen FortiGates)")
+    else:
+        emit("fmg_settings", "running", "uitlogtimers, tijdzone, ADOM advanced mode en FortiAnalyzer-features")
+        apply_fmg_settings(fmg, boot, emit)
 
     emit("adom", "running", f"ADOM '{adom}' aanmaken")
     if not fmg.dry and fmg.exists(f"/dvmdb/adom/{adom}"):
