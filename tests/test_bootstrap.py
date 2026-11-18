@@ -64,6 +64,7 @@ def test_fgt_static_with_ip_move():
     assert err is None, err
     c = dev.state.cmds
     assert "set mode static" in c and "set gateway 100.64.1.6" in c
+    assert 'set sdwan-zone "underlay"' in c and "set device" not in c     # default via SD-WAN, not a route on port1
     assert any("wachten op 100.64.1.1" in m for _, m in log)
     print("OK  FortiGate static: route + IP als laatste, herverbinden op nieuw IP, licentie")
 
