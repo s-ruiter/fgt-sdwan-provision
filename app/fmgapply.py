@@ -13,8 +13,11 @@ PKG_SETTINGS = {"central-nat": 0, "consolidated-firewall-mode": 0, "fwpolicy-imp
 BLUEPRINT_PLATFORM = "FortiGate-VM64-KVM"
 
 
-def plan_calls(topo, plan):
-    """-> list of dicts(stage, method, url, data, ignore_exists)"""
+def plan_calls(topo, plan, devices=True):
+    """-> list of dicts(stage, method, url, data, ignore_exists)
+
+    devices=False ('Alleen FortiManager'): there are no (model) devices yet, so nothing refers to a device: device
+    groups stay empty, metadata variables and IP pools get no per-device mapping. A later run with devices fills them."""
     adom = topo["adom"]
     base = f"/pm/config/adom/{adom}"
     calls = []
@@ -29,12 +32,15 @@ def plan_calls(topo, plan):
     # 1. device groups (+ members)
     for r in roles:
         add("Device groups", "set", f"/dvmdb/adom/{adom}/group", [{"name": group(r), "os_type": "fos"}])
-        add("Device groups", "add", f"/dvmdb/adom/{adom}/group/{group(r)}/object member", scope(r["devices"]), ignore=True)
+        if devices:
+            add("Device groups", "add", f"/dvmdb/adom/{adom}/group/{group(r)}/object member", scope(r["devices"]), ignore=True)
 
     # 2. metadata variables with the value per device
     for v, vals in sorted(plan["variables"].items()):
-        add("Metadata-variabelen", "set", f"{base}/obj/fmg/variable/{v}",
-            {"name": v, "dynamic_mapping": [{"_scope": scope([d]), "value": str(val)} for d, val in sorted(vals.items())]})
+        body = {"name": v}
+        if devices:
+            body["dynamic_mapping"] = [{"_scope": scope([d]), "value": str(val)} for d, val in sorted(vals.items())]
+        add("Metadata-variabelen", "set", f"{base}/obj/fmg/variable/{v}", body)
 
     # 3. system template (DNS, admin)
     dns1, dns2 = plan["dns"]
@@ -82,9 +88,10 @@ def plan_calls(topo, plan):
             for name, vals in rows:
                 pools.setdefault(name, []).append((dn, vals))
     for name, lst in pools.items():
-        add("Interfaces en adressen", "set", f"{base}/obj/firewall/ippool/{name}",
-            {"name": name, "type": "overload", "startip": lst[0][1]["startip"], "endip": lst[0][1]["endip"],
-             "dynamic_mapping": [{"_scope": scope([dn]), "startip": v["startip"], "endip": v["endip"]} for dn, v in lst]})
+        body = {"name": name, "type": "overload", "startip": lst[0][1]["startip"], "endip": lst[0][1]["endip"]}
+        if devices:
+            body["dynamic_mapping"] = [{"_scope": scope([dn]), "startip": v["startip"], "endip": v["endip"]} for dn, v in lst]
+        add("Interfaces en adressen", "set", f"{base}/obj/firewall/ippool/{name}", body)
 
     # 6. policy packages
     add("Policy packages", "set", f"/pm/pkg/adom/{adom}",
@@ -120,8 +127,8 @@ def plan_calls(topo, plan):
     return sorted(calls, key=lambda c: order.index(c["stage"]))      # stable: keeps order within a stage
 
 
-def apply_plan(fmg, topo, plan, emit, step="templates"):
-    calls = plan_calls(topo, plan)
+def apply_plan(fmg, topo, plan, emit, step="templates", devices=True):
+    calls = plan_calls(topo, plan, devices)
     stages = []
     for c in calls:
         if c["stage"] not in stages:

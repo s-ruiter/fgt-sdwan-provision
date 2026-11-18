@@ -127,8 +127,8 @@ def _apply_scope(r):
         r.bootstrap.fgt = "none"
 
 
-def _render(topo, create_psk=False):
-    errs = model.validate(topo)
+def _render(topo, create_psk=False, devices=True):
+    errs = model.validate(topo, devices)
     if errs:
         raise HTTPException(422, detail=errs)
     c = db.connect(DATA_DIR)
@@ -370,7 +370,7 @@ def deploy(r: DeployReq):
         topo["pve"].update(url=row["url"], token_id=row["token_id"], verify_tls=bool(row["verify_tls"]))
         r.secrets.pve_token_secret = row["token_secret"]
     _apply_scope(r)
-    _, _, cfg = _render(topo, create_psk=True)          # cfg = template plan
+    _, _, cfg = _render(topo, create_psk=True, devices=r.scope != "fmg")   # cfg = template plan
     _check_bootstrap(topo, r)
     if sid:                                    # remember this server's choices for the next run
         db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"])

@@ -56,14 +56,34 @@ def run(**kw):
 
 names = lambda: {v["name"] for v in fake_proxmox.STATE["vms"].values()}
 
-# ---------------------------------------------------------------- only the FortiManager
-last, ev = run(scope="fmg")
+# ---------------------------------------------------------------- only the FortiManager: no serials / wan1 gateways needed
+import copy
+bare = copy.deepcopy(t)
+for d in bare["hubs"] + bare["edges"]:
+    d["serial"] = ""
+    if d.get("wan1_mode") == "static":
+        d["wan1_gw"] = ""
+assert any("serienummer" in x for x in model.validate(bare))                       # still required for FortiGates
+assert any("gateway" in x for x in model.validate(bare))
+assert model.validate(bare, devices=False) == [], model.validate(bare, devices=False)
+bare_cfg = fmgtemplates.build_plan(bare, ORCH)
+mock_fmg.STATE["bodies"].clear()
+ev = []
+pipeline(bare, bare_cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m)), boot(scope="fmg"))
+last = {s_: st for s_, st, _ in ev if st != "info"}
 assert names() == {"fmg"}, names()
-assert {k: last[k] for k in ("pve_fgt", "bootstrap_fgt", "install")} == dict.fromkeys(("pve_fgt", "bootstrap_fgt", "install"), "skipped"), last
-assert all(last[k] == "ok" for k in ("pve_fmg", "bootstrap_fmg", "preflight", "adom", "devices", "templates")), last
-assert any(s == "pve_fgt" and "alleen FortiManager" in m for s, _, m in ev)
-assert not any("/securityconsole/install" in m for _, _, m in ev)
-print("OK  alleen FortiManager: alleen de FMG-VM, ADOM/devices/templates aangemaakt, FortiGates en install overgeslagen")
+skip = ("devices", "pve_fgt", "bootstrap_fgt", "install")
+assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
+assert all(last[k] == "ok" for k in ("pve_fmg", "bootstrap_fmg", "preflight", "adom", "templates")), last
+assert any(s_ == "pve_fgt" and "alleen FortiManager" in m for s_, _, m in ev)
+bodies = mock_fmg.STATE["bodies"]
+assert not any(u == "dvm/cmd/add/device" for _, u, _ in bodies)                     # no model devices
+assert not any(u.startswith("securityconsole/") for _, u, _ in bodies)               # no install
+assert not any(u.endswith("/object member") for _, u, _ in bodies)                   # device groups stay empty
+assert not any("dynamic_mapping" in str(d) or "_scope" in str(d) for _, _, d in bodies)   # nothing refers to a device
+for kind in ("pkg/adom/", "tmplgrp/adom/", "wanprof/adom/", "obj/fmg/device/blueprint/", "obj/cli/template/"):
+    assert any(kind in u for _, u, _ in bodies), kind                               # templates for hubs and spokes are there
+print("OK  alleen FortiManager: zonder serienummers/wan1-gateways; FMG-VM, ADOM en templates, geen model devices/FortiGates/install")
 
 # ---------------------------------------------------------------- only the FortiGates (FMG from the previous run)
 last, ev = run(scope="fgt")
@@ -73,6 +93,7 @@ assert last["pve_fmg"] == last["bootstrap_fmg"] == "skipped", last
 assert any(s == "pve_fmg" and "alleen FortiGates" in m for s, _, m in ev)
 assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "pve_fgt", "bootstrap_fgt", "templates", "install")), last
 assert any(s == "adom" and "hergebruikt" in m for s, _, m in ev)
+assert any("dynamic_mapping" in str(d) for _, _, d in mock_fmg.STATE["bodies"])        # per-device values filled now
 print("OK  alleen FortiGates: geen FMG-VM, bestaande ADOM hergebruikt, FortiGate-VM's gemaakt, install uitgevoerd")
 
 # ---------------------------------------------------------------- 'fgt' without a reachable FortiManager: clear error
