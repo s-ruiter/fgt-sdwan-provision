@@ -141,7 +141,10 @@ def validate(t, devices=True, fmg_vm=True):
         err.append("Minstens 1 hub en 1 branch nodig")
 
     f = t.get("fmgr", {})
-    if not _cidr(f.get("ip", "")):
+    if not fmg_vm:                             # existing FortiManager: only its address is used (API + FortiGate central-management)
+        if not (_ip(f.get("ip", "")) or _cidr(f.get("ip", ""))):
+            err.append("FortiManager: IP-adres (a.b.c.d) is verplicht")
+    elif not _cidr(f.get("ip", "")):
         err.append("FortiManager: vast IP-adres als a.b.c.d/nn is verplicht")
     elif fmg_vm and (not _ip(f.get("gateway", "")) or not _gw_ok(f["ip"], f["gateway"])):
         err.append("FortiManager: gateway ontbreekt of ligt niet in het subnet van het FMG-IP")
