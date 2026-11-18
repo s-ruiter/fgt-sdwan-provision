@@ -298,6 +298,38 @@ FAZ = ("/cli/global/system/global", "faz-status", "enable")
 ALLOW_VM = ("/cli/global/system/global", "fgfm-allow-vm", "enable")
 
 
+def install_model_devices(fmg, adom, configs, devices, emit, step="install"):
+    """'Alleen model devices': per device a Quick install (device settings only, to the device database: there is no
+    real FortiGate yet), then per role a Re-install policy of its package on the devices of that role. Does not wait
+    for devices to come online. A failure is a warning for that device/package; the others continue."""
+    failed = []
+    emit(step, "running", "Quick install (device settings) per model device")
+    for d, _ in devices:
+        try:
+            r = fmg.call("exec", "/securityconsole/install/device",
+                         {"adom": adom, "flags": ["none"], "scope": [{"name": d["name"], "vdom": "root"}]})
+            fmg.wait_task((r.get("data") or {}).get("task"))
+            emit(step, "running", f"{d['name']}: Quick install voltooid")
+        except FmgError as e:
+            failed.append(d["name"])
+            emit(step, "warn", f"{d['name']}: Quick install mislukt: {e}")
+    emit(step, "running", "Re-install policy per rol")
+    for role in configs["roles"]:
+        scope = [{"name": n, "vdom": "root"} for n in role["devices"]]
+        try:
+            r = fmg.call("exec", "/securityconsole/install/package",
+                         {"adom": adom, "pkg": role["name"], "flags": ["none"], "scope": scope})
+            fmg.wait_task((r.get("data") or {}).get("task"))
+            emit(step, "running", f"policy package {role['name']} opnieuw geinstalleerd op {', '.join(role['devices'])}")
+        except FmgError as e:
+            failed.append(role["name"])
+            emit(step, "warn", f"policy package {role['name']}: Re-install policy mislukt: {e}")
+    if failed:
+        emit(step, "warn", f"install klaar met fouten ({', '.join(failed)}); zie de taak in FortiManager voor details")
+    else:
+        emit(step, "ok", "Quick install en Re-install policy voltooid voor alle model devices")
+
+
 def ensure_vm_ports(fmg, name, count, emit, step="devices"):
     """A FortiGate-VM model device only gets port1 in the FortiManager device database; add port2..portN (physical,
     vdom root) so templates and policies can use them. Idempotent: only missing ports are added (verified FMG 8.0.2)."""
@@ -533,7 +565,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd")
 
     if scope == "dev":
-        emit("install", "skipped", f"{why[scope]}: geen koppeling met echte FortiGates; rol die uit met 'Alleen FortiGates'")
+        install_model_devices(fmg, adom, configs, devices, emit)
         return
 
     emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")

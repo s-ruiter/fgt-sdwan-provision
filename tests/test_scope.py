@@ -153,10 +153,9 @@ pipeline(t, cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m))
          boot(scope="dev", fgt_tokens={}, fgt_new_pw="", images={}))            # no FortiGate tokens/password needed
 last = {s_: st for s_, st, _ in ev if st != "info"}
 assert fake_proxmox.STATE["creates"] == creates                                      # nothing on Proxmox
-skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "pve_fgt", "bootstrap_fgt", "install")
+skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "pve_fgt", "bootstrap_fgt")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
-assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "templates")), last
-assert any(s_ == "install" and "alleen model devices" in m for s_, _, m in ev)
+assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "templates", "install")), last
 bodies = mock_fmg.STATE["bodies"]
 added = [d["device"] for _, u, d in bodies if u == "dvm/cmd/add/device"]
 assert sorted(a["name"] for a in added) == sorted(x["name"] for x in devs), added
@@ -178,7 +177,12 @@ assert n_add == len(devs) and not any(m_ == "add" and u.endswith("/global/system
 from app.provision_vms import fgt_nics
 assert all(len(fgt_nics(x, t["pve"])) == 6 for x in devs), [len(fgt_nics(x, t["pve"])) for x in devs]   # 6 NICs per FortiGate-VM
 assert any(u.endswith("/object member") for _, u, _ in bodies)                        # devices in their device group
-assert not any(u.startswith("securityconsole/") for _, u, _ in bodies)
+inst = [(u, d) for _, u, d in bodies if u.startswith("securityconsole/")]
+dev_inst = [d["scope"][0]["name"] for u, d in inst if u == "securityconsole/install/device"]
+pkg_inst = [(d["pkg"], sorted(x["name"] for x in d["scope"])) for u, d in inst if u == "securityconsole/install/package"]
+assert dev_inst == [x["name"] for x in devs], dev_inst                                 # Quick install, one per device
+assert sorted(pkg_inst) == sorted((r["name"], sorted(r["devices"])) for r in cfg["roles"]), pkg_inst   # Re-install policy
+assert [u for u, _ in inst][:len(devs)] == ["securityconsole/install/device"] * len(devs)              # devices first
 assert mock_fmg.STATE["cli_sets"] == [("cli/global/system/global", {"fgfm-allow-vm": "enable"})], mock_fmg.STATE["cli_sets"]
 assert any(s_ == "devices" and "fgfm-allow-vm aangezet" in m for s_, _, m in ev)        # FMG 7.4.7+: VM devices allowed
 try:
