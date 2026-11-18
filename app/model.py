@@ -7,18 +7,19 @@ import re
 DEFAULT_INITIAL_IP = "192.168.1.99"   # factory default of FortiGate-VM / FortiManager-VM port1
 
 
-def _hub(name, lo, wan1, wan2, lan):
+# WAN design (user decision): a hub has ONE wan (wan1), always static; a branch has wan1 + optional wan2, both
+# always DHCP. Every branch wan builds a tunnel to wan1 of every hub. `wan1_mode` stays as an internal key (other
+# code reads it) but is forced by normalize_wans(): hub = static, branch = dhcp.
+def _hub(name, lo, wan1, lan):
     return {"name": name, "serial": "", "loopback": lo,
-            "wan1_intf": "port1", "wan2_intf": "port2",
-            "wan1_mode": "static", "wan1_ip": f"{wan1}/29", "wan1_gw": "", "initial_ip": DEFAULT_INITIAL_IP,
-            "wan1_hub_ip": wan1, "wan2_ip": wan2,
-            "lans": [{"intf": "port5", "ip": lan}]}
+            "wan1_intf": "port1", "wan1_mode": "static", "wan1_ip": f"{wan1}/29", "wan1_gw": "",
+            "initial_ip": DEFAULT_INITIAL_IP, "lans": [{"intf": "port5", "ip": lan}]}
 
 
 def _edge(name, lo, n, wan2=True):
     return {"name": name, "serial": "", "loopback": lo,
             "wan1_intf": "port1", "wan2_intf": "port2" if wan2 else "",
-            "wan1_mode": "dhcp", "wan1_ip": "", "wan1_gw": "", "initial_ip": DEFAULT_INITIAL_IP,
+            "wan1_mode": "dhcp", "initial_ip": DEFAULT_INITIAL_IP,
             "lans": [{"intf": "port5", "ip": f"10.0.{n}.1/24"}, {"intf": "port6", "ip": f"10.0.10{n}.1/24"}]}
 
 
@@ -60,8 +61,8 @@ DEFAULTS = {
         ],
     },
     "hubs": [
-        _hub("site1-H1", "10.200.1.253", "100.64.1.1", "100.64.1.9", "10.1.0.1/24"),
-        _hub("site1-H2", "10.200.1.254", "100.64.2.1", "100.64.2.9", "10.2.0.1/24"),
+        _hub("site1-H1", "10.200.1.253", "100.64.1.1", "10.1.0.1/24"),
+        _hub("site1-H2", "10.200.1.254", "100.64.2.1", "10.2.0.1/24"),
     ],
     "edges": [
         _edge("site1-1", "10.200.1.1", 1),
@@ -121,6 +122,7 @@ def validate(t, devices=True, fmg_vm=True):
     deployed. fmg_vm=False ('Alleen FortiGates' / 'Alleen templates'): an existing FortiManager, its IP is only the API
     and FortiGate management address (no gateway: the tool does not configure that FortiManager's network)."""
     err = []
+    normalize_wans(t)
     if not _NAME.match(t.get("adom", "")):
         err.append("ADOM-naam: 1-35 tekens (letters, cijfers, _ . -), begint met letter/cijfer")
     if t.get("os_ver") not in ("7.6", "8.0"):
@@ -183,20 +185,15 @@ def validate(t, devices=True, fmg_vm=True):
                 err.append(f"{n}: meer LAN's dan VRF's")
             if not d.get("wan1_intf"):
                 err.append(f"{n}: wan1-poort (bv. port1) is verplicht: ZTP/FMG-verbinding loopt hierover")
-            mode = d.get("wan1_mode")
-            if mode not in ("static", "dhcp"):
-                err.append(f"{n}: wan1_mode moet 'static' of 'dhcp' zijn")
-            elif mode == "static":
+            if kind == "hubs":                     # hubs: wan1 always static (branches dial in to this address)
                 if not _cidr(d.get("wan1_ip", "")):
-                    err.append(f"{n}: wan1 statisch IP als a.b.c.d/nn verplicht")
+                    err.append(f"{n}: wan1 IP als a.b.c.d/nn verplicht (hub: altijd statisch)")
                 elif devices and (not _ip(d.get("wan1_gw", "")) or not _gw_ok(d["wan1_ip"], d["wan1_gw"])):
                     err.append(f"{n}: wan1 gateway ontbreekt of ligt niet in het subnet")
+            elif d.get("wan2_intf") and d["wan2_intf"] == d.get("wan1_intf"):
+                err.append(f"{n}: wan2-poort moet een andere poort zijn dan wan1")
             if d.get("initial_ip") and not _ip(d["initial_ip"]):
                 err.append(f"{n}: ongeldig initieel IP")
-    for h in t.get("hubs", []):
-        for k, key in (("wan1", "wan1_hub_ip"), ("wan2", "wan2_ip")):
-            if h.get(f"{k}_intf") and not _ip(h.get(key, "")):
-                err.append(f"{h.get('name')}: {k.upper()} hub-IP ongeldig")
     return err
 
 
@@ -205,10 +202,25 @@ def _lan_var(k, suffix):
 
 
 def hub_wan1_ip(h):
-    """Hub underlay address the branches connect to; follows wan1 when that is static."""
-    if h.get("wan1_mode") == "static" and h.get("wan1_ip"):
-        return split_cidr(h["wan1_ip"])[0]
-    return h.get("wan1_hub_ip")
+    """Hub underlay address the branches connect to: the (always static) wan1 address."""
+    return split_cidr(h["wan1_ip"])[0] if _cidr(h.get("wan1_ip", "")) else None
+
+
+HUB_DROP = ("wan2_intf", "wan2_ip", "wan1_hub_ip")         # hubs have one wan
+EDGE_DROP = ("wan1_ip", "wan1_gw", "wan1_hub_ip", "wan2_ip")  # branch wans are always DHCP
+
+
+def normalize_wans(t):
+    """Enforce the WAN design on any input (GUI, API, old CSV): hub = wan1 static only, branch = wan1/wan2 DHCP."""
+    for h in t.get("hubs", []):
+        h["wan1_mode"] = "static"
+        for k in HUB_DROP:
+            h.pop(k, None)
+    for e in t.get("edges", []):
+        e["wan1_mode"] = "dhcp"
+        for k in EDGE_DROP:
+            e.pop(k, None)
+    return t
 
 
 def _multi(t):
@@ -222,6 +234,7 @@ def pe_vrf(t):
 
 def build(t):
     """Return (project_template_text, inventory_dict)."""
+    normalize_wans(t)
     r = t["region"]
     reg_name = r["name"]
     multi = _multi(t)
@@ -230,13 +243,13 @@ def build(t):
     if multi:
         regions[reg_name]["vrfs"] = [{"id": v["id"], "lan_summary": v["lan_summary"]} for v in vrfs]
     access = json.dumps(t.get("wan1_access", "ping https ssh fgfm").split())
-    ifaces = [
-        # wan1: address mode comes from the inventory (wan1_addr = 'dhcp' or a.b.c.d/nn);
-        # 'access' keeps SSH/HTTPS/fgfm, otherwise the template resets allowaccess to 'ping'.
-        "{'name': wan1_intf, 'role': 'wan', 'ol_type': 'WAN1', 'ip': wan1_addr, 'dia': true, "
-        f"'access': {access}}}",
-        "{'name': wan2_intf, 'role': 'wan', 'ol_type': 'WAN2', 'ip': 'dhcp', 'dia': true}",
-    ]
+    # 'access' keeps SSH/HTTPS/fgfm on wan1, otherwise the template resets allowaccess to 'ping'.
+    # Hub: one wan, static (wan1_addr = a.b.c.d/nn). Branch: wan1 + wan2, both DHCP and both ol_type WAN1, so the
+    # Orchestrator builds a tunnel from EVERY branch wan to wan1 of every hub (<hub>_WAN1 and <hub>_WAN1_2).
+    hub_wan = [f"{{'name': wan1_intf, 'role': 'wan', 'ol_type': 'WAN1', 'ip': wan1_addr, 'dia': true, 'access': {access}}}"]
+    edge_wan = [f"{{'name': wan1_intf, 'role': 'wan', 'ol_type': 'WAN1', 'ip': 'dhcp', 'dia': true, 'access': {access}}}",
+                "{'name': wan2_intf, 'role': 'wan', 'ol_type': 'WAN1', 'ip': 'dhcp', 'dia': true}"]
+    ifaces = []
     for k, v in enumerate(vrfs):
         dia = ", 'allow_dia': true" if v.get("dia") else ""
         ifaces.append(f"{{'name': {_lan_var(k,'intf')}, 'role': 'lan', 'vrf': {v['id']}{dia}, "
@@ -246,10 +259,8 @@ def build(t):
     hubs = {}
     for n, h in enumerate(t["hubs"], start=1):
         ov = {}
-        ips = {"wan1": hub_wan1_ip(h), "wan2": h.get("wan2_ip")}
-        for j, (ol, key) in enumerate((("WAN1", "wan1"), ("WAN2", "wan2"))):
-            if h.get(f"{key}_intf") and ips[key]:
-                ov[ol] = {"wan_ip": ips[key], "network_id": str(n * 10 + j + 1), "hub2hub": False}
+        if h.get("wan1_intf") and hub_wan1_ip(h):
+            ov["WAN1"] = {"wan_ip": hub_wan1_ip(h), "network_id": str(n * 10 + 1), "hub2hub": False}
         hubs[h["name"]] = {"lo_bgp": h["loopback"], "overlays": ov}
     parts = [
         "{% set cert_auth = false %}",
@@ -264,15 +275,17 @@ def build(t):
         "{% set lo_summary = " + json.dumps(t["lo_summary"]) + " %}",
     ] + (["{% set lan_summary = " + json.dumps(r.get("lan_summary", "10.0.0.0/8")) + " %}"] if not multi else []) + [
         "{% set regions = " + json.dumps(regions, indent=1) + " %}",
-        "{% set profiles = {'OneSizeFitsAll': {'interfaces': [\n  " + ",\n  ".join(ifaces) + "\n]}} %}",
+        "{% set profiles = {'Hub': {'interfaces': [\n  " + ",\n  ".join(hub_wan + ifaces) + "\n]},\n"
+        " 'Edge': {'interfaces': [\n  " + ",\n  ".join(edge_wan + ifaces) + "\n]}} %}",
         "{% set hubs = " + json.dumps(hubs, indent=1) + " %}",
     ]
     project = "\n".join(parts) + "\n"
 
-    def meta(d):
-        m = {"hostname": d["name"], "loopback": d["loopback"], "profile": "OneSizeFitsAll", "region": reg_name,
-             "wan1_addr": d["wan1_ip"].strip() if d.get("wan1_mode") == "static" else "dhcp"}
-        for k in ("wan1_intf", "wan2_intf"):
+    def meta(d, hub):
+        m = {"hostname": d["name"], "loopback": d["loopback"], "profile": "Hub" if hub else "Edge", "region": reg_name}
+        if hub:
+            m["wan1_addr"] = d["wan1_ip"].strip()
+        for k in ("wan1_intf",) if hub else ("wan1_intf", "wan2_intf"):
             if d.get(k):
                 m[k] = d[k]
         for k, l in enumerate(d.get("lans", [])[:None if multi else 1]):
@@ -281,8 +294,8 @@ def build(t):
                 m[_lan_var(k, "ip")] = l["ip"]
         return m
 
-    inv = {"Hub": {h["name"]: meta(h) for h in t["hubs"]},
-           "Edge": {e["name"]: meta(e) for e in t["edges"]}}
+    inv = {"Hub": {h["name"]: meta(h, True) for h in t["hubs"]},
+           "Edge": {e["name"]: meta(e, False) for e in t["edges"]}}
     return project, inv
 
 
@@ -337,7 +350,7 @@ def merged(user):
         elif v is not None:
             t[k] = v
     _deep(t, copy.deepcopy(FIXED))
-    return t
+    return normalize_wans(t)
 
 
 def validate_pve(t):

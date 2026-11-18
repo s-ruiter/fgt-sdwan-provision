@@ -51,7 +51,7 @@ function ipProblem(kind, v) {
   return "";
 }
 const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip" };
-const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip", wan2_ip: "ip" };
+const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip" };
 function markIpFields() {
   for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
   if (["fgt", "tpl"].includes(scope())) $("#fm_ip").dataset.ip = "ipcidr";   // existing FortiManager: only its address is used
@@ -81,7 +81,6 @@ function ipErrors() {
   const out = [];
   document.querySelectorAll("[data-ip]").forEach((el) => {
     const dev = el.closest(".dev");
-    if (dev && /^wan1_(ip|gw)$/.test(el.dataset.f) && dev.querySelector("[data-f=wan1_mode]").value !== "static") { el.classList.remove("bad"); return; }
     if (el.closest(".only-vm, .only-fmg, .only-fgt") && !el.offsetParent) { el.classList.remove("bad"); return; }   // hidden by the deploy choice
     const p = checkIp(el);
     if (p) out.push(`${dev ? dev.querySelector("b").textContent + ": " : ""}${labelText(el)} — ${p}`);
@@ -112,16 +111,14 @@ function pveFill(p) {
   $("#ports").innerHTML = "<thead><tr><th>Poort</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
     Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
 }
-const WAN = [["wan1_intf", "wan1-poort (ZTP)"], ["wan2_intf", "wan2-poort"]];
 function dev(kind, d, i) {
   const hub = kind === "hubs";
   let h = `<div class="dev" data-k="${kind}" data-i="${i}"><b>${esc(d.name)}</b><div class="fields">`;
-  h += fld("name", "Naam", d.name) + fld("serial", "Serienummer", d.serial, "", "only-fgt") + fld("loopback", "Loopback", d.loopback);
-  WAN.forEach(([k, l]) => (h += fld(k, l, d[k])));
-  h += `<div class="f"><label>wan1-adressering</label><select data-f="wan1_mode"><option value="static"${d.wan1_mode === "static" ? " selected" : ""}>Statisch</option><option value="dhcp"${d.wan1_mode === "dhcp" ? " selected" : ""}>Dynamisch (DHCP)</option></select></div>`;
-  h += fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway (statisch)", d.wan1_gw, "", "only-fgt");
+  h += fld("name", "Naam", d.name) + fld("serial", "Serienummer", d.serial, "", "only-fgt") + fld("loopback", "Loopback (BGP, router-id)", d.loopback);
+  // WAN design: hub = one wan (wan1, always static); branch = wan1 + optional wan2, both DHCP, each with a tunnel to wan1 of every hub
+  if (hub) h += fld("wan1_intf", "wan1-poort (ZTP)", d.wan1_intf) + fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway", d.wan1_gw, "", "only-fgt");
+  else h += fld("wan1_intf", "wan1-poort (ZTP, DHCP)", d.wan1_intf) + fld("wan2_intf", "wan2-poort (DHCP; leeg = geen)", d.wan2_intf);
   h += `<div class="f only-fgt"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
-  if (hub) h += fld("wan2_ip", "wan2 hub-IP", d.wan2_ip);
   (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
   return h + "</div></div>";
 }

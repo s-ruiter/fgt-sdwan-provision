@@ -5,9 +5,11 @@ Proxmox ...) are set in the GUI. A *full* export additionally contains `[algemee
 so a complete deployment can be reused; on import those sections are only applied when the caller asks for it.
 
     [devices]
-    type;name;serial;fortiflex_token;loopback;wan1_intf;wan2_intf;wan1_mode;wan1_ip;wan1_gw;wan1_hub_ip;wan2_ip;lan1_intf;lan1_ip;...
+    type;name;serial;fortiflex_token;loopback;wan1_intf;wan2_intf;wan1_ip;wan1_gw;lan1_intf;lan1_ip;...
 
-type = hub | branch. The LAN columns follow the current GUI mode: one pair (lan1_*) for single-VRF, one pair per VRF
+type = hub | branch. WAN design: a hub has one wan (wan1, always static: wan1_ip + wan1_gw); a branch has wan1 and an
+optional wan2, both always DHCP. Old columns (wan1_mode, wan1_hub_ip, wan2_ip, a hub's wan2_intf, a branch's static
+wan1 address) are ignored with a note. The LAN columns follow the current GUI mode: one pair (lan1_*) for single-VRF, one pair per VRF
 for multi-VRF (lan1_* belongs to the first VRF, lan2_* to the second ...). Hub-only columns are empty for branches.
 Lines starting with `#` and empty lines are ignored; the delimiter (; or ,) is detected. The FortiFlex tokens
 (column fortiflex_token, and fmgr.fortiflex_token in a full export) are in the file, so treat it as a secret; admin
@@ -19,9 +21,10 @@ import re
 
 from . import model
 
-DEV_COLS = ["type", "name", "serial", "fortiflex_token", "loopback", "wan1_intf", "wan2_intf", "wan1_mode", "wan1_ip",
-            "wan1_gw", "wan1_hub_ip", "wan2_ip"]
-HUB_ONLY = ("wan1_hub_ip", "wan2_ip")
+DEV_COLS = ["type", "name", "serial", "fortiflex_token", "loopback", "wan1_intf", "wan2_intf", "wan1_ip", "wan1_gw"]
+HUB_ONLY = ("wan1_ip", "wan1_gw")                 # hub wan1 is static; branch wans are DHCP
+EDGE_ONLY = ("wan2_intf",)                         # hubs have a single wan
+OLD_WAN = ("wan1_mode", "wan1_hub_ip", "wan2_ip")  # earlier WAN design: ignored
 # column names of earlier files; MPLS is no longer used
 ALIASES = {"isp1_intf": "wan1_intf", "isp2_intf": "wan2_intf", "isp1_ip": "wan1_hub_ip", "isp2_ip": "wan2_ip"}
 DROPPED = ("mpls_intf", "mpls_ip")
@@ -153,7 +156,7 @@ def export_csv(topo, delim=";", full=False, server_name="", tokens=None):
                 row.append(lans[i].get(s, "") if i < len(lans) else "")
             elif c == "fortiflex_token":
                 row.append((tokens.get("devices") or {}).get(d.get("name"), "") or "")
-            elif c in HUB_ONLY and kind != "hub":
+            elif (c in HUB_ONLY and kind != "hub") or (c in EDGE_ONLY and kind == "hub"):
                 row.append("")
             else:
                 row.append(d.get(c, "") or "")
@@ -230,6 +233,10 @@ def parse_devices(text, with_settings=False):
     hubs, edges, seen, tokens = [], [], set(), {}
     if any(col in h for col in DROPPED):
         notes.append("MPLS-kolommen genegeerd (MPLS wordt niet meer gebruikt)")
+    old = [col for col in OLD_WAN if col in h]
+    if old:
+        notes.append(f"kolom(men) {', '.join(old)} genegeerd: hubs hebben altijd een statisch wan1, branches altijd DHCP")
+    wan_notes = set()
     for n, r in enumerate(sections["devices"]["rows"], start=1):
         c = dict(zip(h, r + [""] * (len(h) - len(r))))
         kind = {"hub": "hub", "branch": "branch", "edge": "branch", "spoke": "branch"}.get(c["type"].lower())
@@ -241,24 +248,24 @@ def parse_devices(text, with_settings=False):
             raise CsvError(f"[devices] naam '{c['name']}' komt dubbel voor")
         seen.add(c["name"])
         d = {"name": c["name"], "serial": c.get("serial", ""), "loopback": c.get("loopback", ""),
-             "wan1_intf": c.get("wan1_intf", ""), "wan2_intf": c.get("wan2_intf", ""),
-             "wan1_mode": (c.get("wan1_mode") or ("static" if kind == "hub" else "dhcp")).lower(),
-             "wan1_ip": c.get("wan1_ip", ""), "wan1_gw": c.get("wan1_gw", ""), "initial_ip": model.DEFAULT_INITIAL_IP}
-        if d["wan1_mode"] not in ("static", "dhcp"):
-            raise CsvError(f"[devices] {c['name']}: wan1_mode '{d['wan1_mode']}' moet static of dhcp zijn")
+             "wan1_intf": c.get("wan1_intf", ""), "initial_ip": model.DEFAULT_INITIAL_IP}
+        if kind == "hub":
+            d.update(wan1_mode="static", wan1_ip=c.get("wan1_ip", ""), wan1_gw=c.get("wan1_gw", ""))
+            if c.get("wan2_intf"):
+                wan_notes.add("wan2_intf van hubs genegeerd (een hub heeft alleen wan1)")
+        else:
+            d.update(wan1_mode="dhcp", wan2_intf=c.get("wan2_intf", ""))
+            if c.get("wan1_ip") or c.get("wan1_gw"):
+                wan_notes.add("wan1_ip/wan1_gw van branches genegeerd (branches gebruiken altijd DHCP)")
         tok = c.get("fortiflex_token", "")
         if tok:
             if not _TOKEN.match(tok):
                 raise CsvError(f"[devices] {c['name']}: fortiflex_token ongeldig (10-64 letters/cijfers)")
             tokens[c["name"]] = tok
-        if kind == "hub":
-            for k in HUB_ONLY:
-                d[k] = c.get(k, "")
-            if not d["wan1_hub_ip"] and d["wan1_mode"] == "static" and "/" in d["wan1_ip"]:
-                d["wan1_hub_ip"] = d["wan1_ip"].split("/")[0]          # hub underlay address follows a static wan1
         d["lans"] = [{"intf": c.get(f"lan{i}_intf", ""), "ip": c.get(f"lan{i}_ip", "")} for i in range(1, MAX_LANS + 1)
                      if c.get(f"lan{i}_intf") or c.get(f"lan{i}_ip")]
         (hubs if kind == "hub" else edges).append(d)
+    notes += sorted(wan_notes)
     return hubs, edges, notes, settings, has_settings, tokens
 
 
