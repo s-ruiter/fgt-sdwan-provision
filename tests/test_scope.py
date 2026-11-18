@@ -160,6 +160,8 @@ added = [d["device"] for _, u, d in bodies if u == "dvm/cmd/add/device"]
 assert sorted(a["name"] for a in added) == sorted(x["name"] for x in devs), added
 assert all(a["sn"] and a["device action"] == "add_model" for a in added), added      # model devices with serial
 assert any("dynamic_mapping" in str(d) for _, _, d in bodies)                         # per-device values set
+var_maps = [m for _, u, d in bodies if "/obj/fmg/variable/" in u for m in (d or {}).get("dynamic_mapping", [])]
+assert var_maps and all(m["_scope"][0]["vdom"] == "global" for m in var_maps), var_maps[:2]   # device-level (FMG GUI)
 assert any(u.endswith("/object member") for _, u, _ in bodies)                        # devices in their device group
 assert not any(u.startswith("securityconsole/") for _, u, _ in bodies)
 assert mock_fmg.STATE["cli_sets"] == [("cli/global/system/global", {"fgfm-allow-vm": "enable"})], mock_fmg.STATE["cli_sets"]

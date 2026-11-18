@@ -28,6 +28,9 @@ def plan_calls(topo, plan, devices=True):
     roles = plan["roles"]
     group = lambda r: r["name"].lower()
     scope = lambda names: [{"name": n, "vdom": "root"} for n in names]
+    # metadata variables are DEVICE-level: FortiManager shows/uses the per-device value only for vdom "global"
+    # (a "root" mapping is stored and returned by the API, but the device's metadata view stays empty; FMG 8.0.2)
+    dev_scope = lambda names: [{"name": n, "vdom": "global"} for n in names]
 
     # 1. device groups (+ members)
     for r in roles:
@@ -39,7 +42,7 @@ def plan_calls(topo, plan, devices=True):
     for v, vals in sorted(plan["variables"].items()):
         body = {"name": v}
         if devices:
-            body["dynamic_mapping"] = [{"_scope": scope([d]), "value": str(val)} for d, val in sorted(vals.items())]
+            body["dynamic_mapping"] = [{"_scope": dev_scope([d]), "value": str(val)} for d, val in sorted(vals.items())]
         add("Metadata-variabelen", "set", f"{base}/obj/fmg/variable/{v}", body)
 
     # 3. system template (DNS, admin)
