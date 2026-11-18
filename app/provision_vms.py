@@ -66,6 +66,11 @@ def vm_params(spec, cfg, import_volid, iso_volid):
     p = {"cpu": cfg.get("cpu_type", "host"), "cores": spec["cores"], "memory": spec["memory_mb"], "bios": "seabios",
          "machine": "pc", "ostype": "l26", "scsi0": f"{cfg['disk_storage']}:0,import-from={import_volid}",
          "boot": "order=scsi0", "start": 0, "tags": TAG}
+    if spec.get("role") == "fgt":
+        # Without scsihw the Proxmox API uses the LSI 53C895A controller; the FortiOS 8.0 kernel then finds no disk and
+        # hangs silently after "Loading /rootfs.gz...ok" (seen on PVE 9.1 + FGT-VM 8.0.2). Fortinet's Proxmox guide uses
+        # the GUI default, VirtIO SCSI single. (The FortiManager VM boots fine on LSI and is left as it is.)
+        p["scsihw"] = "virtio-scsi-single"
     if iso_volid:
         p["ide2"] = f"{iso_volid},media=cdrom"
     for i, gb in enumerate(spec["extra_disks"], start=1):

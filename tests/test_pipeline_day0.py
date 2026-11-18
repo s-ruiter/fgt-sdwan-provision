@@ -101,6 +101,8 @@ nics = lambda p: len([k for k in p if re.fullmatch(r"net\d+", k)])
 assert nics(by["site1-H1"]) == 6 and nics(by["site1-1"]) == 6, (nics(by["site1-H1"]), nics(by["site1-1"]))   # always 6 (vm_interface_number)
 assert by["site1-1"]["net0"] == "virtio,bridge=vmbr1,tag=20" and by["site1-1"]["net1"] == "virtio,bridge=vmbr0"
 assert all(re.match(r"local:import/fgt-sdwan-[0-9a-f]{8}-(fgt|fmg)\.qcow2", p["scsi0"].split("import-from=")[1]) or True for p in by.values())
+assert all(p.get("scsihw") == "virtio-scsi-single" for n, p in by.items() if n != "fmg"), {n: p.get("scsihw") for n, p in by.items()}
+assert "scsihw" not in by["fmg"]                                                   # FMG boots on the default (LSI)
 print("OK  6 VM's (FMG + 2 hubs + 3 branches): tags, NIC-aantal per poortgebruik, VLAN op port1, FMG datadisk 100G / 4 vCPU / 16G")
 
 # ISO content (captured at upload time)
