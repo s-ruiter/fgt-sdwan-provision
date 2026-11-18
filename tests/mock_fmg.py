@@ -33,7 +33,17 @@ class H(BaseHTTPRequestHandler):
             return r
         res = ok()
         parts = url.split("/")
-        if url.startswith("cli/global/"):
+        if url.startswith("pm/config/device/") and url.endswith("/global/system/interface"):
+            ifs = STATE.setdefault("ifaces", {}).setdefault(parts[3], [{"name": "port1", "type": "physical"}])
+            if m == "get":
+                res = ok(list(ifs))
+            elif m == "add":
+                for i in p.get("data") or []:
+                    if any(x["name"] == i["name"] for x in ifs):
+                        res = {"status": {"code": -2, "message": "Object already exists"}, "url": p["url"]}
+                        break
+                    ifs.append(dict(i))
+        elif url.startswith("cli/global/"):
             cli = STATE.setdefault("cli", {}).setdefault(url, {})
             if m == "get":
                 res = ok(dict(cli))

@@ -298,6 +298,21 @@ FAZ = ("/cli/global/system/global", "faz-status", "enable")
 ALLOW_VM = ("/cli/global/system/global", "fgfm-allow-vm", "enable")
 
 
+def ensure_vm_ports(fmg, name, count, emit, step="devices"):
+    """A FortiGate-VM model device only gets port1 in the FortiManager device database; add port2..portN (physical,
+    vdom root) so templates and policies can use them. Idempotent: only missing ports are added (verified FMG 8.0.2)."""
+    want = [f"port{i}" for i in range(1, count + 1)]
+    if fmg.dry:
+        emit(step, "running", f"[dry-run] {name}: poorten {want[0]}-{want[-1]} in de device-database")
+        return
+    url = f"/pm/config/device/{name}/global/system/interface"
+    have = {i.get("name") for i in (fmg.call("get", url, fields=["name"]).get("data") or [])}
+    missing = [p for p in want if p not in have]
+    if missing:
+        fmg.call("add", url, [{"name": p, "vdom": "root", "type": "physical"} for p in missing])
+        emit(step, "running", f"{name}: poorten {', '.join(missing)} aangemaakt (FortiManager maakt bij een VM alleen port1)")
+
+
 def ensure_allow_vm(fmg, emit, step="devices"):
     """Allow FortiGate-VM (model) devices on this FortiManager. Only touches the setting when the FMG has it (7.4.7+)
     and it is not on yet; needed before adding FortiGate-VM model devices, also on an existing FortiManager."""
@@ -486,6 +501,9 @@ def pipeline(topo, configs, fmg, emit, boot=None):
                                "config system global / set fgfm-allow-vm enable / end, en start de uitrol opnieuw")
             raise
         emit("devices", "running", f"{d['name']} ({d['serial']}) toegevoegd")
+    if "VM" in topo.get("platform", "").upper():           # also for devices that already existed
+        for d, _ in devices:
+            ensure_vm_ports(fmg, d["name"], pv.fgt_port_count(d), emit)
     emit("devices", "ok", "alle model devices aanwezig")
 
     # FortiGates register against the model devices created above
