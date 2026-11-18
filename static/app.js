@@ -320,7 +320,7 @@ const SCOPE_HINT = {
   all: "",
   fmg: "Alleen de FortiManager wordt gemaakt en voorbereid met ADOM, templates, policy packages en blueprints voor de hubs en spokes, zonder model devices. Namen, loopbacks, LAN's en hub-adressen zijn nodig voor de templates; serienummers, wan1-gateways, FortiGate-tokens en -wachtwoord niet (die komen bij 'Alleen FortiGates').",
   tpl: "Rolt alleen de ADOM en de templates (metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups, blueprints) uit naar een bestaande FortiManager op het opgegeven IP, met de admin-gebruiker en het wachtwoord hieronder. Geen VM's en geen Proxmox; de FortiManager-instellingen (tijdzone, timers, FortiAnalyzer) blijven ongemoeid. Serienummers en wan1-gateways zijn niet nodig; model devices volgen met 'Alleen FortiGates'.",
-  dev: "Maakt in een bestaande FortiManager de ADOM, de model devices (met serienummer) en de templates met de waarden per device aan, zonder koppeling naar echte FortiGates: geen VM's, geen Proxmox, geen install. De FortiManager-instellingen blijven ongemoeid. Serienummers en hub-gateways zijn nodig; FortiGate-tokens en -wachtwoord niet. Echte FortiGates melden zich later op hun serienummer, of rol ze uit met 'Alleen FortiGates'.",
+  dev: "Maakt in een bestaande FortiManager de ADOM, de model devices (met serienummer) en de templates met de waarden per device aan, zonder koppeling naar echte FortiGates: geen VM's, geen Proxmox. Daarna doet de tool per device een Quick install (device settings) en per rol een Re-install policy, naar de device-database. De FortiManager-instellingen blijven ongemoeid. Serienummers en hub-gateways zijn nodig; FortiGate-tokens en -wachtwoord niet. Echte FortiGates melden zich later op hun serienummer, of rol ze uit met 'Alleen FortiGates'.",
   fgt: "De FortiManager moet al draaien op het opgegeven vaste IP en bereikbaar zijn met de admin-gebruiker en het wachtwoord hieronder. Er wordt geen FortiManager-VM gemaakt.",
 };
 const scope = () => (document.querySelector('input[name="scope"]:checked') || {}).value || "all";
@@ -350,7 +350,7 @@ $("#btn_deploy").onclick = async () => {
   const dry = $("#dry").checked, sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";   // Day-0 for what is deployed
   const what = { all: "de FortiManager- en FortiGate-VM's", fmg: "de FortiManager-VM", fgt: "de FortiGate-VM's" }[sc];
   const ask = sc === "tpl" ? "Dit schrijft de ADOM en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven). Doorgaan?"
-    : sc === "dev" ? "Dit schrijft de ADOM, de model devices en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven). Doorgaan?"
+    : sc === "dev" ? "Dit schrijft de ADOM, de model devices en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven) en doet daarna per device een Quick install en een Re-install policy. Doorgaan?"
     : `Dit schrijft naar FortiManager, maakt ${what} op Proxmox, configureert en licenseert ze (ze herstarten). Doorgaan?`;
   if (!dry && !confirm(ask)) return;
   const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } });
