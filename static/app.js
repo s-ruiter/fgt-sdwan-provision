@@ -110,6 +110,29 @@ function pveFill(p) {
   const opt = (v) => `<option value="">(standaard bridge)</option>` + [...new Set([...PVE_OPT.bridges, ...(v ? [v] : [])])].map((x) => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
   $("#ports").innerHTML = "<thead><tr><th>Poort</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
     Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
+  if (T && T.wanemu) setSel("#wan-bridge", PVE_OPT.bridges, $("#wan-bridge").value || T.wanemu.bridge);   // bridges of this node
+}
+const WAN_SEGS = ["hub", "a", "b"];
+function wanFill(w) {
+  $("#wan-vmid").value = w.vmid ?? ""; $("#wan-template").value = w.template; $("#wan-storage").value = w.storage;
+  setSel("#wan-bridge", PVE_OPT.bridges, w.bridge);
+  $("#wan-uplink-vlan").value = w.uplink.vlan; $("#wan-uplink-ip").value = w.uplink.ip; $("#wan-uplink-gw").value = w.uplink.gw;
+  WAN_SEGS.forEach((k) => {
+    const g = w.segments[k];
+    $(`#wan-seg-${k}-vlan`).value = g.vlan; $(`#wan-seg-${k}-subnet`).value = g.subnet; $(`#wan-seg-${k}-gw`).value = g.gw;
+    if (k !== "hub") $(`#wan-seg-${k}-res`).value = g.res_start;
+  });
+}
+function wanCollect() {
+  const w = JSON.parse(JSON.stringify(T.wanemu)), n = (v) => (v === "" ? null : +v);
+  w.vmid = n($("#wan-vmid").value); w.template = $("#wan-template").value.trim(); w.storage = $("#wan-storage").value.trim();
+  w.bridge = $("#wan-bridge").value.trim();
+  w.uplink = { vlan: n($("#wan-uplink-vlan").value), ip: $("#wan-uplink-ip").value.trim(), gw: $("#wan-uplink-gw").value.trim() };
+  WAN_SEGS.forEach((k) => {
+    Object.assign(w.segments[k], { vlan: n($(`#wan-seg-${k}-vlan`).value), subnet: $(`#wan-seg-${k}-subnet`).value.trim(), gw: $(`#wan-seg-${k}-gw`).value.trim() });
+    if (k !== "hub") w.segments[k].res_start = n($(`#wan-seg-${k}-res`).value);
+  });
+  return w;
 }
 function dev(kind, d, i) {
   const hub = kind === "hubs";
@@ -126,7 +149,7 @@ function draw() {
   const p = T.pve;
   $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub;
   $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port;
-  pveFill(p);
+  pveFill(p); wanFill(T.wanemu);
   const mv = T.region.multi_vrf !== false;
   $("#r_multi").checked = mv; $("#sv_box").hidden = mv; $("#vrfs").hidden = !mv; $("#r_lansum").value = T.region.lan_summary || "10.0.0.0/8";
   $("#vrfs").innerHTML = "<thead><tr><th>VRF-id</th><th>LAN-summary</th><th>DIA</th></tr></thead><tbody>" +
@@ -154,6 +177,7 @@ function collect() {
     fmg: { cores: +$("#fmg_cores").value, memory_mb: +$("#fmg_mem").value, data_disk_gb: +$("#fmg_disk").value, bridge: $("#fmg_br").value.trim(), vlan: n($("#fmg_vlan").value) },
     ports: Object.fromEntries([...document.querySelectorAll("[data-p]")].map((r) => [r.dataset.p, { bridge: r.querySelector("[data-f=bridge]").value.trim(), vlan: n(r.querySelector("[data-f=vlan]").value) }])),
   };
+  t.wanemu = wanCollect();
   t.region.multi_vrf = $("#r_multi").checked; t.region.lan_summary = $("#r_lansum").value.trim();
   t.region.vrfs = [...document.querySelectorAll("[data-v]")].map((r) => ({ id: +r.querySelector("[data-f=id]").value, lan_summary: r.querySelector("[data-f=lan_summary]").value.trim(), dia: r.querySelector("[data-f=dia]").checked }));
   document.querySelectorAll(".dev").forEach((el) => {

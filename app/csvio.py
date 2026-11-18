@@ -55,7 +55,17 @@ PVE_SETTINGS = [
     ("pve.fmg.vlan", "FortiManager VLAN", "optint"),
     ("pve.fgt.cores", "FortiGate vCPU", "int"), ("pve.fgt.memory_mb", "FortiGate RAM (MB)", "int"),
 ] + [(f"pve.ports.port{i}.{k}", f"FortiGate port{i} {k}", "optint" if k == "vlan" else "str")
-     for i in range(1, 9) for k in ("bridge", "vlan")]
+     for i in range(1, 9) for k in ("bridge", "vlan")] + [
+    ("wanemu.vmid", "WAN-emulator CT-id (leeg = automatisch)", "optint"),
+    ("wanemu.template", "WAN-emulator template", "str"), ("wanemu.storage", "WAN-emulator storage", "str"),
+    ("wanemu.bridge", "WAN-emulator bridge", "str"),
+    ("wanemu.uplink.vlan", "WAN-emulator uplink VLAN", "int"), ("wanemu.uplink.ip", "WAN-emulator uplink IP/prefix", "str"),
+    ("wanemu.uplink.gw", "WAN-emulator uplink gateway", "str"),
+] + [(f"wanemu.segments.{s}.{k}", f"{n} {lbl}", kind)
+     for s, n in (("hub", "ISP-HUB"), ("a", "ISP-A"), ("b", "ISP-B"))
+     for k, lbl, kind in (("vlan", "VLAN", "int"), ("subnet", "subnet", "str"), ("gw", "gateway", "str"),
+                          ("res_start", "eerste reservering (laatste octet)", "int"))
+     if not (s == "hub" and k == "res_start")]
 VRF_COLS = ["id", "lan_summary", "dia"]
 _TRUE, _FALSE = {"ja", "j", "true", "1", "aan", "yes", "y", "x"}, {"nee", "n", "false", "0", "uit", "no", ""}
 

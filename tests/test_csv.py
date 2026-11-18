@@ -100,6 +100,9 @@ for multi in (True, False):
     assert r["todo"] == [], r["todo"]          # validated against the *imported* settings (mode matches the LAN columns)
     assert [d["name"] for d in r["hubs"]] == ["site1-H1", "site1-H2"] and len(r["edges"]) == 3
     assert "server_id" not in str(st)           # DB ids are not portable: only the server name travels
+    assert "wanemu.uplink.ip;10.10.106.250/24" in full and "wanemu.segments.b.vlan;3202" in full
+    assert st["wanemu"]["segments"]["a"]["subnet"] == "100.127.201.0/24" and st["wanemu"]["uplink"]["vlan"] == 106
+    assert st["wanemu"]["vmid"] is None and st["wanemu"]["segments"]["a"]["res_start"] == 11
 # fixed values: not in the file, and an imported/old file cannot change them
 full = csvio.export_csv(topo(True), full=True)
 for k in ("platform", "dns_primary", "dns_secondary", "wan1_access", "psk", "lo_summary", "region.name", "region.bgp_as", "region.lo_summary", "pve.license_mode"):
