@@ -112,21 +112,21 @@ class DeployReq(BaseModel):
     bootstrap: Bootstrap = Bootstrap()
     secrets: Secrets = Secrets()
     images: dict = {}                          # {'fgt': image-id, 'fmg': image-id}
-    scope: str = "all"                         # 'all', 'fmg' (only FortiManager), 'fgt' (only FortiGates), 'tpl' (only templates)
+    scope: str = "all"                         # 'all', 'fmg' (only FortiManager), 'fgt' (only FortiGates), 'tpl' (only templates), 'dev' (only model devices)
 
 
-SCOPE_TITLE = {"all": "", "fmg": " - alleen FortiManager", "fgt": " - alleen FortiGates", "tpl": " - alleen templates"}
+SCOPE_TITLE = {"all": "", "fmg": " - alleen FortiManager", "fgt": " - alleen FortiGates", "tpl": " - alleen templates", "dev": " - alleen model devices"}
 
 
 def _apply_scope(r):
     """The scope wins over the per-product method: a product that is not deployed gets method 'none'."""
     if r.scope not in SCOPE_TITLE:
-        raise HTTPException(422, detail=[f"onbekende uitrol-keuze '{r.scope}' (all, fmg, fgt of tpl)"])
+        raise HTTPException(422, detail=[f"onbekende uitrol-keuze '{r.scope}' (all, fmg, fgt, tpl of dev)"])
     if r.scope == "fgt":
         r.bootstrap.fmg = "none"
     elif r.scope == "fmg":
         r.bootstrap.fgt = "none"
-    elif r.scope == "tpl":                     # existing FortiManager, no VMs at all
+    elif r.scope in ("tpl", "dev"):            # existing FortiManager, no VMs at all
         r.bootstrap.fmg = r.bootstrap.fgt = "none"
 
 
