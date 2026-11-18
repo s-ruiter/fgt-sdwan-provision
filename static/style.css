@@ -223,3 +223,14 @@ ol.about li b { font-weight: 600; } ol.about li span { color: var(--text-2); }
 .actions-cell .hint { margin-right: 8px; }
 
 input.bad { border-color: var(--bad) !important; box-shadow: 0 0 0 2px rgb(218 41 28 / .18) !important; }
+
+/* WAN-emulatie */
+.wan-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.wan-col h3 { margin: 0 0 8px; }
+.wan-card { padding: 12px 14px; }
+.wan-card.down { border-color: var(--accent); background: rgb(218 41 28 / .06); }
+.wan-card.dirty { box-shadow: 0 0 0 2px rgb(218 41 28 / .25); }
+.wan-f { margin-top: 8px; }
+.wan-f label { display: block; font-size: 13px; }
+.wan-f input[type=range] { width: 100%; }
+.wan-card select { width: auto; }

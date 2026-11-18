@@ -111,6 +111,12 @@ def get_secret(conn, name, create=None):
     return v
 
 
+def put_secret(conn, name, value):
+    conn.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                 (f"secret:{name}", value))
+    conn.commit()
+
+
 # ---- deployment jobs: persisted so progress survives a page refresh and a service restart -------------------------
 def save_job(conn, job):
     """job = {id, created, title, state, dry_run, steps{}, events[]}; events are already masked (no secrets)."""

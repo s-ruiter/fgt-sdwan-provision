@@ -78,6 +78,9 @@ assert any(c[0][:2] == ["nft", "-f"] for c in calls) and any(c[0][0] == "tc" for
 code, body = req("PUT", "/links/site1-1-wan1", {"loss_pct": 150})
 assert code == 400 and "loss" in body["error"]
 assert next(x for x in req("GET", "/links")[1]["links"] if x["id"] == "site1-1-wan1")["state"]["loss_pct"] == 2
+code, body = req("PUT", "/links/site1-1-wan1", {"delay_ms": 35, "down": True})            # same keys again: merged
+assert code == 200 and body["state"]["delay_ms"] == 35 and body["state"]["loss_pct"] == 2 and body["state"]["down"] is True
+req("PUT", "/links/site1-1-wan1", {"delay_ms": 30, "down": False})
 assert req("PUT", "/links/onbekend", {"delay_ms": 1})[0] == 404
 saved = json.load(open(os.path.join(d, "links.json")))
 assert saved["site1-1-wan1"]["delay_ms"] == 30

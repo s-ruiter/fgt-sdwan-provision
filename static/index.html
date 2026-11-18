@@ -16,6 +16,7 @@
         <a href="#/deploy" data-nav="deploy">Uitrol</a>
         <a href="#/progress" data-nav="progress">Voortgang</a>
         <a href="#/images" data-nav="images">Images</a>
+        <a href="#/wanemu" data-nav="wanemu">WAN-emulatie</a>
         <a href="#/servers" data-nav="servers">Servers</a>
         <a href="#/about" data-nav="about">Over</a>
       </nav>
@@ -190,6 +191,17 @@
         <div class="btnrow"><button id="srv_test">Testen</button><span class="hint" id="srv_res"></span></div>
         <div class="actions"><button id="srv_cancel" hidden>Annuleren</button><button id="srv_save" class="primary">Opslaan</button></div>
       </div>
+    </section>
+
+    <section id="v_wanemu" hidden>
+      <h1>WAN-emulatie</h1>
+      <div id="wanemu-err"></div>
+      <div class="card">
+        <h2><span class="num">01</span>Presets <small id="wanemu-addr"></small></h2>
+        <div class="hint">Waarden gelden in beide richtingen: een vertraging van 40 ms geeft een RTT van 80 ms. Een preset zonder link geldt voor alle links; de storing-presets zetten alleen die links down. Per link kies je onder de kaart ook een preset.</div>
+        <div class="btnrow" id="wanemu-presets"></div>
+      </div>
+      <div class="wan-cols" id="wanemu-links"></div>
     </section>
 
     <section id="v_images" hidden>

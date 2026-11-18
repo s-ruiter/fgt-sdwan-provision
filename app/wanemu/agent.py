@@ -147,7 +147,7 @@ class App:
         vals = check(values)                                    # ValueError -> 400, nothing changed
         with self.lock:
             old = dict(self.state)
-            self.state[link_id] = dict(DEFAULT, **self.state.get(link_id, {}), **vals)
+            self.state[link_id] = {**DEFAULT, **self.state.get(link_id, {}), **vals}
             try:
                 self.apply()
             except Exception:

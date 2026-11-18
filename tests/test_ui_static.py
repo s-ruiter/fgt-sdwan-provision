@@ -39,3 +39,13 @@ for i in ("wan-vmid", "wan-template", "wan-storage", "wan-bridge", "wan-uplink-v
 assert 'type="checkbox"' not in sec, "geen aan/uit-schakelaar: de WAN-emulator is altijd aan"
 assert "wanFill(" in js and "wanCollect(" in js and "t.wanemu = wanCollect()" in js
 print("OK  UI: instellingen WAN-emulatie (container, uplink, ISP-HUB/ISP-A/ISP-B) zonder aan/uit, gevuld uit de standaarden")
+
+# WAN-emulatie page: own view, cards per link in three segment columns, presets, error box
+assert 'href="#/wanemu" data-nav="wanemu"' in html and 'id="v_wanemu"' in html
+for i in ("wanemu-links", "wanemu-presets", "wanemu-err", "wanemu-addr"):
+    assert f'id="{i}"' in html, i
+assert '"wanemu"' in js[js.index("const VIEWS"):js.index("const VIEWS") + 120]
+for f in ("wanLoad", "wanCard", "wanApply"):
+    assert re.search(rf"(async\s+)?function\s+{f}\b", js), f
+assert "/api/wanemu/links" in js and "/api/wanemu/preset/" in js and "/api/wanemu/reset" in js
+print("OK  UI: pagina WAN-emulatie (kaart per link per segment, presets, foutmelding, verversen)")

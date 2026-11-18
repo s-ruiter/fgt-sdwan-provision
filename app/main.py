@@ -5,7 +5,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -371,6 +371,56 @@ def _wanemu_secrets():
             "agent_token": db.get_secret(conn, "wanemu_agent_token", create=lambda: __import__("secrets").token_urlsafe(32))}
 
 
+# ---- WAN-emulatie: proxy to the agent in wan-emu (the token stays in the tool) ------------------------------------
+def _agent():
+    from .wanemu.client import Agent
+    conn = db.connect(DATA_DIR)
+    addr, tok = db.get_secret(conn, "wanemu_addr"), db.get_secret(conn, "wanemu_agent_token")
+    if not addr or not tok:
+        raise HTTPException(409, detail="Nog geen WAN-emulator uitgerold: rol eerst FortiGates uit (Alles of Alleen FortiGates)")
+    return Agent(addr, tok)
+
+
+def _agent_call(fn):
+    from .wanemu.client import AgentError
+    try:
+        return fn()
+    except AgentError as e:
+        raise HTTPException(e.status, detail=str(e))
+
+
+@app.get("/api/wanemu/links")
+def wanemu_links():
+    from .wanemu.client import PRESETS
+    a = _agent()
+    return {"addr": a.addr, "links": _agent_call(a.links),
+            "presets": {k: v["label"] for k, v in PRESETS.items()}}
+
+
+@app.put("/api/wanemu/links/{link_id}")
+def wanemu_put(link_id: str, values: dict = Body(...)):
+    a = _agent()
+    return _agent_call(lambda: a.put(link_id, values))
+
+
+@app.post("/api/wanemu/preset/{name}")
+def wanemu_preset(name: str, link: Optional[str] = None):
+    from .wanemu.client import PRESETS, preset_changes
+    if name not in PRESETS:
+        raise HTTPException(404, detail=f"onbekende preset {name}")
+    a = _agent()
+    changes = preset_changes(name, _agent_call(a.links), link)
+    for lid, vals in changes:
+        _agent_call(lambda lid=lid, vals=vals: a.put(lid, vals))
+    return {"applied": [lid for lid, _ in changes]}
+
+
+@app.post("/api/wanemu/reset")
+def wanemu_reset():
+    a = _agent()
+    return {"links": _agent_call(a.reset)}
+
+
 @app.post("/api/deploy")
 def deploy(r: DeployReq):
     topo = model.merged(r.topology)
@@ -401,6 +451,8 @@ def deploy(r: DeployReq):
             "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw}
     if boot["fgt"] == "day0" and r.scope not in ("fmg", "tpl", "dev") and not r.dry_run:
         boot["wanemu_secrets"] = _wanemu_secrets()
+        w = topo["wanemu"]                     # where the WAN-emulatie page finds the agent of this deployment
+        db.put_secret(db.connect(DATA_DIR), "wanemu_addr", f"{model.split_cidr(w['uplink']['ip'])[0]}:{w['agent_port']}")
     jid = uuid.uuid4().hex[:8]
     job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [], "created": time.strftime("%Y-%m-%d %H:%M:%S"),
            "title": f"Uitrol van {topo['adom']}" + SCOPE_TITLE[r.scope] + (" (dry-run)" if r.dry_run else ""),
