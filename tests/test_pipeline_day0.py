@@ -125,6 +125,7 @@ for name, raw in iso_seen.items():
     if name != "fmg":
         assert f"set hostname {name}" in conf and 'set fmg "10.0.0.5"' in conf and "set allowaccess ping https ssh fgfm" in conf
         assert "set primary 1.1.1.1" in conf and "set protocol cleartext" in conf, name   # DoT default resolves nothing
+        assert 'set serial-number "FMVMELTM26000001"' in conf, name     # verified FMG, else auto-link times out (FOS 8.0)
         d = next(x for x in devs if x["name"] == name)
         assert ("set mode static" in conf) == (d["wan1_mode"] == "static")
     else:
