@@ -188,8 +188,8 @@ def validate(t, devices=True, fmg_vm=True):
             if kind == "hubs":                     # hubs: wan1 always static (branches dial in to this address)
                 if not _cidr(d.get("wan1_ip", "")):
                     err.append(f"{n}: wan1 IP als a.b.c.d/nn verplicht (hub: altijd statisch)")
-                elif devices and (not _ip(d.get("wan1_gw", "")) or not _gw_ok(d["wan1_ip"], d["wan1_gw"])):
-                    err.append(f"{n}: wan1 gateway ontbreekt of ligt niet in het subnet")
+                elif not _ip(d.get("wan1_gw", "")) or not _gw_ok(d["wan1_ip"], d["wan1_gw"]):   # also without devices:
+                    err.append(f"{n}: wan1 gateway ontbreekt of ligt niet in het subnet")          # it is in the hub SD-WAN template
             elif d.get("wan2_intf") and d["wan2_intf"] == d.get("wan1_intf"):
                 err.append(f"{n}: wan2-poort moet een andere poort zijn dan wan1")
             if d.get("initial_ip") and not _ip(d["initial_ip"]):

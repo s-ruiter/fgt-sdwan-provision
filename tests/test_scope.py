@@ -56,16 +56,17 @@ def run(**kw):
 
 names = lambda: {v["name"] for v in fake_proxmox.STATE["vms"].values()}
 
-# ---------------------------------------------------------------- only the FortiManager: no serials / wan1 gateways needed
+# ---------------------------------------------------------------- only the FortiManager: no serials needed
+# (the hub wan1 gateway IS needed: it is in the hub SD-WAN template)
 import copy
 bare = copy.deepcopy(t)
 for d in bare["hubs"] + bare["edges"]:
     d["serial"] = ""
-    if d.get("wan1_mode") == "static":
-        d["wan1_gw"] = ""
 assert any("serienummer" in x for x in model.validate(bare))                       # still required for FortiGates
-assert any("gateway" in x for x in model.validate(bare))
 assert model.validate(bare, devices=False) == [], model.validate(bare, devices=False)
+nogw = copy.deepcopy(bare)
+nogw["hubs"][0]["wan1_gw"] = ""
+assert any("gateway" in x for x in model.validate(nogw, devices=False))
 bare_cfg = fmgtemplates.build_plan(bare, ORCH)
 mock_fmg.STATE["bodies"].clear()
 ev = []
