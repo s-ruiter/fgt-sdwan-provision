@@ -112,24 +112,26 @@ class DeployReq(BaseModel):
     bootstrap: Bootstrap = Bootstrap()
     secrets: Secrets = Secrets()
     images: dict = {}                          # {'fgt': image-id, 'fmg': image-id}
-    scope: str = "all"                         # 'all', 'fmg' (only FortiManager) or 'fgt' (only FortiGates)
+    scope: str = "all"                         # 'all', 'fmg' (only FortiManager), 'fgt' (only FortiGates), 'tpl' (only templates)
 
 
-SCOPE_TITLE = {"all": "", "fmg": " - alleen FortiManager", "fgt": " - alleen FortiGates"}
+SCOPE_TITLE = {"all": "", "fmg": " - alleen FortiManager", "fgt": " - alleen FortiGates", "tpl": " - alleen templates"}
 
 
 def _apply_scope(r):
     """The scope wins over the per-product method: a product that is not deployed gets method 'none'."""
     if r.scope not in SCOPE_TITLE:
-        raise HTTPException(422, detail=[f"onbekende uitrol-keuze '{r.scope}' (all, fmg of fgt)"])
+        raise HTTPException(422, detail=[f"onbekende uitrol-keuze '{r.scope}' (all, fmg, fgt of tpl)"])
     if r.scope == "fgt":
         r.bootstrap.fmg = "none"
     elif r.scope == "fmg":
         r.bootstrap.fgt = "none"
+    elif r.scope == "tpl":                     # existing FortiManager, no VMs at all
+        r.bootstrap.fmg = r.bootstrap.fgt = "none"
 
 
-def _render(topo, create_psk=False, devices=True):
-    errs = model.validate(topo, devices)
+def _render(topo, create_psk=False, devices=True, fmg_vm=True):
+    errs = model.validate(topo, devices, fmg_vm)
     if errs:
         raise HTTPException(422, detail=errs)
     c = db.connect(DATA_DIR)
@@ -371,7 +373,7 @@ def deploy(r: DeployReq):
         topo["pve"].update(url=row["url"], token_id=row["token_id"], verify_tls=bool(row["verify_tls"]))
         r.secrets.pve_token_secret = row["token_secret"]
     _apply_scope(r)
-    _, _, cfg = _render(topo, create_psk=True, devices=r.scope != "fmg")   # cfg = template plan
+    _, _, cfg = _render(topo, create_psk=True, devices=r.scope not in ("fmg", "tpl"), fmg_vm=r.scope != "tpl")
     _check_bootstrap(topo, r)
     if sid:                                    # remember this server's choices for the next run
         db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"])

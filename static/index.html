@@ -34,11 +34,12 @@
           <div class="inline"><input type="radio" name="scope" id="scope_all" value="all" checked><label for="scope_all"><b>Alles</b> &ndash; FortiManager en FortiGates</label></div>
           <div class="inline"><input type="radio" name="scope" id="scope_fmg" value="fmg"><label for="scope_fmg"><b>Alleen FortiManager</b> &ndash; VM, licentie, ADOM en templates voor hubs en spokes; geen model devices, geen FortiGate-VM's en geen install</label></div>
           <div class="inline"><input type="radio" name="scope" id="scope_fgt" value="fgt"><label for="scope_fgt"><b>Alleen FortiGates</b> &ndash; tegen een bestaande, bereikbare FortiManager; ADOM en templates worden hergebruikt of bijgewerkt, model devices toegevoegd, daarna install</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_tpl" value="tpl"><label for="scope_tpl"><b>Alleen templates</b> &ndash; naar een bestaande, bereikbare FortiManager: ADOM en templates voor hubs en spokes; geen VM's, geen Proxmox, geen model devices en geen install</label></div>
         </div>
         <div class="hint" id="scope_hint"></div>
       </div>
 
-      <div class="card" id="sec_pve">
+      <div class="card only-vm" id="sec_pve">
         <h2><span class="num">01</span>Proxmox &amp; images <small>(de VM's worden via Day-0 aangemaakt)</small></h2>
         <div class="fields">
           <div class="f"><label>Proxmox-server</label><select id="pve_server"></select></div>
@@ -83,10 +84,10 @@
       <div class="card">
         <h2><span class="num">02</span>FortiManager <small>(altijd een vast IP; Day-0)</small></h2>
         <div class="fields">
-          <div class="f"><label>Hostnaam</label><input id="fm_name"></div>
+          <div class="f only-vm"><label>Hostnaam</label><input id="fm_name"></div>
           <div class="f"><label>Vast IP (a.b.c.d/nn)</label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
-          <div class="f"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
-          <div class="f"><label>Poort</label><input id="fm_port"></div>
+          <div class="f only-vm"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
+          <div class="f only-vm"><label>Poort</label><input id="fm_port"></div>
           <div class="f"><label>ADOM-naam</label><input id="adom"></div>
           <div class="f"><label>Admin-gebruiker</label><input id="fmg_user" value="admin"></div>
           <div class="f"><label>Admin- en SSH-wachtwoord</label><input id="fmg_pass" type="password" autocomplete="off"></div>

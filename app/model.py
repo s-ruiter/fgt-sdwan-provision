@@ -115,9 +115,10 @@ def valid_token(t):
     return bool(_TOKEN.match((t or "").strip()))
 
 
-def validate(t, devices=True):
-    """devices=False ('Alleen FortiManager'): no model devices are created, so the serial number and the wan1
-    gateway (only a per-device variable value) are not needed yet; they are checked when the FortiGates are deployed."""
+def validate(t, devices=True, fmg_vm=True):
+    """devices=False ('Alleen FortiManager' / 'Alleen templates'): no model devices are created, so the serial number and
+    the wan1 gateway (only a per-device variable value) are not needed yet; they are checked when the FortiGates are
+    deployed. fmg_vm=False ('Alleen templates'): an existing FortiManager, its IP is only the API address (no gateway)."""
     err = []
     if not _NAME.match(t.get("adom", "")):
         err.append("ADOM-naam: 1-35 tekens (letters, cijfers, _ . -), begint met letter/cijfer")
@@ -141,7 +142,7 @@ def validate(t, devices=True):
     f = t.get("fmgr", {})
     if not _cidr(f.get("ip", "")):
         err.append("FortiManager: vast IP-adres als a.b.c.d/nn is verplicht")
-    elif not _ip(f.get("gateway", "")) or not _gw_ok(f["ip"], f["gateway"]):
+    elif fmg_vm and (not _ip(f.get("gateway", "")) or not _gw_ok(f["ip"], f["gateway"])):
         err.append("FortiManager: gateway ontbreekt of ligt niet in het subnet van het FMG-IP")
     if f.get("initial_ip") and not _ip(f["initial_ip"]):
         err.append("FortiManager: ongeldig initieel IP")
