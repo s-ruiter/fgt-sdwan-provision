@@ -77,7 +77,7 @@ for i, d in enumerate(devs):
     assert 'set fmg "10.0.0.5"' in st.cmds
 assert not any(TOK_FMG in m or NEWPW in m or any(t in m for t in TOKS.values()) for _, _, m in events)
 order = [s for s, _, _ in events]
-firsts = [order.index(s) for s in ("bootstrap_fmg", "preflight", "adom", "devices", "bootstrap_fgt", "templates", "install")]
+firsts = [order.index(s) for s in ("bootstrap_fmg", "preflight", "adom", "devices", "templates", "bootstrap_fgt", "install")]
 assert firsts == sorted(firsts), firsts
 m = __import__("requests").get("http://127.0.0.1:8098").json()
 assert len(m["devices"]) == 5 and any(c[1].startswith("pm/tmplgrp") for c in m["calls"]) and any(c[1] == "securityconsole/install/package" for c in m["calls"])

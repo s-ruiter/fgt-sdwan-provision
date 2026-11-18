@@ -298,11 +298,12 @@ FAZ = ("/cli/global/system/global", "faz-status", "enable")
 ALLOW_VM = ("/cli/global/system/global", "fgfm-allow-vm", "enable")
 
 
-def install_model_devices(fmg, adom, configs, devices, emit, step="install"):
-    """'Alleen model devices': per device a Quick install (device settings only, to the device database: there is no
-    real FortiGate yet), then per role a Re-install policy of its package on the devices of that role. Does not wait
-    for devices to come online. A failure is a warning for that device/package; the others continue."""
-    failed = []
+def install_devices(fmg, adom, configs, devices, emit, step="install", pending=()):
+    """Per device a Quick install (device settings), then per role a Re-install policy of its package on the given
+    devices of that role. For model devices ('Alleen model devices') this goes to the device database; for real
+    FortiGates the caller passes only the online ones (pending = still offline, reported at the end). A failure is a
+    warning for that device/package; the others continue."""
+    failed, todo = [], {d["name"] for d, _ in devices}
     emit(step, "running", "Quick install (device settings) per model device")
     for d, _ in devices:
         try:
@@ -315,19 +316,23 @@ def install_model_devices(fmg, adom, configs, devices, emit, step="install"):
             emit(step, "warn", f"{d['name']}: Quick install mislukt: {e}")
     emit(step, "running", "Re-install policy per rol")
     for role in configs["roles"]:
-        scope = [{"name": n, "vdom": "root"} for n in role["devices"]]
+        scope = [{"name": n, "vdom": "root"} for n in role["devices"] if n in todo]
+        if not scope:
+            continue
         try:
             r = fmg.call("exec", "/securityconsole/install/package",
                          {"adom": adom, "pkg": role["name"], "flags": ["none"], "scope": scope})
             fmg.wait_task((r.get("data") or {}).get("task"))
-            emit(step, "running", f"policy package {role['name']} opnieuw geinstalleerd op {', '.join(role['devices'])}")
+            emit(step, "running", f"policy package {role['name']} opnieuw geinstalleerd op {', '.join(x['name'] for x in scope)}")
         except FmgError as e:
             failed.append(role["name"])
             emit(step, "warn", f"policy package {role['name']}: Re-install policy mislukt: {e}")
     if failed:
         emit(step, "warn", f"install klaar met fouten ({', '.join(failed)}); zie de taak in FortiManager voor details")
+    elif pending:
+        emit(step, "warn", f"Quick install en Re-install policy voltooid; nog te doen (offline): {', '.join(pending)}")
     else:
-        emit(step, "ok", "Quick install en Re-install policy voltooid voor alle model devices")
+        emit(step, "ok", "Quick install en Re-install policy voltooid voor alle devices")
 
 
 def ensure_vm_ports(fmg, name, count, emit, step="devices"):
@@ -538,7 +543,13 @@ def pipeline(topo, configs, fmg, emit, boot=None):
             ensure_vm_ports(fmg, d["name"], pv.fgt_port_count(d), emit)
     emit("devices", "ok", "alle model devices aanwezig")
 
-    # FortiGates register against the model devices created above
+    # templates first: the model devices are complete before any real FortiGate registers against them
+    from .fmgapply import apply_plan
+    emit("templates", "running", "templates, variabelen, policy packages en blueprints in ADOM aanmaken")
+    n = apply_plan(fmg, topo, configs, emit)
+    emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd")
+
+    # real FortiGates (Alles / Alleen FortiGates): VM + Day-0 (hub static wan1, licence, FMG link), register, online
     names = [d["name"] for d, _ in devices]
     if m_fgt == "day0":
         _pve_vms(topo, boot, "fgt", "pve_fgt", emit, state)
@@ -559,41 +570,18 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         else:
             emit("bootstrap_fgt", "skipped", why_fgt)
 
-    from .fmgapply import apply_plan
-    emit("templates", "running", "templates, variabelen, policy packages en blueprints in ADOM aanmaken")
-    n = apply_plan(fmg, topo, configs, emit)
-    emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd")
-
+    # install: the same for model devices and real FortiGates (Quick install per device, then Re-install policy per
+    # role); real FortiGates only once they are online
     if scope == "dev":
-        install_model_devices(fmg, adom, configs, devices, emit)
+        install_devices(fmg, adom, configs, devices, emit)
         return
-
     emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")
     wait = boot.get("online_timeout", 600 if m_fgt != "none" else 30)
     offline = wait_online(fmg, adom, names, wait, emit, "install", boot.get("poll", 5))
-    online = [d for d, _ in devices if d["name"] not in offline]
     if offline:
         emit("install", "warn", f"nog offline na {wait}s: {', '.join(offline)} (install wordt overgeslagen voor deze devices)")
+    online = [(d, k) for d, k in devices if d["name"] not in offline]
     if not online:
         emit("install", "warn", "geen enkel device online: install overgeslagen; draai de uitrol opnieuw zodra ze online zijn")
         return
-    for role in configs["roles"]:                      # policy package per role, template group via the device group
-        tg = [{"name": d, "vdom": "root"} for d in role["devices"] if d not in offline]
-        if not tg:
-            continue
-        r = fmg.call("exec", "/securityconsole/install/package",
-                     {"adom": adom, "pkg": role["name"], "flags": ["none"], "scope": tg})
-        try:
-            fmg.wait_task((r.get("data") or {}).get("task"))
-            emit("install", "running", f"policy package {role['name']} geinstalleerd op {', '.join(d['name'] for d in tg)}")
-        except FmgError as e:
-            emit("install", "warn", f"policy package {role['name']}: {e}")
-    r = fmg.call("exec", "/securityconsole/install/device",
-                 {"adom": adom, "flags": ["none"], "scope": [{"name": d["name"], "vdom": "root"} for d in online]})
-    tid = (r.get("data") or {}).get("task")
-    try:
-        fmg.wait_task(tid)
-        emit("install", "warn" if offline else "ok",
-             "install voltooid" + (f" ({len(offline)} device(s) nog te doen)" if offline else ""))
-    except FmgError as e:
-        emit("install", "warn", f"install niet voltooid: {e}")
+    install_devices(fmg, adom, configs, online, emit, pending=offline)

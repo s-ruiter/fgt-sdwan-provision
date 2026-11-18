@@ -95,6 +95,12 @@ assert any(s == "pve_fmg" and "alleen FortiGates" in m for s, _, m in ev)
 assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "pve_fgt", "bootstrap_fgt", "templates", "install")), last
 assert any(s == "adom" and "hergebruikt" in m for s, _, m in ev)
 assert any("dynamic_mapping" in str(d) for _, _, d in mock_fmg.STATE["bodies"])        # per-device values filled now
+inst = [(u, d) for _, u, d in mock_fmg.STATE["bodies"] if u.startswith("securityconsole/")]
+assert [d["scope"][0]["name"] for u, d in inst if u.endswith("install/device")] == [x["name"] for x in devs], inst
+assert [u for u, _ in inst][:len(devs)] == ["securityconsole/install/device"] * len(devs)             # same as model devices
+assert len([1 for u, _ in inst if u.endswith("install/package")]) == len(cfg["roles"])
+o = [s_ for s_, _, _ in ev]
+assert o.index("templates") < o.index("pve_fgt") < o.index("install")                    # templates before the VMs
 print("OK  alleen FortiGates: geen FMG-VM, bestaande ADOM hergebruikt, FortiGate-VM's gemaakt, install uitgevoerd")
 
 # ---------------------------------------------------------------- 'fgt' without a reachable FortiManager: clear error
