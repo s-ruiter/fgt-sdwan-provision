@@ -44,6 +44,10 @@ class Masker:
 
 
 # --------------------------------------------------------------------------- CLI builders
+# SD-WAN names the Orchestrator hub template uses for wan1 (checked against the rendered plan in test_wan_design)
+HUB_UNDERLAY_ZONE, HUB_WAN1_MEMBER, HUB_DEFAULT_ROUTE = "underlay", 1, 100
+
+
 def fgt_network_lines(dev, topo):
     """Config that gives wan1 an address and points the FortiGate at FortiManager.
     The interface address change is LAST: it drops the session when the IP moves."""
@@ -61,8 +65,14 @@ def fgt_network_lines(dev, topo):
               "config system central-management", "set type fortimanager", f'set fmg "{fmg_ip}"', *verify, "end"]
     if dev.get("wan1_mode") == "static":
         ip, mask = split_cidr(dev["wan1_ip"])
-        lines += ["config router static", "edit 1", f"set gateway {dev['wan1_gw'].strip()}",
-                  f'set device "{port}"', "next", "end",
+        # Static (hub) wan1: the default route goes through SD-WAN exactly as the FMG template builds it (zone underlay,
+        # member 1 = wan1 with the gateway, route 100 to that zone). A plain route on wan1 would stay behind on the
+        # FortiGate (FMG never retrieved it) and the install fails: "Duplicate routes (100 and 1) on SD-WAN".
+        lines += ["config system sdwan", "set status enable", "config zone", f'edit "{HUB_UNDERLAY_ZONE}"', "next", "end",
+                  "config members", f"edit {HUB_WAN1_MEMBER}", f'set interface "{port}"',
+                  f'set zone "{HUB_UNDERLAY_ZONE}"', f"set gateway {dev['wan1_gw'].strip()}", "next", "end", "end",
+                  "config router static", f"edit {HUB_DEFAULT_ROUTE}", f'set sdwan-zone "{HUB_UNDERLAY_ZONE}"',
+                  "next", "end",
                   "config system interface", f'edit "{port}"', "set mode static", f"set allowaccess {access}",
                   f"set ip {ip} {mask}", "next", "end"]
     else:

@@ -71,6 +71,13 @@ for multi in (True, False):
             for blk in re.findall(r"config router static\n((?:.|\n)*?)\nend", cli):   # no route on wan1 next to the
                 assert '"$(wan1_intf)"' not in blk and hub["wan1_intf"] not in blk, blk  # SD-WAN default (dup 1/100)
             assert [s["dst"] for s in r["static"]] == [["0.0.0.0", "0.0.0.0"]] and r["static"][0].get("sdwan-zone"), r["static"]
+            # Day-0 builds the same SD-WAN default as the template, so the install edits it in place (no dup 1/100)
+            from app import bootstrap as bs
+            m0 = r["sdwan"]["members"][0]
+            assert (m0["zone"], m0["seq-num"]) == (bs.HUB_UNDERLAY_ZONE, bs.HUB_WAN1_MEMBER), m0
+            assert (r["static"][0]["seq-num"], r["static"][0]["sdwan-zone"]) == (bs.HUB_DEFAULT_ROUTE, [bs.HUB_UNDERLAY_ZONE])
+            day0 = bs.fgt_network_lines(dict(hub, wan1_mode="static"), t)
+            assert "set device" not in "\n".join(day0) and f"edit {bs.HUB_DEFAULT_ROUTE}" in day0, day0
         else:
             dev = next(d for d in t["edges"] if d["name"] == r["devices"][0])
             wans = ["$(wan1_intf)"] + (["$(wan2_intf)"] if dev.get("wan2_intf") else [])
