@@ -144,6 +144,7 @@ print("OK  alleen templates: bestaande FortiManager, geen Proxmox/VM's/instellin
 creates = fake_proxmox.STATE["creates"]
 mock_fmg.STATE["cli"]["cli/global/system/global"]["fgfm-allow-vm"] = "disable"         # FMG 7.4.7+ default
 mock_fmg.STATE["devices"].clear()
+mock_fmg.STATE.pop("ifaces", None)                                                    # fresh model devices: only port1
 mock_fmg.STATE["bodies"].clear()
 mock_fmg.STATE["cli_sets"] = []
 ev = []
@@ -166,6 +167,13 @@ host = next(d for _, u, d in bodies if u.endswith("/obj/fmg/variable/hostname"))
 assert {m["_scope"][0]["name"] for m in host["dynamic_mapping"]} == {x["name"] for x in devs}, host   # hubs too
 assert ("update", f"pm/config/adom/{t['adom']}/obj/fmg/variable/vm_interface_number", {"name": "vm_interface_number", "value": "6"}) \
     in [(m_, u, d) for m_, u, d in bodies], [b for b in bodies if "vm_interface" in b[1]]
+ifs = mock_fmg.STATE["ifaces"]
+assert all([i["name"] for i in ifs[x["name"]]] == [f"port{n}" for n in range(1, 7)] for x in devs), ifs  # port1-6 per model device
+assert all(i["type"] == "physical" and i.get("vdom", "root") == "root" for x in devs for i in ifs[x["name"]])
+n_add = sum(1 for m_, u, _ in bodies if m_ == "add" and u.endswith("/global/system/interface"))
+mock_fmg.STATE["bodies"].clear()
+pipeline(t, cfg, Fmg(FMG, "admin", PW), lambda *a: None, boot(scope="dev", fgt_tokens={}, fgt_new_pw="", images={}))
+assert n_add == len(devs) and not any(m_ == "add" and u.endswith("/global/system/interface") for m_, u, _ in mock_fmg.STATE["bodies"])
 from app.provision_vms import fgt_nics
 assert all(len(fgt_nics(x, t["pve"])) == 6 for x in devs), [len(fgt_nics(x, t["pve"])) for x in devs]   # 6 NICs per FortiGate-VM
 assert any(u.endswith("/object member") for _, u, _ in bodies)                        # devices in their device group
