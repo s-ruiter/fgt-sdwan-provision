@@ -217,11 +217,11 @@ def _short(fname):
 
 
 def mgmt_cli(dev, pe=PE_VRF):
-    """ZTP/management fragment: default route for a static wan1 + FMG tunnel follows the VRF move of wan1."""
+    """ZTP/management fragment: the FMG tunnel follows the VRF move of wan1.
+    No static route for a static (hub) wan1: wan1 is an SD-WAN member, so a route on it next to the SD-WAN default route
+    (seq 100, zone underlay) is refused ("Duplicate routes (1 and 100) on SD-WAN and/or non-SD-WAN interfaces", FMG
+    8.0.2 install). The gateway goes on the SD-WAN member instead (see _hub_gateway)."""
     lines = []
-    if dev.get("wan1_mode") == "static":
-        lines += ["config router static", "  edit 1", "    set gateway $(wan1_gw)", '    set device "$(wan1_intf)"',
-                  *([f"    set vrf {pe}"] if pe else []), "  next", "end"]
     if pe:
         lines += ["config system central-management", f"  set vrf-select {pe}", "end"]
     return "\n".join(lines)
@@ -239,8 +239,6 @@ def build_plan(topo, orch_dir):
         mg = mgmt_cli(d, model.pe_vrf(topo))
         reg = s["reg"]
         values = {v: reg.value(v) for v in set(VAR_RE.findall("\n".join(list(s["core"].values()) + [s["sdwan"], s["firewall"]])))}
-        if d.get("wan1_mode") == "static":
-            values["wan1_gw"] = d["wan1_gw"].strip()
         values["wan1_intf"] = d["wan1_intf"]
         values["hostname"] = d["name"]           # hub templates use the literal name, but the variable shows it per device too
         s.update(is_hub=is_hub, dev=d, mgmt=mg, values=values)
@@ -276,6 +274,8 @@ def build_plan(topo, orch_dir):
         r["sdwan"] = sd.get("system sdwan", {})
         lit = _literal_intfs(r, per)
         r["sdwan"] = _subst(r["sdwan"], lit)
+        if r["kind"] == "hub":
+            _hub_gateway(r["sdwan"], per[r["proto"]]["dev"])
         r["static"] = sd.get("router static", [])
         for row in r["static"]:
             row.setdefault("dst", ["0.0.0.0", "0.0.0.0"])
@@ -319,6 +319,15 @@ def _literal_intfs(role, per):
         if vals != {None}:
             lit[var] = vals.pop()
     return lit
+
+
+def _hub_gateway(sdwan, dev):
+    """Static hub wan1: the default gateway belongs on the SD-WAN member (the SD-WAN default route, seq 100, uses it).
+    One role per hub, so the literal gateway of that hub can go into its SD-WAN template."""
+    gw = (dev.get("wan1_gw") or "").strip()
+    for m in sdwan.get("members", []):
+        if m.get("interface") == dev.get("wan1_intf") and gw:
+            m["gateway"] = gw
 
 
 def _subst(obj, lit):

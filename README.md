@@ -86,7 +86,7 @@ Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool
 - Eerste login met leeg wachtwoord (factory): de verplichte wachtwoordwissel wordt afgehandeld met het door jou opgegeven nieuwe admin-wachtwoord.
 - FortiFlex-tokens en wachtwoorden worden niet opgeslagen en nooit gelogd (`********`); alleen de Proxmox-token-secret wordt bewaard (zie *Servers*); tokens worden gevalideerd (alleen letters/cijfers) voordat ze in een CLI-regel komen.
 - **Bereikbaarheid:** de container moet de FortiGates/FMG kunnen bereiken op hun *initiële IP* (factory `192.168.1.99`, of het DHCP-adres) en, bij een statisch wan1, daarna op het nieuwe adres. Het initiële IP moet uniek zijn per device. Zonder die routing kan de container niet bootstrappen; draai dan eerst de bootstrap handmatig/console en gebruik alleen de FMG-stappen.
-- De Orchestrator zet wan1 in VRF 1 en reset `allowaccess` naar `ping`. Daarom zet de tool `allowaccess` op wan1 expliciet (standaard `ping https ssh fgfm`), voegt voor statisch wan1 de default route toe en zet `central-management` `vrf-select 1` zodat de FMG-tunnel de VRF-verhuizing overleeft.
+- De Orchestrator zet wan1 in VRF 1 en reset `allowaccess` naar `ping`. Daarom zet de tool `allowaccess` op wan1 expliciet (standaard `ping https ssh fgfm`), zet voor het statische hub-wan1 de gateway op het SD-WAN-lid (de SD-WAN default route, seq 100, gebruikt die; een aparte static route op wan1 weigert FortiManager als dubbele route 1/100) en zet `central-management` `vrf-select 1` zodat de FMG-tunnel de VRF-verhuizing overleeft.
 
 De UI heeft een **dry-run** (standaard aan): alle schrijvende calls worden gelogd maar niet verstuurd.
 

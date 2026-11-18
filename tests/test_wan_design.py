@@ -46,7 +46,7 @@ t["hubs"][0]["wan1_ip"] = ""
 assert any("hub: altijd statisch" in x for x in model.validate(t))
 t = topo()
 t["hubs"][0]["wan1_gw"] = ""
-assert any("gateway" in x for x in model.validate(t)) and not any("gateway" in x for x in model.validate(t, devices=False))
+assert any("gateway" in x for x in model.validate(t)) and any("gateway" in x for x in model.validate(t, devices=False))
 t = topo()
 t["edges"][0]["wan2_intf"] = t["edges"][0]["wan1_intf"]
 assert any("andere poort" in x for x in model.validate(t))
@@ -66,6 +66,11 @@ for multi in (True, False):
             assert members == ["port1", "EDGE_WAN1"], members
             assert "wan2" not in cli.lower() and "port2" not in str(r["sdwan"]), r["name"]
             assert 'edit "Lo-HC"' in cli and "10.200.99.1/32" in cli                 # health-check loopback
+            hub = next(h for h in t["hubs"] if h["name"] == r["devices"][0])
+            assert r["sdwan"]["members"][0].get("gateway") == hub["wan1_gw"], r["sdwan"]["members"][0]   # gateway on member
+            for blk in re.findall(r"config router static\n((?:.|\n)*?)\nend", cli):   # no route on wan1 next to the
+                assert '"$(wan1_intf)"' not in blk and hub["wan1_intf"] not in blk, blk  # SD-WAN default (dup 1/100)
+            assert [s["dst"] for s in r["static"]] == [["0.0.0.0", "0.0.0.0"]] and r["static"][0].get("sdwan-zone"), r["static"]
         else:
             dev = next(d for d in t["edges"] if d["name"] == r["devices"][0])
             wans = ["$(wan1_intf)"] + (["$(wan2_intf)"] if dev.get("wan2_intf") else [])
