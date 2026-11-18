@@ -107,7 +107,7 @@
           <div class="inline"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-naar-hub tunnels (DC-to-DC)</label></div>
           <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + klant-VRF's met leak naar de PE-VRF; uit = klassiek single-VRF, één LAN per device)</label></div>
         </div>
-        <div class="hint">Vast: regio West (AS 65001), loopback-summary 10.200.1.0/24, DNS 1.1.1.1 en 8.8.8.8, wan1 allowaccess <code>ping https ssh fgfm</code>, platform FortiGate-VM64. De IPsec-PSK genereert de tool zelf (willekeurig, per ADOM bewaard).</div>
+        <div class="hint">Vast: regio West (AS 65001), loopback-summary 10.200.1.0/24, health-check-loopback <code>Lo-HC</code> 10.200.99.1/32 op elke hub (de branches meten daar naartoe via elke tunnel), DNS 1.1.1.1 en 8.8.8.8, wan1 allowaccess <code>ping https ssh fgfm</code>, platform FortiGate-VM64. De IPsec-PSK genereert de tool zelf (willekeurig, per ADOM bewaard).</div>
         <h3>VRF's</h3>
         <div class="f" id="sv_box" hidden><label>LAN-summary (single-VRF)</label><input id="r_lansum"></div>
         <table id="vrfs" class="tbl"></table>
@@ -116,7 +116,7 @@
         <div class="fields">
           <div class="f"><label>Admin- en SSH-wachtwoord FortiGates</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
         </div>
-        <div class="hint">Per FortiGate vul je hieronder het serienummer, de wan1-adressering (statisch of DHCP) en het FortiFlex-token in. De tool maakt de VM's via Day-0 (cloud-init) op Proxmox: IP, wachtwoord, FMG-koppeling en token gaan mee in de config-drive.</div>
+        <div class="hint">Per FortiGate vul je hieronder het serienummer en het FortiFlex-token in. Hubs hebben één WAN (wan1, statisch IP + gateway); branches gebruiken wan1 en optioneel wan2, altijd via DHCP. Elke branch-WAN krijgt een tunnel naar wan1 van elke hub. De tool maakt de VM's via Day-0 (cloud-init) op Proxmox: IP, wachtwoord, FMG-koppeling en token gaan mee in de config-drive.</div>
         </div>
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
