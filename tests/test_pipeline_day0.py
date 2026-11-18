@@ -113,9 +113,13 @@ for name, raw in iso_seen.items():
     label, ud = cloudinit.read_config_drive(p)
     tok = TOK_FMG if name == "fmg" else TOKS[name]
     assert label == "config-2", name
-    lines = ud.rstrip("\n").split("\n")
-    assert lines[-1] == f"execute vm-license {tok}" and ud.count("execute vm-license") == 1, name   # licence = last CLI line
-    assert not ud.startswith("Content-Type"), "default is cli, geen MIME"
+    if name == "fmg":                       # FortiManager: licence = last CLI line (cli mode)
+        lines = ud.rstrip("\n").split("\n")
+        assert lines[-1] == f"execute vm-license {tok}" and ud.count("execute vm-license") == 1, name
+        assert not ud.startswith("Content-Type"), "FMG: cli, geen MIME"
+    else:                                   # FortiGate: MIME with license.txt (FortiOS 8.0 refuses vm-license in a script)
+        assert ud.startswith("Content-Type: multipart/mixed") and f"LICENSE-TOKEN: {tok}" in ud, name
+        assert 'filename="config.txt"' in ud and 'filename="license.txt"' in ud and "execute vm-license" not in ud, name
     conf = ud
     assert f"set password \"{NEWPW}\"" in conf
     if name != "fmg":

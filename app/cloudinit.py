@@ -46,6 +46,14 @@ def fmg_cli(topo, admin_pw):
     return "\n".join(lines) + "\n"
 
 
+def license_mode(role, cfg_mode="cli"):
+    """How the FortiFlex token goes into the Day-0 config drive.
+    FortiGate: always MIME (config.txt + license.txt 'LICENSE-TOKEN: <token>'), Fortinet's documented FortiFlex method:
+    FortiOS 8.0.2 refuses `execute vm-license` from a cloud-init script ("Do not allow to do this operation via
+    script", return code -37). FortiManager: the configured mode (default cli), proven on FMG 8.0.2."""
+    return "mime" if role == "fgt" else cfg_mode
+
+
 def build_user_data(cli, token, mode="cli"):
     if mode not in MODES:
         raise ValueError(f"onbekende licentiemodus '{mode}'")
