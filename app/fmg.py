@@ -283,8 +283,8 @@ SCOPES = ("all", "fmg", "fgt")
 def pipeline(topo, configs, fmg, emit, boot=None):
     """boot (optional) = {'dry','fmg','fgt' (method), 'scope', tokens/creds ...}. Raises on fatal error.
 
-    scope: 'all' (default), 'fmg' (only the FortiManager: VM, ZTP, ADOM, model devices, templates; no FortiGates, no
-    install) or 'fgt' (only the FortiGates against an existing FortiManager: no FMG VM/ZTP)."""
+    scope: 'all' (default), 'fmg' (only the FortiManager: VM, ZTP, ADOM, templates; no model devices, no FortiGates,
+    no install) or 'fgt' (only the FortiGates against an existing FortiManager: no FMG VM/ZTP)."""
     adom = topo["adom"]
     devices = [(d, "hub") for d in topo["hubs"]] + [(d, "edge") for d in topo["edges"]]
     boot = boot or {}
@@ -345,6 +345,17 @@ def pipeline(topo, configs, fmg, emit, boot=None):
                                           "restricted_prds": "fos", "desc": "Created by fgt-sdwan-provision"}])
         emit("adom", "ok", f"ADOM '{adom}' aangemaakt (os {topo['os_ver']})")
 
+    if scope == "fmg":
+        emit("devices", "skipped", "overgeslagen (alleen FortiManager): model devices komen bij 'Alleen FortiGates'")
+        emit("pve_fgt", "skipped", why_fgt)
+        emit("bootstrap_fgt", "skipped", why_fgt)
+        from .fmgapply import apply_plan
+        emit("templates", "running", "templates, variabelen, policy packages en blueprints in ADOM aanmaken (zonder devices)")
+        n = apply_plan(fmg, topo, configs, emit, devices=False)
+        emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd; waarden per device volgen bij 'Alleen FortiGates'")
+        emit("install", "skipped", "overgeslagen (alleen FortiManager): rol daarna de FortiGates uit met 'Alleen FortiGates'")
+        return
+
     emit("devices", "running", f"{len(devices)} model devices toevoegen")
     for d, kind in devices:
         if not fmg.dry and fmg.exists(f"/dvmdb/adom/{adom}/device/{d['name']}"):
@@ -386,10 +397,6 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     emit("templates", "running", "templates, variabelen, policy packages en blueprints in ADOM aanmaken")
     n = apply_plan(fmg, topo, configs, emit)
     emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd")
-
-    if scope == "fmg":
-        emit("install", "skipped", "overgeslagen (alleen FortiManager): rol daarna de FortiGates uit met 'Alleen FortiGates'")
-        return
 
     emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")
     wait = boot.get("online_timeout", 600 if m_fgt != "none" else 30)

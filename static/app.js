@@ -305,7 +305,7 @@ $("#btn_d0").onclick = async () => {
 // ---- scope: all / only FortiManager / only FortiGates ------------------------
 const SCOPE_HINT = {
   all: "",
-  fmg: "Alleen de FortiManager wordt gemaakt en voorbereid. De FortiGate-gegevens (namen, serienummers, adressen) zijn wel nodig voor de model devices en templates; FortiGate-tokens en -wachtwoord niet.",
+  fmg: "Alleen de FortiManager wordt gemaakt en voorbereid met ADOM, templates, policy packages en blueprints voor de hubs en spokes, zonder model devices. Namen, loopbacks, LAN's en hub-adressen zijn nodig voor de templates; serienummers, wan1-gateways, FortiGate-tokens en -wachtwoord niet (die komen bij 'Alleen FortiGates').",
   fgt: "De FortiManager moet al draaien op het opgegeven vaste IP en bereikbaar zijn met de admin-gebruiker en het wachtwoord hieronder. Er wordt geen FortiManager-VM gemaakt.",
 };
 const scope = () => (document.querySelector('input[name="scope"]:checked') || {}).value || "all";

@@ -115,7 +115,9 @@ def valid_token(t):
     return bool(_TOKEN.match((t or "").strip()))
 
 
-def validate(t):
+def validate(t, devices=True):
+    """devices=False ('Alleen FortiManager'): no model devices are created, so the serial number and the wan1
+    gateway (only a per-device variable value) are not needed yet; they are checked when the FortiGates are deployed."""
     err = []
     if not _NAME.match(t.get("adom", "")):
         err.append("ADOM-naam: 1-35 tekens (letters, cijfers, _ . -), begint met letter/cijfer")
@@ -162,9 +164,9 @@ def validate(t):
                 err.append(f"Dubbele naam '{n}'")
             names.add(n)
             sn = d.get("serial", "").strip()
-            if not _SN.match(sn):
+            if devices and not _SN.match(sn):
                 err.append(f"{n}: serienummer ontbreekt/ongeldig ('{sn}')")
-            if sn and sn.upper() in sns:
+            if devices and sn and sn.upper() in sns:
                 err.append(f"{n}: dubbel serienummer")
             sns.add(sn.upper())
             if not _ip(d.get("loopback", "")):
@@ -182,7 +184,7 @@ def validate(t):
             elif mode == "static":
                 if not _cidr(d.get("wan1_ip", "")):
                     err.append(f"{n}: wan1 statisch IP als a.b.c.d/nn verplicht")
-                elif not _ip(d.get("wan1_gw", "")) or not _gw_ok(d["wan1_ip"], d["wan1_gw"]):
+                elif devices and (not _ip(d.get("wan1_gw", "")) or not _gw_ok(d["wan1_ip"], d["wan1_gw"])):
                     err.append(f"{n}: wan1 gateway ontbreekt of ligt niet in het subnet")
             if d.get("initial_ip") and not _ip(d["initial_ip"]):
                 err.append(f"{n}: ongeldig initieel IP")
