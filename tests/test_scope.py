@@ -183,7 +183,7 @@ mock_fmg.STATE["bodies"].clear()
 pipeline(t, cfg, Fmg(FMG, "admin", PW), lambda *a: None, boot(scope="dev", fgt_tokens={}, fgt_new_pw="", images={}))
 assert n_add == len(devs) and not any(m_ == "add" and u.endswith("/global/system/interface") for m_, u, _ in mock_fmg.STATE["bodies"])
 from app.provision_vms import fgt_nics
-assert all(len(fgt_nics(x, t["pve"])) == 6 for x in devs), [len(fgt_nics(x, t["pve"])) for x in devs]   # 6 NICs per FortiGate-VM
+assert all(len(fgt_nics(x, t["pve"], t["wanemu"], False)) == 6 for x in devs), [len(fgt_nics(x, t["pve"], t["wanemu"], False)) for x in devs]   # 6 NICs per FortiGate-VM
 assert any(u.endswith("/object member") for _, u, _ in bodies)                        # devices in their device group
 inst = [(u, d) for _, u, d in bodies if u.startswith("securityconsole/")]
 dev_inst = [d["scope"][0]["name"] for u, d in inst if u == "securityconsole/install/device"]

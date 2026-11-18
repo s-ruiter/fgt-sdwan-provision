@@ -55,3 +55,20 @@ pv = dict(model.merged({})); pv["pve"].update(url="https://pve:8006", token_id="
 pv["hubs"][0]["wan1_ip"] = "10.1.1.1/24"; pv["hubs"][0]["wan1_gw"] = "10.1.1.2"
 assert any("ISP-HUB" in e for e in model.validate_pve(pv))                          # Day-0 checkt de WAN-emulator
 print("OK  validatie: hub in ISP-HUB, gateway, VLAN's uniek, geen overlap, uplink, aantal spokes")
+
+# FortiGate NICs: wan ports on the ISP VLANs with a fixed MAC, other ports follow the per-port table
+from app import provision_vms as pv  # noqa: E402
+t = model.merged({}); cfg, w = t["pve"], t["wanemu"]
+h = pv.fgt_nics(t["hubs"][0], cfg, w, True)
+assert (h[0]["vlan"], h[0]["mac"]) == (3200, net.mac_for("site1-H1", 1)) and h[1]["vlan"] is None and not h[1].get("mac")
+e = pv.fgt_nics(t["edges"][0], cfg, w, False)
+assert [(n["vlan"], n["mac"]) for n in e[:2]] == [(3201, net.mac_for("site1-1", 1)), (3202, net.mac_for("site1-1", 2))]
+spec = {"role": "fgt", "cores": 1, "memory_mb": 1, "extra_disks": [], "nics": e}
+assert pv.vm_params(spec, dict(cfg, disk_storage="x"), "v", None)["net0"] == f"virtio={net.mac_for('site1-1', 1)},bridge=vmbr0,tag=3201"
+assert pv.vm_params(spec, dict(cfg, disk_storage="x"), "v", None)["net2"] == "virtio,bridge=vmbr0"
+s2 = pv.fgt_nics(t["edges"][1], cfg, w, False)                                       # site1-2: geen wan2
+assert s2[0]["vlan"] == 3201 and s2[1].get("mac") is None and s2[1]["vlan"] is None
+t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
+specs = pv.build_specs(t, "pw", "pw", {d["name"]: "T" * 20 for d in t["hubs"] + t["edges"]}, "", "fgt")
+assert specs[0]["nics"][0]["vlan"] == 3200 and specs[2]["nics"][1]["vlan"] == 3202
+print("OK  FortiGate-NIC's: hub port1 -> ISP-HUB, spoke port1/port2 -> ISP-A/ISP-B met vaste MAC; LAN-poorten ongewijzigd")

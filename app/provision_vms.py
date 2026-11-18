@@ -28,15 +28,23 @@ def fgt_port_count(dev):
     return max([n for n in map(_port_no, used) if n] + [MIN_FGT_NICS])
 
 
-def fgt_nics(dev, cfg):
-    """One virtio NIC per port up to the highest portN the device uses, at least MIN_FGT_NICS; bridge/VLAN from the
-    per-port table."""
+def fgt_nics(dev, cfg, wanemu, is_hub):
+    """One virtio NIC per port up to the highest portN the device uses, at least MIN_FGT_NICS. The wan ports go to the
+    WAN emulator (hub wan1 -> ISP-HUB; branch wan1 -> ISP-A, wan2 -> ISP-B) with a fixed MAC (DHCP reservation); the
+    other ports take bridge/VLAN from the per-port table."""
+    from .wanemu.net import mac_for
+    seg = wanemu["segments"]
+    wans = {dev.get("wan1_intf"): "hub"} if is_hub else {dev.get("wan1_intf"): "a", dev.get("wan2_intf"): "b"}
     top = fgt_port_count(dev)
     ports = cfg.get("ports", {})
     nics = []
     for i in range(1, top + 1):
-        p = ports.get(f"port{i}") or {}
-        nics.append({"bridge": p.get("bridge") or cfg["default_bridge"], "vlan": p.get("vlan")})
+        name = f"port{i}"
+        if name in wans:
+            nics.append({"bridge": wanemu["bridge"], "vlan": seg[wans[name]]["vlan"], "mac": mac_for(dev["name"], i)})
+        else:
+            p = ports.get(name) or {}
+            nics.append({"bridge": p.get("bridge") or cfg["default_bridge"], "vlan": p.get("vlan")})
     return nics
 
 
@@ -54,10 +62,11 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
                       "user_data": cloudinit.build_user_data(cli, fmg_token, cloudinit.license_mode("fmg", mode))})
     else:
         fg = cfg["fgt"]
+        hubs = {h["name"] for h in topo["hubs"]}
         for d in topo["hubs"] + topo["edges"]:
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
             specs.append({"name": d["name"], "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
-                          "nics": fgt_nics(d, cfg), "extra_disks": [],
+                          "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs), "extra_disks": [],
                           "user_data": cloudinit.build_user_data(cli, tokens.get(d["name"]), cloudinit.license_mode("fgt", mode))})
     return specs
 
@@ -76,7 +85,7 @@ def vm_params(spec, cfg, import_volid, iso_volid):
     for i, gb in enumerate(spec["extra_disks"], start=1):
         p[f"scsi{i}"] = f"{cfg['disk_storage']}:{gb}"
     for i, n in enumerate(spec["nics"]):
-        v = f"virtio,bridge={n['bridge']}"
+        v = (f"virtio={n['mac']}" if n.get("mac") else "virtio") + f",bridge={n['bridge']}"
         if n.get("vlan"):
             v += f",tag={n['vlan']}"
         p[f"net{i}"] = v
