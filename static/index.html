@@ -28,6 +28,16 @@
       <div id="job_banner" class="hint" hidden></div>
       <div id="errors"></div>
 
+      <div class="card" id="sec_scope">
+        <h2>Wat wil je uitrollen?</h2>
+        <div class="opts" role="radiogroup" aria-label="Wat wil je uitrollen">
+          <div class="inline"><input type="radio" name="scope" id="scope_all" value="all" checked><label for="scope_all"><b>Alles</b> &ndash; FortiManager en FortiGates</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_fmg" value="fmg"><label for="scope_fmg"><b>Alleen FortiManager</b> &ndash; VM, licentie, ADOM, model devices en templates; geen FortiGate-VM's en geen install</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_fgt" value="fgt"><label for="scope_fgt"><b>Alleen FortiGates</b> &ndash; tegen een bestaande, bereikbare FortiManager; ADOM, model devices en templates worden hergebruikt of bijgewerkt, daarna install</label></div>
+        </div>
+        <div class="hint" id="scope_hint"></div>
+      </div>
+
       <div class="card" id="sec_pve">
         <h2><span class="num">01</span>Proxmox &amp; images <small>(de VM's worden via Day-0 aangemaakt)</small></h2>
         <div class="fields">
@@ -43,6 +53,7 @@
           <div class="f"><label>Standaard bridge</label><select id="pve_br"></select></div>
           <div class="f"><label>CPU-type</label><select id="pve_cpu"><option>host</option><option>x86-64-v2-AES</option><option>x86-64-v3</option><option>kvm64</option></select></div>
         </div>
+        <div class="only-fmg">
         <h3>FortiManager-VM</h3>
         <div class="fields">
           <div class="f"><label>Image</label><select id="img_fmg"></select></div>
@@ -53,7 +64,9 @@
           <div class="f"><label>VLAN</label><input id="fmg_vlan" type="number"></div>
         </div>
         <div class="hint">Fortinet adviseert voor FortiManager &ge;4 vCPU, 16 GB RAM en een datadisk van &ge;500 GB (thin kan in een lab).</div>
+        </div>
 
+        <div class="only-fgt">
         <h3>FortiGate-VM's <small>(hub en branches)</small></h3>
         <div class="fields">
           <div class="f"><label>Image</label><select id="img_fgt"></select></div>
@@ -64,6 +77,7 @@
         <h4>Poorten <small>&rarr; bridge/VLAN (port1 = wan1; leeg = standaard bridge)</small></h4>
         <table id="ports" class="tbl"></table>
         <div class="hint">Nog geen image? Upload het <code>.out.kvm.zip</code> van FortiCloud op de pagina <a href="#/images" style="color:var(--accent)">Images</a>.</div>
+        </div>
       </div>
 
       <div class="card">
@@ -76,7 +90,7 @@
           <div class="f"><label>ADOM-naam</label><input id="adom"></div>
           <div class="f"><label>Admin-gebruiker</label><input id="fmg_user" value="admin"></div>
           <div class="f"><label>Admin- en SSH-wachtwoord</label><input id="fmg_pass" type="password" autocomplete="off"></div>
-          <div class="f"><label>FortiFlex-token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
+          <div class="f only-fmg"><label>FortiFlex-token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
 
@@ -96,11 +110,13 @@
         <h3>VRF's</h3>
         <div class="f" id="sv_box" hidden><label>LAN-summary (single-VRF)</label><input id="r_lansum"></div>
         <table id="vrfs" class="tbl"></table>
+        <div class="only-fgt">
         <h3>FortiGates: wachtwoord &amp; licentie</h3>
         <div class="fields">
           <div class="f"><label>Admin- en SSH-wachtwoord FortiGates</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
         </div>
         <div class="hint">Per FortiGate vul je hieronder het serienummer, de wan1-adressering (statisch of DHCP) en het FortiFlex-token in. De tool maakt de VM's via Day-0 (cloud-init) op Proxmox: IP, wachtwoord, FMG-koppeling en token gaan mee in de config-drive.</div>
+        </div>
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
         <div class="btnrow" style="margin-top:18px">

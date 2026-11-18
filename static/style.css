@@ -157,6 +157,7 @@ tr.click:hover { background: var(--hover); }
 footer { border-top: 1px solid var(--line); padding: 14px 0; font-size: 12px; color: var(--muted); }
 body { display: flex; flex-direction: column; min-height: 100vh; } main { flex: 1; width: 100%; }
 [hidden] { display: none !important; }
+[data-scope="fmg"] .only-fgt, [data-scope="fgt"] .only-fmg { display: none !important; }
 @media (max-width: 600px) { .row { flex-direction: column; } .card { padding: 16px; } .nicrow .vlan { max-width: 88px; } }
 
 /* ---- fgt-sdwan-provision: aanvullingen op de Spawnpad-basis ---- */

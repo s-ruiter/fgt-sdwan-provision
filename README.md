@@ -38,6 +38,14 @@ De container heeft uitgaand internet nodig (Debian-mirrors, PyPI, github.com voo
 
 ## Uitrolstappen (zichtbaar in de UI)
 
+Bovenaan de pagina *Uitrol* kies je **wat** je uitrolt:
+
+- **Alles** (standaard): FortiManager en FortiGates, alle stappen hieronder.
+- **Alleen FortiManager**: stappen 1-5 en 8 (VM, licentie, ADOM, model devices, templates). Geen FortiGate-VM's en geen install; FortiGate-tokens en -wachtwoord zijn niet nodig (namen, serienummers en adressen wel, voor de model devices en templates).
+- **Alleen FortiGates**: tegen een bestaande, bereikbare FortiManager (vast IP + admin-wachtwoord uit de tool). Geen FortiManager-VM/ZTP en geen FMG-token of -image nodig; ADOM en model devices worden hergebruikt, de templates opnieuw gezet (set/replace/update, dus handmatige wijzigingen aan deze tool-objecten worden overschreven), daarna FortiGate-VM's en install. Typisch na *Alleen FortiManager*.
+
+De API neemt dit als `scope` (`all`, `fmg`, `fgt`) in `POST /api/deploy`; de keuze wint van de methode per product.
+
 Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool maakt de VM op Proxmox, cloud-init), `ssh` (bestaande VM, bootstrap over SSH) of `none`.
 
 1. **FortiManager-VM** *(day0)* – image naar Proxmox, VM + datadisk + Day-0 config-drive ISO, starten
@@ -99,4 +107,5 @@ ORCH_DIR=../sdwan-advpn-reference .venv/bin/uvicorn app.main:app --port 8010
 .venv/bin/python tests/e2e.py               # HTTP + mock-FMG
 .venv/bin/python tests/test_bootstrap.py    # ZTP over SSH tegen nep-FortiOS
 ORCH_DIR=../sdwan-advpn-reference .venv/bin/python tests/test_pipeline_ztp.py
+ORCH_DIR=../sdwan-advpn-reference .venv/bin/python tests/test_scope.py   # alles / alleen FMG / alleen FortiGates
 ```

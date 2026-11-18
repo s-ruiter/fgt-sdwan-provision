@@ -277,12 +277,24 @@ def osmr(topo):
     return ("7.0", 6) if v == "7.6" else (v, topo.get("mr", 0))
 
 
+SCOPES = ("all", "fmg", "fgt")
+
+
 def pipeline(topo, configs, fmg, emit, boot=None):
-    """boot (optional) = {'dry','fmg':bool,'fgt':bool, tokens/creds ...}. Raises on fatal error."""
+    """boot (optional) = {'dry','fmg','fgt' (method), 'scope', tokens/creds ...}. Raises on fatal error.
+
+    scope: 'all' (default), 'fmg' (only the FortiManager: VM, ZTP, ADOM, model devices, templates; no FortiGates, no
+    install) or 'fgt' (only the FortiGates against an existing FortiManager: no FMG VM/ZTP)."""
     adom = topo["adom"]
     devices = [(d, "hub") for d in topo["hubs"]] + [(d, "edge") for d in topo["edges"]]
     boot = boot or {}
-    m_fmg, m_fgt = _method(boot.get("fmg")), _method(boot.get("fgt"))
+    scope = boot.get("scope") or "all"
+    if scope not in SCOPES:
+        raise FmgError(f"onbekende uitrol-keuze '{scope}'")
+    m_fmg = _method(boot.get("fmg")) if scope != "fgt" else "none"
+    m_fgt = _method(boot.get("fgt")) if scope != "fmg" else "none"
+    why_fmg = "overgeslagen (alleen FortiGates)" if scope == "fgt" else "overgeslagen (niet gevraagd)"
+    why_fgt = "overgeslagen (alleen FortiManager)" if scope == "fmg" else "overgeslagen (niet gevraagd)"
     state = boot.setdefault("state", {})
     from . import bootstrap as bs
     from . import provision_vms as pv
@@ -300,17 +312,23 @@ def pipeline(topo, configs, fmg, emit, boot=None):
                                "op DHCP staan en dan een ander adres hebben; het Day-0 IP is dan niet overgenomen).")
             emit("bootstrap_fmg", "ok", f"FortiManager bereikbaar op {ip}")
     else:
-        emit("pve_fmg", "skipped", "overgeslagen (niet gevraagd)")
+        emit("pve_fmg", "skipped", why_fmg)
         if m_fmg == "ssh":
             _bootstrap_fmg(topo, boot, emit)
         else:
-            emit("bootstrap_fmg", "skipped", "overgeslagen (niet gevraagd)")
+            emit("bootstrap_fmg", "skipped", why_fmg)
 
     emit("preflight", "running", "FortiManager bereikbaar? versie controleren")
     if m_fmg == "day0" and not boot.get("dry"):
         st = wait_fmg_ready(fmg, boot, lambda m: emit("preflight", "running", m))   # FMG may still be rebooting
     else:
-        fmg.login()
+        try:
+            fmg.login()
+        except FmgError as e:
+            if scope == "fgt":
+                raise FmgError(f"{e} - 'Alleen FortiGates' heeft een draaiende, bereikbare FortiManager nodig "
+                               "(rol die eerst uit met 'Alleen FortiManager' of 'Alles')")
+            raise
         st = fmg.call("get", "/sys/status").get("data", {}) if not fmg.dry else {"Version": "dry-run"}
     ver = st.get("Version", "?")
     emit("preflight", "ok", f"verbonden, versie: {ver}")
@@ -358,16 +376,20 @@ def pipeline(topo, configs, fmg, emit, boot=None):
             pv.cleanup_isos(boot["pve_client"], topo["pve"], [n for n in names if n not in offline], state, emit,
                             "bootstrap_fgt")
     else:
-        emit("pve_fgt", "skipped", "overgeslagen (niet gevraagd)")
+        emit("pve_fgt", "skipped", why_fgt)
         if m_fgt == "ssh":
             _bootstrap_fgts(topo, devices, boot, emit)
         else:
-            emit("bootstrap_fgt", "skipped", "overgeslagen (niet gevraagd)")
+            emit("bootstrap_fgt", "skipped", why_fgt)
 
     from .fmgapply import apply_plan
     emit("templates", "running", "templates, variabelen, policy packages en blueprints in ADOM aanmaken")
     n = apply_plan(fmg, topo, configs, emit)
     emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd")
+
+    if scope == "fmg":
+        emit("install", "skipped", "overgeslagen (alleen FortiManager): rol daarna de FortiGates uit met 'Alleen FortiGates'")
+        return
 
     emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")
     wait = boot.get("online_timeout", 600 if m_fgt != "none" else 30)

@@ -111,6 +111,20 @@ class DeployReq(BaseModel):
     bootstrap: Bootstrap = Bootstrap()
     secrets: Secrets = Secrets()
     images: dict = {}                          # {'fgt': image-id, 'fmg': image-id}
+    scope: str = "all"                         # 'all', 'fmg' (only FortiManager) or 'fgt' (only FortiGates)
+
+
+SCOPE_TITLE = {"all": "", "fmg": " - alleen FortiManager", "fgt": " - alleen FortiGates"}
+
+
+def _apply_scope(r):
+    """The scope wins over the per-product method: a product that is not deployed gets method 'none'."""
+    if r.scope not in SCOPE_TITLE:
+        raise HTTPException(422, detail=[f"onbekende uitrol-keuze '{r.scope}' (all, fmg of fgt)"])
+    if r.scope == "fgt":
+        r.bootstrap.fmg = "none"
+    elif r.scope == "fmg":
+        r.bootstrap.fgt = "none"
 
 
 def _render(topo, create_psk=False):
@@ -161,8 +175,8 @@ def _check_bootstrap(topo, r):
     if mf in ("ssh", "day0"):
         if not model.valid_token(s.fmg_token):
             errs.append("FortiManager: FortiFlex-token ontbreekt of is ongeldig (alleen letters/cijfers)")
-        if not r.fmg.password:
-            errs.append("FortiManager: admin-wachtwoord is verplicht")
+    if not r.fmg.password and not r.fmg.api_token:     # the tool always logs in to the FortiManager API
+        errs.append("FortiManager: admin-wachtwoord is verplicht")
     if mg in ("ssh", "day0"):
         for d in devs:
             if not model.valid_token(s.fgt_tokens.get(d["name"])):
@@ -355,6 +369,7 @@ def deploy(r: DeployReq):
             raise HTTPException(422, detail=["Proxmox-server niet gevonden (is hij verwijderd?)"])
         topo["pve"].update(url=row["url"], token_id=row["token_id"], verify_tls=bool(row["verify_tls"]))
         r.secrets.pve_token_secret = row["token_secret"]
+    _apply_scope(r)
     _, _, cfg = _render(topo, create_psk=True)          # cfg = template plan
     _check_bootstrap(topo, r)
     if sid:                                    # remember this server's choices for the next run
@@ -367,14 +382,14 @@ def deploy(r: DeployReq):
         if r.images.get(role):
             img[role] = images.get_image(DATA_DIR, r.images[role])["path"]
     boot = {"dry": r.dry_run, "fmg": _method(r.bootstrap.fmg), "fgt": _method(r.bootstrap.fgt),
-            "images": img, "pve_secret": s.pve_token_secret,
+            "scope": r.scope, "images": img, "pve_secret": s.pve_token_secret,
             "fmg_token": s.fmg_token, "fgt_tokens": dict(s.fgt_tokens),
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
             "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw}
     jid = uuid.uuid4().hex[:8]
     job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [], "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-           "title": f"Uitrol van {topo['adom']}" + (" (dry-run)" if r.dry_run else ""),
+           "title": f"Uitrol van {topo['adom']}" + SCOPE_TITLE[r.scope] + (" (dry-run)" if r.dry_run else ""),
            "steps": {i: "pending" for i, _, _ in STEPS}}
     JOBS[jid] = job
     _persist(job)
