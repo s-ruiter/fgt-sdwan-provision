@@ -118,7 +118,8 @@ def valid_token(t):
 def validate(t, devices=True, fmg_vm=True):
     """devices=False ('Alleen FortiManager' / 'Alleen templates'): no model devices are created, so the serial number and
     the wan1 gateway (only a per-device variable value) are not needed yet; they are checked when the FortiGates are
-    deployed. fmg_vm=False ('Alleen templates'): an existing FortiManager, its IP is only the API address (no gateway)."""
+    deployed. fmg_vm=False ('Alleen FortiGates' / 'Alleen templates'): an existing FortiManager, its IP is only the API
+    and FortiGate management address (no gateway: the tool does not configure that FortiManager's network)."""
     err = []
     if not _NAME.match(t.get("adom", "")):
         err.append("ADOM-naam: 1-35 tekens (letters, cijfers, _ . -), begint met letter/cijfer")

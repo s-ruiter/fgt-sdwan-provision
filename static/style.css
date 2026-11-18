@@ -157,8 +157,11 @@ tr.click:hover { background: var(--hover); }
 footer { border-top: 1px solid var(--line); padding: 14px 0; font-size: 12px; color: var(--muted); }
 body { display: flex; flex-direction: column; min-height: 100vh; } main { flex: 1; width: 100%; }
 [hidden] { display: none !important; }
+/* deploy choice: only-fmg = FortiManager-VM (all, fmg) · only-fgt = FortiGates/model devices (all, fgt)
+   only-vm = anything on Proxmox (all, fmg, fgt) · only-existing = existing FortiManager (fgt, tpl) */
 [data-scope="fmg"] .only-fgt, [data-scope="fgt"] .only-fmg,
-[data-scope="tpl"] .only-fgt, [data-scope="tpl"] .only-fmg, [data-scope="tpl"] .only-vm { display: none !important; }
+[data-scope="tpl"] .only-fgt, [data-scope="tpl"] .only-fmg, [data-scope="tpl"] .only-vm,
+[data-scope="all"] .only-existing, [data-scope="fmg"] .only-existing { display: none !important; }
 @media (max-width: 600px) { .row { flex-direction: column; } .card { padding: 16px; } .nicrow .vlan { max-width: 88px; } }
 
 /* ---- fgt-sdwan-provision: aanvullingen op de Spawnpad-basis ---- */
