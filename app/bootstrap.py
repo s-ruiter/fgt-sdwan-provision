@@ -55,8 +55,10 @@ def fgt_network_lines(dev, topo):
     lines = ["config system dns", f"set primary {topo['dns_primary']}"]
     if topo.get("dns_secondary"):
         lines.append(f"set secondary {topo['dns_secondary']}")
+    sn = (topo["fmgr"].get("serial") or "").strip()
+    verify = [f'set serial-number "{sn}"'] if re.fullmatch(r"[A-Za-z0-9]{8,32}", sn) else []   # verified FMG (FOS 7.6+)
     lines += ["set protocol cleartext", "end",
-              "config system central-management", "set type fortimanager", f'set fmg "{fmg_ip}"', "end"]
+              "config system central-management", "set type fortimanager", f'set fmg "{fmg_ip}"', *verify, "end"]
     if dev.get("wan1_mode") == "static":
         ip, mask = split_cidr(dev["wan1_ip"])
         lines += ["config router static", "edit 1", f"set gateway {dev['wan1_gw'].strip()}",

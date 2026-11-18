@@ -485,7 +485,12 @@ def pipeline(topo, configs, fmg, emit, boot=None):
             raise
         st = fmg.call("get", "/sys/status").get("data", {}) if not fmg.dry else {"Version": "dry-run"}
     ver = st.get("Version", "?")
-    emit("preflight", "ok", f"verbonden, versie: {ver}")
+    sn = str(st.get("Serial Number") or st.get("serial") or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9]{8,32}", sn):
+        # FortiOS 7.6+/8.0 treats a FortiManager whose serial is not set in central-management as 'unverified': the
+        # model device is matched, but auto-link then times out (devupdfailed). The FortiGate Day-0 sets it.
+        topo["fmgr"]["serial"] = sn
+    emit("preflight", "ok", f"verbonden, versie: {ver}" + (f", serienummer {sn}" if topo["fmgr"].get("serial") else ""))
     if m_fmg == "day0" and not boot.get("dry"):
         pv.cleanup_isos(boot["pve_client"], topo["pve"], [topo["fmgr"].get("name") or "fmg"], state, emit, "bootstrap_fmg")
     if not fmg.dry and f"v{topo['os_ver']}" not in ver:

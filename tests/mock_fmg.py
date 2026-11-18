@@ -51,7 +51,7 @@ class H(BaseHTTPRequestHandler):
                 cli.update(p.get("data") or {})
                 STATE.setdefault("cli_sets", []).append((url, dict(p.get("data") or {})))
         elif url == "sys/status":
-            res = ok({"Version": "v8.0.0-build0001 260101 (GA)", "Hostname": "mock-fmg"})
+            res = ok({"Version": "v8.0.0-build0001 260101 (GA)", "Hostname": "mock-fmg", "Serial Number": "FMVMELTM26000001"})
         elif m == "get" and url.startswith("dvmdb/adom/") and len(parts) == 3:
             res = ok({"name": parts[2]}) if parts[2] in STATE["adoms"] else MISSING(p["url"])
         elif url == "dvmdb/adom" and m == "add":
