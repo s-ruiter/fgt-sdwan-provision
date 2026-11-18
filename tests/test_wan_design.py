@@ -76,6 +76,13 @@ for multi in (True, False):
             wans = ["$(wan1_intf)"] + (["$(wan2_intf)"] if dev.get("wan2_intf") else [])
             want = sorted((f'"{w}"', ip) for ip in hub_ip.values() for w in wans)    # every wan -> wan1 of every hub
             assert sorted((x[1], x[2]) for x in tun) == want, (r["name"], tun)
+            want_names = sorted(f"H{i}-WAN{w}" for i in range(1, len(t["hubs"]) + 1) for w in range(1, len(wans) + 1))
+            assert sorted(x[0] for x in tun) == want_names, tun                        # <hub>-WAN<branch wan>
+            for x in tun:                                                               # H1-WAN2 leaves from wan2
+                assert x[1] == f'"$(wan{x[0][-1]}_intf)"', x
+            blob = cli + str(r["sdwan"]) + str(r["policies"]) + str(r["static"])
+            assert not re.search(r"H\d_WAN1", blob), re.findall(r"H\d_WAN1\w*", blob)   # no Orchestrator names left
+            assert [m["interface"] for m in r["sdwan"]["members"]][len(wans):] == sorted(want_names, key=lambda n: (n[1], n[-1]))
             hc = next(h for h in r["sdwan"]["health-check"] if h["name"] == "HUB")
             assert hc["server"] == "10.200.99.1" and len(hc["members"]) == len(want), hc
             for w in wans:                                                             # branch wans: DHCP only
