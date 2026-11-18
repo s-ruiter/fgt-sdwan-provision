@@ -51,11 +51,18 @@ def emit(step, status, msg):
     events.append((step, status, msg))
 
 
+from tests import fake_wanemu  # noqa: E402
+from app.wanemu.setup import new_ssh_key  # noqa: E402
+WANEMU_KEY = new_ssh_key()
+
+
 def boot(**kw):
     b = {"dry": False, "fmg": "day0", "fgt": "day0", "fmg_token": TOK_FMG, "fgt_tokens": TOKS, "fmg_new_pw": NEWPW,
          "fgt_new_pw": NEWPW, "pve_secret": PVE_SECRET, "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
          "waiter": lambda h, p, up, tmo: True, "poll": 0, "login_delay": 0, "online_timeout": 5,
          "fgt_boot_timeout": 5}
+    b.setdefault("wanemu_secrets", {"ssh_key": WANEMU_KEY, "agent_token": "agenttoken1234567890"})
+    b.setdefault("wanemu_connector", fake_wanemu.connector(fake_wanemu.FakeShell(installed=True)))
     b.update(kw)
     return b
 
@@ -84,6 +91,11 @@ for s, st, m in events:
     if st != "info":           # same rule as main.emit: info lines never change a step's status
         last[s] = st
 print({k: v for k, v in last.items()})
+order = [s for s, st, _ in events if st != "info"]
+assert last["pve_wan"] == "ok" and order.index("templates") < order.index("pve_wan") < order.index("pve_fgt"), order
+assert len(fake_proxmox.STATE["cts"]) == 1 and next(iter(fake_proxmox.STATE["cts"].values()))["status"] == "running"
+assert all("agenttoken" not in m and "PRIVATE KEY" not in m for _, _, m in events)
+print("OK  WAN-emulator: stap pve_wan na de templates en vóór de FortiGate-VM's, CT draait, geen secrets in events")
 assert all(v == "ok" for v in last.values()), last
 order = [s for s, _, _ in events]
 firsts = [order.index(s) for s in ("pve_fmg", "bootstrap_fmg", "preflight", "adom", "devices", "templates",
@@ -157,6 +169,7 @@ events.clear()
 b = boot(dry=True, pve_secret="")
 pipeline(t, cfg, Fmg("http://127.0.0.1:1", dry_run=True), emit, b)
 assert any("[dry-run]" in m and "Day-0 ISO" in m for _, _, m in events) and fake_proxmox.STATE["creates"] == 6
+assert any("[dry-run] wan-emu net2: name=eth2,bridge=vmbr0,tag=3201" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 1
 print("OK  dry-run: plan per VM gelogd, niets naar Proxmox")
 
 # ---------------------------------------------------------------- rollback

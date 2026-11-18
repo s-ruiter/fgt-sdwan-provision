@@ -67,7 +67,7 @@ for s, st, m in events:
     by.setdefault(s, []).append(st)
 print({k: v[-1] for k, v in by.items()})
 assert by["pve_fmg"] == by["pve_fgt"] == ["skipped"], "SSH-methode mag geen Proxmox-VM's aanmaken"
-assert all(v[-1] == "ok" for k, v in by.items() if k not in ("pve_fmg", "pve_fgt")), by
+assert all(v[-1] == "ok" for k, v in by.items() if k not in ("pve_fmg", "pve_wan", "pve_fgt")), by
 f = fakes["192.168.1.98"].state
 assert f.licensed and f"execute vm-license {TOK_FMG}" in f.cmds and "set ip 10.0.0.5 255.255.255.0" in f.cmds
 for i, d in enumerate(devs):

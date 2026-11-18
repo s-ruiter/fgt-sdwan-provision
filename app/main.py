@@ -58,6 +58,7 @@ STEPS = [
     ("adom", "ADOM", "ADOM aanmaken op basis van jouw naam (bestaat hij al: hergebruiken)"),
     ("devices", "Model devices", "2 hubs + 3 branches toevoegen met opgegeven serienummers"),
     ("templates", "Templates", "Metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups en blueprints in de ADOM"),
+    ("pve_wan", "WAN-emulator", "LXC wan-emu: routeert ISP-HUB / ISP-A / ISP-B (NAT naar het lab), DHCP voor de spokes, verkeersmanipulatie per link"),
     ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1: hub vast IP + gateway, branch DHCP; DNS, FMG-koppeling, FortiFlex-licentie) starten"),
     ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wachten tot ze gelicenseerd online zijn in FMG; of via SSH op bestaande VM's"),
     ("install", "Install", "Quick install (device settings) per device, daarna Re-install policy per rol; echte FortiGates pas als ze online zijn"),
@@ -362,6 +363,14 @@ def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
         boot.clear()
 
 
+def _wanemu_secrets():
+    """SSH key (root login in wan-emu) and agent token: generated once, kept in the tool database (0600)."""
+    from .wanemu import setup
+    conn = db.connect(DATA_DIR)
+    return {"ssh_key": db.get_secret(conn, "wanemu_ssh_key", create=setup.new_ssh_key),
+            "agent_token": db.get_secret(conn, "wanemu_agent_token", create=lambda: __import__("secrets").token_urlsafe(32))}
+
+
 @app.post("/api/deploy")
 def deploy(r: DeployReq):
     topo = model.merged(r.topology)
@@ -390,6 +399,8 @@ def deploy(r: DeployReq):
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
             "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw}
+    if boot["fgt"] == "day0" and r.scope not in ("fmg", "tpl", "dev") and not r.dry_run:
+        boot["wanemu_secrets"] = _wanemu_secrets()
     jid = uuid.uuid4().hex[:8]
     job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [], "created": time.strftime("%Y-%m-%d %H:%M:%S"),
            "title": f"Uitrol van {topo['adom']}" + SCOPE_TITLE[r.scope] + (" (dry-run)" if r.dry_run else ""),

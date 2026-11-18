@@ -1,0 +1,80 @@
+"""WAN-emulator deployment: LXC via (fake) Proxmox, provisioning via a (fake) SSH shell, reuse, rollback, checks."""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app import model  # noqa: E402
+from app.pve import Pve  # noqa: E402
+from app.wanemu import setup  # noqa: E402
+from tests import fake_proxmox  # noqa: E402
+from tests.fake_wanemu import FakeShell, connector  # noqa: E402
+
+fake_proxmox.reset()
+srv = fake_proxmox.start(8098)
+pve = Pve("http://127.0.0.1:8098", "root@pam!t", "secret", poll=0)
+key = setup.new_ssh_key()
+assert key.startswith("-----BEGIN OPENSSH PRIVATE KEY-----") and setup.public_key(key).startswith("ssh-ed25519 ")
+SEC = {"ssh_key": key, "agent_token": "agenttoken1234567890"}
+t = model.merged({"pve": {"node": "pve1"}})
+ev = []
+emit = lambda step, st, msg: ev.append((step, st, msg))
+waiter = lambda h, p, up, tmo: True
+
+# 1. new container
+sh = FakeShell()
+con = connector(sh)
+r = setup.deploy_wanemu(pve, t, SEC, emit, connector=con, waiter=waiter)
+assert r["created"] is True and r["internet"] is True and r["vmid"] in (100, 101)
+ct = fake_proxmox.STATE["cts"][str(r["vmid"])]
+assert ct["status"] == "running" and ct["params"]["net2"] == "name=eth2,bridge=vmbr0,tag=3201,ip=100.127.201.1/24"
+assert ct["params"]["ssh-public-keys"] == setup.public_key(key) and con.seen[0][0] == "10.10.106.250"
+assert "apt-get install -y -q dnsmasq nftables iproute2 python3" in " ".join(sh.cmds)
+assert "dhcp-host=" in sh.files["/etc/dnsmasq.d/wan-emu.conf"][0]
+assert sh.files["/etc/wan-emu/token"] == ("agenttoken1234567890", 0o600)
+assert '"links"' in sh.files["/etc/wan-emu/topology.json"][0] and "def tc_commands" in sh.files["/opt/wan-emu/agent.py"][0]
+unit = sh.files["/etc/systemd/system/wan-emu-agent.service"][0]
+assert "--listen 10.10.106.250 --port 8090" in unit and "agenttoken" not in unit
+assert any("systemctl restart wan-emu-agent" in c for c in sh.cmds) and any("ip_forward" in f[0] for f in sh.files.values())
+assert all("agenttoken" not in c for c in sh.cmds) and all("agenttoken" not in m and "PRIVATE" not in m for _, _, m in ev)
+print("OK  nieuwe CT: aangemaakt met ISP-VLAN's, gestart, pakketten, dnsmasq, token 0600, agent-service, forwarding")
+
+# 2. reuse with changed settings: same CT, new config applied, provisioned again
+t2 = model.merged({"pve": {"node": "pve1"}, "wanemu": {"uplink": {"ip": "10.10.106.249/24"}}})
+sh2 = FakeShell(installed=True)
+r2 = setup.deploy_wanemu(pve, t2, SEC, emit, connector=connector(sh2), waiter=waiter)
+assert r2["created"] is False and r2["vmid"] == r["vmid"] and len(fake_proxmox.STATE["cts"]) == 1
+assert fake_proxmox.STATE["cts"][str(r["vmid"])]["params"]["net0"].endswith("ip=10.10.106.249/24,gw=10.10.106.1")
+assert not any("apt-get" in c for c in sh2.cmds) and "/etc/dnsmasq.d/wan-emu.conf" in sh2.files
+print("OK  bestaande CT: hergebruikt, nieuwe netwerkconfig toegepast, opnieuw ingericht (geen apt als alles er is)")
+
+# 3. no internet from the segments: warning, no failure
+ev.clear()
+r3 = setup.deploy_wanemu(pve, t, SEC, emit, connector=connector(FakeShell(installed=True, fail=("ping",))), waiter=waiter)
+assert r3["internet"] is False and any(st == "warn" and "geen internet vanuit ISP-A" in m for _, st, m in ev)
+print("OK  geen internet vanuit ISP-A: waarschuwing, uitrol gaat door")
+
+# 4. netem/ifb missing on the host: clear error; a CT that existed is kept
+try:
+    setup.deploy_wanemu(pve, t, SEC, emit, connector=connector(FakeShell(installed=True, fail=("ifb-test",))), waiter=waiter)
+    raise SystemExit("verwachtte fout")
+except setup.WanEmuError as e:
+    assert "sch_netem" in str(e) and "ifb" in str(e)
+assert str(r["vmid"]) in fake_proxmox.STATE["cts"]
+# 5. failure on a NEW container: removed again
+fake_proxmox.reset()
+try:
+    setup.deploy_wanemu(pve, t, SEC, emit, connector=connector(FakeShell(fail=("apt-get",))), waiter=waiter)
+    raise SystemExit("verwachtte fout")
+except setup.WanEmuError:
+    pass
+assert fake_proxmox.STATE["cts"] == {}
+# 6. SSH never comes up
+fake_proxmox.reset()
+try:
+    setup.deploy_wanemu(pve, t, SEC, emit, connector=connector(FakeShell()), waiter=lambda h, p, up, tmo: False)
+    raise SystemExit("verwachtte fout")
+except setup.WanEmuError as e:
+    assert "10.10.106.250" in str(e)
+assert fake_proxmox.STATE["cts"] == {}
+srv.shutdown()
+print("OK  fouten: netem/ifb ontbreekt (duidelijke melding, bestaande CT blijft), nieuwe CT bij fout verwijderd, SSH-timeout")
