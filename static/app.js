@@ -112,7 +112,7 @@ function dev(kind, d, i) {
   WAN.forEach(([k, l]) => (h += fld(k, l, d[k])));
   h += `<div class="f"><label>wan1-adressering</label><select data-f="wan1_mode"><option value="static"${d.wan1_mode === "static" ? " selected" : ""}>Statisch</option><option value="dhcp"${d.wan1_mode === "dhcp" ? " selected" : ""}>Dynamisch (DHCP)</option></select></div>`;
   h += fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway (statisch)", d.wan1_gw);
-  h += `<div class="f"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
+  h += `<div class="f only-fgt"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
   if (hub) h += fld("wan2_ip", "wan2 hub-IP", d.wan2_ip);
   (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
   return h + "</div></div>";
@@ -302,6 +302,28 @@ $("#btn_d0").onclick = async () => {
   $("#d0_out").textContent = `# ${j.layout} · licentiemodus: ${j.mode} · token/wachtwoord gemaskeerd\n` + j.user_data;
 };
 
+// ---- scope: all / only FortiManager / only FortiGates ------------------------
+const SCOPE_HINT = {
+  all: "",
+  fmg: "Alleen de FortiManager wordt gemaakt en voorbereid. De FortiGate-gegevens (namen, serienummers, adressen) zijn wel nodig voor de model devices en templates; FortiGate-tokens en -wachtwoord niet.",
+  fgt: "De FortiManager moet al draaien op het opgegeven vaste IP en bereikbaar zijn met de admin-gebruiker en het wachtwoord hieronder. Er wordt geen FortiManager-VM gemaakt.",
+};
+const scope = () => (document.querySelector('input[name="scope"]:checked') || {}).value || "all";
+function scopeApply() {
+  const s = scope();
+  $("#v_deploy").dataset.scope = s;
+  $("#scope_hint").textContent = SCOPE_HINT[s];
+  try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
+}
+document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
+function scopeInit() {
+  let s = "all";
+  try { s = localStorage.getItem("fgt-sdwan-scope") || "all"; } catch (_) {}
+  const el = document.querySelector(`input[name="scope"][value="${s}"]`);
+  if (el) el.checked = true;
+  scopeApply();
+}
+
 // ---- deploy + progress ------------------------------------------------------
 function stepsDraw(states = {}) {
   $("#pl").innerHTML = STEPS.map((s) => { const st = states[s.id] || "pending"; return `<li data-id="${s.id}" class="st-${st}"><span class="ic"><span class="dot st-${st}"></span></span><span class="t">${esc(s.title)}</span><span class="msg"></span></li>`; }).join("");
@@ -309,9 +331,10 @@ function stepsDraw(states = {}) {
 $("#btn_deploy").onclick = async () => {
   showErr([]);
   { const e = ipErrors(); if (e.length) return showErr(e); }
-  const dry = $("#dry").checked, mf = "day0", mg = "day0";   // always Day-0
-  if (!dry && !confirm("Dit schrijft naar FortiManager" + ", maakt de VM's op Proxmox, configureert en licenseert ze (ze herstarten)" + ". Doorgaan?")) return;
-  const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: $("#img_fgt").value || null, fmg: $("#img_fmg").value || null } });
+  const dry = $("#dry").checked, sc = scope(), mf = sc === "fgt" ? "none" : "day0", mg = sc === "fmg" ? "none" : "day0";   // Day-0 for what is deployed
+  const what = { all: "de FortiManager- en FortiGate-VM's", fmg: "de FortiManager-VM", fgt: "de FortiGate-VM's" }[sc];
+  if (!dry && !confirm(`Dit schrijft naar FortiManager, maakt ${what} op Proxmox, configureert en licenseert ze (ze herstarten). Doorgaan?`)) return;
+  const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: sc === "fmg" ? null : $("#img_fgt").value || null, fmg: sc === "fgt" ? null : $("#img_fmg").value || null } });
   const j = await json(r);
   if (!r.ok) return showErr(errList(j));
   if (ES) ES.close();
@@ -429,5 +452,5 @@ $("#srv_test").onclick = async () => {
   $("#orch").textContent = a.orchestrator_present ? "Orchestrator-templates gevonden: " + a.orchestrator : "⚠ Orchestrator-templates niet gevonden op " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
   $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: false }]; draw(); markIpFields(); });
-  draw(); markIpFields(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
+  draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
 })();
