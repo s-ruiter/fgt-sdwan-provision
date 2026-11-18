@@ -50,10 +50,12 @@ def fgt_network_lines(dev, topo):
     port = dev["wan1_intf"]
     fmg_ip = split_cidr(topo["fmgr"]["ip"])[0]
     access = topo.get("wan1_access", "ping https ssh fgfm")
+    # FortiOS 8.0 defaults to DNS over TLS against server-hostname globalsdns.fortinet.net with cert-verify: with
+    # 1.1.1.1/8.8.8.8 the certificate never matches and NOTHING resolves (no FortiFlex licence, no FortiGuard).
     lines = ["config system dns", f"set primary {topo['dns_primary']}"]
     if topo.get("dns_secondary"):
         lines.append(f"set secondary {topo['dns_secondary']}")
-    lines += ["end",
+    lines += ["set protocol cleartext", "end",
               "config system central-management", "set type fortimanager", f'set fmg "{fmg_ip}"', "end"]
     if dev.get("wan1_mode") == "static":
         ip, mask = split_cidr(dev["wan1_ip"])

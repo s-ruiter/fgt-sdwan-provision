@@ -56,7 +56,7 @@ def plan_calls(topo, plan, devices=True):
     add("System template", "set", f"/pm/devprof/adom/{adom}/", [{"name": "Basic-Settings", "type": "devprof"}])
     add("System template", "set", f"{base}/devprof/Basic-Settings/device/profile/setting", {"enabled-pages": ["dns", "log", "admin"]})
     add("System template", "set", f"{base}/devprof/Basic-Settings/system/global", {"admintimeout": 480, "admin-scp": 1})
-    dns = {"primary": dns1}
+    dns = {"primary": dns1, "protocol": ["cleartext"]}     # FortiOS 8.0 default = DoT to globalsdns.fortinet.net
     if dns2:
         dns["secondary"] = dns2
     add("System template", "set", f"{base}/devprof/Basic-Settings/system/dns", dns)
