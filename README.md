@@ -57,9 +57,36 @@ Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool
 5. **ADOM** – aanmaken (bestaand: hergebruiken)
 6. **Model devices** – met de opgegeven serienummers. FortiManager 7.4.7+ weigert standaard VM-devices ("VM device is not allowed to add"); de tool zet daarom vlak ervoor `fgfm-allow-vm enable` in `system global` (ook op een bestaande FortiManager). FortiManager maakt bij een FortiGate-VM model device alleen `port1` aan; de tool voegt daarna `port2`-`port6` (of tot de hoogste gebruikte poort) toe in de device-database, ook bij devices die al bestonden.
 7. **Templates** – variabelen, system/SD-WAN/CLI-templates, policy packages, template groups, blueprints (alleen set/replace/update: herhaalbaar) Komt vóór de FortiGates, zodat de model devices compleet zijn als een echte FortiGate zich meldt.
-8. **FortiGate-VM's** *(day0)* – per FortiGate een VM + ISO (hostname, admin-wachtwoord, wan1 statisch (hub) of DHCP (branch), DNS, `central-management`, FortiFlex-token), starten
-9. **FortiGate ZTP** – day0: wachten tot ze gelicenseerd online zijn in FMG, daarna ISO's opruimen · ssh: zie hieronder
-10. **Install** – per device een **Quick install** (device settings), daarna per rol een **Re-install policy** (policy package). Bij *Alleen model devices* direct naar de device-database; bij echte FortiGates (*Alles*, *Alleen FortiGates*) pas als ze online zijn (offline = waarschuwing, geen fout).
+8. **WAN-emulator** *(day0)* – LXC `wan-emu` (Debian 13): routeert ISP-HUB (hubs, vast wan1-IP), ISP-A (wan1 van de spokes) en ISP-B (wan2), doet DHCP met een reservering per spoke en NAT naar het lab via de uplink. Bestaat hij al, dan wordt hij hergebruikt en opnieuw ingericht. Zie *WAN-emulatie* hieronder.
+9. **FortiGate-VM's** *(day0)* – per FortiGate een VM + ISO (hostname, admin-wachtwoord, wan1 statisch (hub) of DHCP (branch), DNS, `central-management`, FortiFlex-token), starten
+10. **FortiGate ZTP** – day0: wachten tot ze gelicenseerd online zijn in FMG, daarna ISO's opruimen · ssh: zie hieronder
+11. **Install** – per device een **Quick install** (device settings), daarna per rol een **Re-install policy** (policy package). Bij *Alleen model devices* direct naar de device-database; bij echte FortiGates (*Alles*, *Alleen FortiGates*) pas als ze online zijn (offline = waarschuwing, geen fout).
+
+## WAN-emulatie
+
+Bij FortiGate-VM's (methode `day0`) zitten de FortiGates niet in het lab-netwerk maar achter een gesimuleerde provider,
+altijd. De standaardwaarden (aan te passen onder *Proxmox & images*):
+
+| Segment | VLAN | Subnet | Gateway (container) | Wie |
+|---|---|---|---|---|
+| uplink | 106 | 10.10.106.0/24 | 10.10.106.1 | `wan-emu` zelf: 10.10.106.250 |
+| ISP-HUB | 3200 | 100.127.200.0/24 | 100.127.200.1 | hubs, vast (.11, .12) |
+| ISP-A | 3201 | 100.127.201.0/24 | 100.127.201.1 | port1 van de spokes, DHCP: spoke n = .11+n |
+| ISP-B | 3202 | 100.127.202.0/24 | 100.127.202.1 | port2 van de spokes, DHCP: spoke n = .11+n |
+
+- De wan-poorten van de FortiGate-VM's krijgen automatisch het VLAN van hun segment en een vast MAC-adres (voor de
+  DHCP-reservering); de poortentabel geldt alleen nog voor de LAN-poorten.
+- Tussen de segmenten geen NAT; naar het lab (eth0) masquerade, dus op de lab-gateway hoeft niets te veranderen.
+  FortiManager ziet alle FortiGates vanaf 10.10.106.250.
+- **Op de PVE-host** moeten `sch_netem` en `ifb` geladen zijn (`modprobe sch_netem ifb`, blijvend via
+  `/etc/modules-load.d/wan-emu.conf`). De tool controleert dat en stopt met een duidelijke melding; hij laadt zelf
+  geen modules.
+- De tool logt in op de container met een eigen SSH-sleutel (in de tool-database, 0600). In de container draait een
+  agent (`/opt/wan-emu/agent.py`, poort 8090, met token) die per link `tc` (htb + netem, beide richtingen via ifb) en
+  `nftables` (link down, NAT) toepast en de stand na een herstart terugzet.
+- Pagina **WAN-emulatie**: per link (hub-wan1, spoke-wan1, spoke-wan2) schuifjes voor latency, jitter, loss en
+  bandbreedte, *link down*, en presets (Glasvezel, DSL, Slechte 4G, Satelliet, Trans-Atlantisch, ISP-A/ISP-B storing,
+  Hub 1 weg). Waarden gelden in beide richtingen: 40 ms latency = 80 ms extra RTT.
 
 ## Images uploaden + Day-0 (cloud-init)
 
