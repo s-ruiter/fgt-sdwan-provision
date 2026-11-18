@@ -236,6 +236,8 @@ def build_plan(topo, orch_dir):
     for name, (d, is_hub) in devs.items():
         meta = (inv["Hub"] if is_hub else inv["Edge"])[name]
         s = render_device(orch_dir, project, meta, is_hub)
+        if not is_hub:
+            rename_edge_tunnels(s)
         mg = mgmt_cli(d, model.pe_vrf(topo))
         reg = s["reg"]
         values = {v: reg.value(v) for v in set(VAR_RE.findall("\n".join(list(s["core"].values()) + [s["sdwan"], s["firewall"]])))}
@@ -319,6 +321,31 @@ def _literal_intfs(role, per):
         if vals != {None}:
             lit[var] = vals.pop()
     return lit
+
+
+_P1 = re.compile(r"config vpn ipsec phase1-interface\n((?:.|\n)*?)\nend")
+_P1_EDIT = re.compile(r'edit "([^"]+)"((?:.|\n)*?)\n  next')
+
+
+def rename_edge_tunnels(s):
+    """Branch tunnels get '<hub>-WAN<n>' after the branch wan they leave from (H1-WAN1 on wan1, H1-WAN2 on wan2) instead
+    of the Orchestrator's '<hub>_<overlay type>[_index]' (H1_WAN1, H1_WAN1_2: every branch wan uses overlay type WAN1).
+    Renames every reference in the rendered config (phase1/phase2, SD-WAN, routing, firewall). -> {old: new}"""
+    names = {}
+    for blk in _P1.findall("\n".join(s["core"].values())):
+        for name, body in _P1_EDIT.findall(blk):
+            m = re.search(r'set interface "\$\(wan(\d+)_intf\)"', body)
+            hub = re.match(r"(.+?)_WAN\d+(?:_\d+)?$", name)
+            if m and hub:
+                names[name] = f"{hub.group(1)}-WAN{m.group(1)}"
+    if len(set(names.values())) != len(names):
+        raise ValueError(f"tunnelnamen niet uniek na hernoemen: {names}")
+    if names:
+        pat = re.compile(r"(?<![\w-])(" + "|".join(map(re.escape, sorted(names, key=len, reverse=True))) + r")(?![\w-])")
+        sub = lambda text: pat.sub(lambda m: names[m.group(1)], text)
+        s["core"] = {k: sub(v) for k, v in s["core"].items()}
+        s["sdwan"], s["firewall"] = sub(s["sdwan"]), sub(s["firewall"])
+    return names
 
 
 def _hub_gateway(sdwan, dev):
