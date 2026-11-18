@@ -242,6 +242,7 @@ def build_plan(topo, orch_dir):
         if d.get("wan1_mode") == "static":
             values["wan1_gw"] = d["wan1_gw"].strip()
         values["wan1_intf"] = d["wan1_intf"]
+        values["hostname"] = d["name"]           # hub templates use the literal name, but the variable shows it per device too
         s.update(is_hub=is_hub, dev=d, mgmt=mg, values=values)
         per[name] = s
 

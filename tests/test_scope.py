@@ -162,6 +162,12 @@ assert all(a["sn"] and a["device action"] == "add_model" for a in added), added 
 assert any("dynamic_mapping" in str(d) for _, _, d in bodies)                         # per-device values set
 var_maps = [m for _, u, d in bodies if "/obj/fmg/variable/" in u for m in (d or {}).get("dynamic_mapping", [])]
 assert var_maps and all(m["_scope"][0]["vdom"] == "global" for m in var_maps), var_maps[:2]   # device-level (FMG GUI)
+host = next(d for _, u, d in bodies if u.endswith("/obj/fmg/variable/hostname"))
+assert {m["_scope"][0]["name"] for m in host["dynamic_mapping"]} == {x["name"] for x in devs}, host   # hubs too
+assert ("update", f"pm/config/adom/{t['adom']}/obj/fmg/variable/vm_interface_number", {"name": "vm_interface_number", "value": "6"}) \
+    in [(m_, u, d) for m_, u, d in bodies], [b for b in bodies if "vm_interface" in b[1]]
+from app.provision_vms import fgt_nics
+assert all(len(fgt_nics(x, t["pve"])) == 6 for x in devs), [len(fgt_nics(x, t["pve"])) for x in devs]   # 6 NICs per FortiGate-VM
 assert any(u.endswith("/object member") for _, u, _ in bodies)                        # devices in their device group
 assert not any(u.startswith("securityconsole/") for _, u, _ in bodies)
 assert mock_fmg.STATE["cli_sets"] == [("cli/global/system/global", {"fgfm-allow-vm": "enable"})], mock_fmg.STATE["cli_sets"]

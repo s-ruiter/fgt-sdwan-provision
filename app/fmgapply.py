@@ -11,6 +11,9 @@ from .fmg import FmgError
 PKG_SETTINGS = {"central-nat": 0, "consolidated-firewall-mode": 0, "fwpolicy-implicit-log": 0,
                 "fwpolicy6-implicit-log": 0, "ngfw-mode": 0}
 BLUEPRINT_PLATFORM = "FortiGate-VM64-KVM"
+# FortiManager's predefined metadata variable for the number of FortiGate-VM interfaces (factory default 1);
+# every FortiGate-VM in this design has 6 interfaces (user decision), see also provision_vms.MIN_FGT_NICS.
+VM_INTERFACE_NUMBER = 6
 
 
 def plan_calls(topo, plan, devices=True):
@@ -44,6 +47,9 @@ def plan_calls(topo, plan, devices=True):
         if devices:
             body["dynamic_mapping"] = [{"_scope": dev_scope([d]), "value": str(val)} for d, val in sorted(vals.items())]
         add("Metadata-variabelen", "set", f"{base}/obj/fmg/variable/{v}", body)
+    # update (not set): keep FortiManager's own description of this predefined variable; soft: older FMGs lack it
+    add("Metadata-variabelen", "update", f"{base}/obj/fmg/variable/vm_interface_number",
+        {"name": "vm_interface_number", "value": str(VM_INTERFACE_NUMBER)}, soft=True)
 
     # 3. system template (DNS, admin)
     dns1, dns2 = plan["dns"]

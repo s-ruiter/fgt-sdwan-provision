@@ -19,11 +19,15 @@ def _port_no(name):
     return int(m.group(1)) if m else None
 
 
+MIN_FGT_NICS = 6          # every FortiGate-VM gets at least 6 interfaces (matches FMG vm_interface_number = 6)
+
+
 def fgt_nics(dev, cfg):
-    """One virtio NIC per port up to the highest portN the device uses; bridge/VLAN from the per-port table."""
+    """One virtio NIC per port up to the highest portN the device uses, at least MIN_FGT_NICS; bridge/VLAN from the
+    per-port table."""
     used = [dev.get(k) for k in ("wan1_intf", "wan2_intf")] + [l.get("intf") for l in dev.get("lans", [])]
     nums = [n for n in map(_port_no, used) if n]
-    top = max(nums or [1])
+    top = max(nums + [MIN_FGT_NICS])
     ports = cfg.get("ports", {})
     nics = []
     for i in range(1, top + 1):
