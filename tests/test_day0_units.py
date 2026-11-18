@@ -163,8 +163,36 @@ def test_pve_client():
     print("OK  Proxmox-client: check (PVE 9, import/iso/images storages), 3 MB streaming upload byte-voor-byte, delete, fouten")
 
 
+def test_pve_lxc():
+    fake_proxmox.reset()
+    srv = fake_proxmox.start(8097)
+    try:
+        p = Pve("http://127.0.0.1:8097", "root@pam!t", "secret")
+        params = {"vmid": 130, "hostname": "wan-emu", "ostemplate": "local:vztmpl/debian-13.tar.zst", "tags": "fgt-sdwan",
+                  "net0": "name=eth0,bridge=vmbr0,tag=106,ip=10.10.106.250/24,gw=10.10.106.1",
+                  "ssh-public-keys": "ssh-ed25519 AAAA x"}
+        p.wait_task("pve1", p.create_ct("pve1", params))
+        ct = fake_proxmox.STATE["cts"]["130"]
+        assert ct["params"]["ostemplate"].startswith("local:vztmpl/") and ct["params"]["ssh-public-keys"] == "ssh-ed25519 AAAA x"
+        found = p.find_cts("fgt-sdwan")
+        assert [(c["vmid"], c["name"]) for c in found] == [(130, "wan-emu")] and p.find_vms("fgt-sdwan") == []
+        p.set_ct_config("pve1", 130, {"net0": "name=eth0,bridge=vmbr0,tag=106,ip=10.10.106.251/24,gw=10.10.106.1"})
+        assert ct["params"]["net0"].endswith("ip=10.10.106.251/24,gw=10.10.106.1")
+        p.wait_task("pve1", p.start_ct("pve1", 130))
+        assert p.ct_status("pve1", 130) == "running"
+        p.wait_task("pve1", p.stop_ct("pve1", 130))
+        assert p.ct_status("pve1", 130) == "stopped"
+        p.wait_task("pve1", p.delete_ct("pve1", 130))
+        assert "130" not in fake_proxmox.STATE["cts"] and ("DELETE", "/nodes/pve1/lxc/130") in fake_proxmox.STATE["calls"]
+        assert fake_proxmox.STATE["ct_delete_params"] == {"purge": "1", "force": "1"}
+    finally:
+        srv.shutdown()
+    print("OK  Proxmox-client LXC: aanmaken, vinden op tag (los van VM's), config, start/stop/status, verwijderen")
+
+
 if __name__ == "__main__":
     test_images()
     test_cloudinit()
     test_pve_client()
+    test_pve_lxc()
     print("alle day-0 unit-tests geslaagd")
