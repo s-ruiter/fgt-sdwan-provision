@@ -109,6 +109,10 @@ tb = copy.deepcopy(bare)
 tb["fmgr"]["gateway"] = ""                                                         # existing FMG: IP is only the API address
 assert any("gateway" in x for x in model.validate(tb, devices=False))
 assert model.validate(tb, devices=False, fmg_vm=False) == [], model.validate(tb, devices=False, fmg_vm=False)
+tb["fmgr"]["ip"] = "10.10.106.11"                                                    # existing FMG: plain address is fine
+assert model.validate(tb, devices=False, fmg_vm=False) == [], model.validate(tb, devices=False, fmg_vm=False)
+assert any("a.b.c.d/nn" in x for x in model.validate(tb, devices=False))             # a new FMG-VM still needs the prefix
+assert model.split_cidr(tb["fmgr"]["ip"])[0] == "10.10.106.11"
 fg = copy.deepcopy(t)
 fg["fmgr"].update(gateway="", name="", port="")                                     # 'Alleen FortiGates': existing FMG
 assert not any("FortiManager" in x for x in model.validate(fg, devices=True, fmg_vm=False)), model.validate(fg, True, False)

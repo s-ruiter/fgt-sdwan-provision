@@ -40,7 +40,7 @@ function maskToPrefix(m) {                     // 255.255.255.0 -> 24 (null if n
 }
 function ipProblem(kind, v) {
   if (!v) return "";
-  if (kind === "ip") return RE_IP.test(v) ? "" : "Geen geldig IPv4-adres (a.b.c.d)";
+  if (kind === "ip" || (kind === "ipcidr" && !v.includes("/"))) return RE_IP.test(v) ? "" : "Geen geldig IPv4-adres (a.b.c.d)";
   if (!RE_CIDR.test(v)) return "Gebruik a.b.c.d/nn, bijvoorbeeld 10.0.0.5/24";
   const [a, p] = v.split("/"), pre = +p;
   if (pre <= 30) {
@@ -54,6 +54,7 @@ const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip" };
 const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip", wan2_ip: "ip" };
 function markIpFields() {
   for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
+  if (["fgt", "tpl"].includes(scope())) $("#fm_ip").dataset.ip = "ipcidr";   // existing FortiManager: only its address is used
   document.querySelectorAll(".dev [data-f]").forEach((el) => {
     const f = el.dataset.f, k = KIND_BY_FIELD[f] || (/^lan\d+_ip$/.test(f) ? "cidr" : null);
     if (k) el.dataset.ip = k;
@@ -69,6 +70,12 @@ function checkIp(el) {
 }
 document.addEventListener("input", (e) => { if (e.target.dataset && e.target.dataset.ip && e.target.classList.contains("bad")) checkIp(e.target); });
 document.addEventListener("focusout", (e) => { if (e.target.dataset && e.target.dataset.ip) checkIp(e.target); });
+// visible label text only (labels hold a variant per deploy choice; textContent would glue them together)
+function labelText(el) {
+  const l = (el.closest(".f") || el.parentElement).querySelector("label");
+  if (!l) return el.id;
+  return [...l.childNodes].filter((n) => n.nodeType === 3 || n.offsetParent !== null).map((n) => n.textContent).join("").trim();
+}
 // static WAN fields only matter when the device uses a static wan1
 function ipErrors() {
   const out = [];
@@ -77,7 +84,7 @@ function ipErrors() {
     if (dev && /^wan1_(ip|gw)$/.test(el.dataset.f) && dev.querySelector("[data-f=wan1_mode]").value !== "static") { el.classList.remove("bad"); return; }
     if (el.closest(".only-vm, .only-fmg, .only-fgt") && !el.offsetParent) { el.classList.remove("bad"); return; }   // hidden by the deploy choice
     const p = checkIp(el);
-    if (p) out.push(`${dev ? dev.querySelector("b").textContent + ": " : ""}${(el.closest(".f") || el.parentElement).querySelector("label")?.textContent || el.id} — ${p}`);
+    if (p) out.push(`${dev ? dev.querySelector("b").textContent + ": " : ""}${labelText(el)} — ${p}`);
   });
   return out;
 }
@@ -323,7 +330,7 @@ function scopeApply() {
   const s = scope();
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
-  if (T) d0Opts();
+  if (T) { d0Opts(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
   try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
 }
 document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
