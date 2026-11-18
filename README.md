@@ -55,7 +55,7 @@ Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool
 3. **Preflight** – login + versiecheck (8.0.x); daarna wordt de FMG-ISO losgekoppeld en verwijderd
 4. **FortiManager-instellingen** – uitlogtimers (CLI, GUI, API, SSO) 180 min, tijdzone Europe/Amsterdam (code 28), ADOMs aan in advanced mode, FortiAnalyzer-features aan. Alleen wat afwijkt wordt gezet; FortiAnalyzer-features aanzetten herstart de FortiManager, de tool wacht daarop. Overgeslagen bij *Alleen FortiGates*.
 5. **ADOM** – aanmaken (bestaand: hergebruiken)
-6. **Model devices** – 5 devices met opgegeven serienummers
+6. **Model devices** – met de opgegeven serienummers. FortiManager 7.4.7+ weigert standaard VM-devices ("VM device is not allowed to add"); de tool zet daarom vlak ervoor `fgfm-allow-vm enable` in `system global` (ook op een bestaande FortiManager).
 7. **FortiGate-VM's** *(day0)* – per FortiGate een VM + ISO (hostname, admin-wachtwoord, wan1 statisch (hub) of DHCP (branch), DNS, `central-management`, FortiFlex-token), starten
 8. **FortiGate ZTP** – day0: wachten tot ze gelicenseerd online zijn in FMG, daarna ISO's opruimen · ssh: zie hieronder
 9. **Templates** – variabelen, system/SD-WAN/CLI-templates, policy packages, template groups, blueprints (alleen set/replace/update: herhaalbaar)

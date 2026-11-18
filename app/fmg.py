@@ -294,6 +294,26 @@ FMG_SETTINGS = [
     ("/cli/global/system/global", "ADOMs aan, advanced mode", {"adom-status": "enable", "adom-mode": "advanced"}),
 ]
 FAZ = ("/cli/global/system/global", "faz-status", "enable")
+# FortiManager 7.4.7+ refuses VM devices by default, model devices included ("VM device is not allowed to add").
+ALLOW_VM = ("/cli/global/system/global", "fgfm-allow-vm", "enable")
+
+
+def ensure_allow_vm(fmg, emit, step="devices"):
+    """Allow FortiGate-VM (model) devices on this FortiManager. Only touches the setting when the FMG has it (7.4.7+)
+    and it is not on yet; needed before adding FortiGate-VM model devices, also on an existing FortiManager."""
+    url, key, val = ALLOW_VM
+    if fmg.dry:
+        emit(step, "running", f"[dry-run] {key} {val} (FortiGate-VM devices toestaan)")
+        return
+    cur = fmg.call("get", url).get("data") or {}
+    if key not in cur or _same(cur[key], val):
+        return
+    try:
+        fmg.call("set", url, {key: val})
+    except FmgError as e:
+        raise FmgError(f"FortiManager weigert FortiGate-VM devices en {key} aanzetten lukte niet ({e}). Zet het op de "
+                       f"FortiManager: config system global / set {key} {val} / end")
+    emit(step, "running", f"FortiManager: {key} aangezet (FortiManager 7.4.7+ weigert anders FortiGate-VM model devices)")
 
 
 def _same(cur, want):
@@ -445,6 +465,8 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         return
 
     emit("devices", "running", f"{len(devices)} model devices toevoegen")
+    if "VM" in topo.get("platform", "").upper():
+        ensure_allow_vm(fmg, emit)
     for d, kind in devices:
         if not fmg.dry and fmg.exists(f"/dvmdb/adom/{adom}/device/{d['name']}"):
             emit("devices", "running", f"{d['name']}: bestaat al")
@@ -456,7 +478,13 @@ def pipeline(topo, configs, fmg, emit, boot=None):
                        "platform_str": topo["platform"], "device action": "add_model",
                        "desc": f"SD-WAN {kind}"}})
         tid = (r.get("data") or {}).get("taskid") or (r.get("data") or {}).get("task")
-        fmg.wait_task(tid)
+        try:
+            fmg.wait_task(tid)
+        except FmgError as e:
+            if "vm device is not allowed" in str(e).lower():
+                raise FmgError(f"{d['name']}: FortiManager weigert FortiGate-VM devices ({e}). Zet op de FortiManager: "
+                               "config system global / set fgfm-allow-vm enable / end, en start de uitrol opnieuw")
+            raise
         emit("devices", "running", f"{d['name']} ({d['serial']}) toegevoegd")
     emit("devices", "ok", "alle model devices aanwezig")
 
