@@ -7,7 +7,7 @@ from pathlib import Path
 from . import cloudinit
 from .pve import Pve, PveError
 
-TAG = "fgt-sdwan"
+from .model import TAG_VM as TAG
 
 
 def make_pve(cfg, token_secret):

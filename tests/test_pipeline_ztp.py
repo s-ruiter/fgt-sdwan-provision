@@ -19,8 +19,8 @@ ORCH = os.environ.get("ORCH_DIR", os.path.join(os.path.dirname(os.path.dirname(o
 topo = model.merged({})
 topo["dns_primary"] = "1.1.1.1"
 topo["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1", initial_ip="192.168.1.98")
-topo["hubs"][0]["wan1_gw"] = "100.64.1.6"
-topo["hubs"][1]["wan1_gw"] = "100.64.2.6"
+topo["hubs"][0]["wan1_gw"] = "100.127.200.1"
+topo["hubs"][1]["wan1_gw"] = "100.127.200.1"
 devs = topo["hubs"] + topo["edges"]
 for i, d in enumerate(devs):
     d["serial"] = f"FGVMMLTM2600{i:04d}"

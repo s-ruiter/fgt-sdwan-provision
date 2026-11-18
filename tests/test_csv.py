@@ -11,7 +11,7 @@ def topo(multi):
     t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
     for i, d in enumerate(t["hubs"] + t["edges"]):
         d["serial"] = f"FGVMMLTM2600{i:04d}"
-    t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.64.1.6", "100.64.2.6"
+    t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.127.200.1", "100.127.200.1"
     return t
 
 
@@ -42,7 +42,7 @@ assert "lan3_intf" in cols(csvio.export_csv(three))
 for delim in (";", ","):
     hubs, edges, notes, todo = imp(csvio.export_csv(m, delim), m)
     assert [d["name"] for d in hubs] == ["site1-H1", "site1-H2"] and len(edges) == 3 and notes == [] and todo == [], (todo, notes)
-    assert hubs[0]["wan1_gw"] == "100.64.1.6" and hubs[0]["wan1_ip"] == m["hubs"][0]["wan1_ip"]
+    assert hubs[0]["wan1_gw"] == "100.127.200.1" and hubs[0]["wan1_ip"] == m["hubs"][0]["wan1_ip"]
     assert "wan2_intf" not in hubs[0] and "wan1_ip" not in edges[0] and edges[0]["wan2_intf"] == "port2"   # hub: 1 wan; branch: DHCP
     assert edges[1]["wan2_intf"] == "" and edges[0]["lans"] == m["edges"][0]["lans"]
 # single-VRF GUI + multi-VRF layout in the file: extra LAN's dropped with a note

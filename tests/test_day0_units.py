@@ -37,7 +37,7 @@ def topo():
     t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
     for i, d in enumerate(t["hubs"] + t["edges"]):
         d["serial"] = f"FGVMMLTM2600{i:04d}"
-    t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.64.1.6", "100.64.2.6"
+    t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.127.200.1", "100.127.200.1"
     return t
 
 

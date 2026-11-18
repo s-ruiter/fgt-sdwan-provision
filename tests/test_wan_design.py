@@ -17,7 +17,7 @@ def topo(multi=True, **extra):
     for i, d in enumerate(t["hubs"] + t["edges"]):
         d["serial"] = f"FGVMMLTM26{i:06d}"
     for i, h in enumerate(t["hubs"], start=1):
-        h["wan1_gw"] = f"100.64.{i}.6"
+        h["wan1_gw"] = "100.127.200.1"
     return t
 
 
