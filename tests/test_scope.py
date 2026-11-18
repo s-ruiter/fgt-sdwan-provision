@@ -104,6 +104,35 @@ except FmgError as e:
     assert "bestaande" in str(e) or "bereikbare FortiManager" in str(e), e
 print("OK  alleen FortiGates zonder bereikbare FortiManager: duidelijke foutmelding")
 
+# ---------------------------------------------------------------- only the templates, to an existing FortiManager
+tb = copy.deepcopy(bare)
+tb["fmgr"]["gateway"] = ""                                                         # existing FMG: IP is only the API address
+assert any("gateway" in x for x in model.validate(tb, devices=False))
+assert model.validate(tb, devices=False, fmg_vm=False) == [], model.validate(tb, devices=False, fmg_vm=False)
+creates = fake_proxmox.STATE["creates"]
+mock_fmg.STATE["bodies"].clear()
+mock_fmg.STATE["cli_sets"] = []
+ev = []
+pipeline(tb, bare_cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m)),
+         boot(scope="tpl", fmg="day0", fgt="day0", pve_secret=None, images={}))         # methods are overridden by the scope
+last = {s_: st for s_, st, _ in ev if st != "info"}
+assert fake_proxmox.STATE["creates"] == creates                                      # nothing on Proxmox
+skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "devices", "pve_fgt", "bootstrap_fgt", "install")
+assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
+assert all(last[k] == "ok" for k in ("preflight", "adom", "templates")), last
+assert any(s_ == "fmg_settings" and "alleen templates" in m for s_, _, m in ev)
+bodies = mock_fmg.STATE["bodies"]
+assert mock_fmg.STATE["cli_sets"] == []                                              # FMG system settings untouched
+assert not any(u == "dvm/cmd/add/device" or u.startswith("securityconsole/") for _, u, _ in bodies)
+assert not any("dynamic_mapping" in str(d) for _, _, d in bodies)
+assert any("pkg/adom/" in u for _, u, _ in bodies) and any("tmplgrp/adom/" in u for _, u, _ in bodies)
+try:
+    pipeline(tb, bare_cfg, Fmg("http://127.0.0.1:1", "admin", PW), lambda *a: None, boot(scope="tpl"))
+    raise AssertionError("moest falen")
+except FmgError as e:
+    assert "Alleen templates" in str(e), e
+print("OK  alleen templates: bestaande FortiManager, geen Proxmox/VM's/instellingen/devices/install; ADOM + templates gezet")
+
 # ---------------------------------------------------------------- everything (default) is unchanged
 fake_proxmox.reset()
 last, _ = run()
@@ -128,6 +157,9 @@ assert (r.bootstrap.fmg, r.bootstrap.fgt) == ("day0", "none")
 r = req("fgt")
 main._apply_scope(r)
 assert (r.bootstrap.fmg, r.bootstrap.fgt) == ("none", "day0")
+r = req("tpl")
+main._apply_scope(r)
+assert (r.bootstrap.fmg, r.bootstrap.fgt) == ("none", "none")
 try:
     main._apply_scope(req("x"))
     raise AssertionError("moest falen")
@@ -143,6 +175,9 @@ def errors(r):
         return e.detail
 
 
+r = req("tpl")
+main._apply_scope(r)
+assert errors(r) == [], errors(r)                                                    # only the FMG password: no Proxmox, tokens, images
 r = req("fgt", fgt_tokens=TOKS, fgt_new_pw=PW, pve_token_secret="x")
 main._apply_scope(r)
 e = errors(r)

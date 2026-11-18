@@ -75,6 +75,7 @@ function ipErrors() {
   document.querySelectorAll("[data-ip]").forEach((el) => {
     const dev = el.closest(".dev");
     if (dev && /^wan1_(ip|gw)$/.test(el.dataset.f) && dev.querySelector("[data-f=wan1_mode]").value !== "static") { el.classList.remove("bad"); return; }
+    if (el.closest(".only-vm, .only-fmg, .only-fgt") && !el.offsetParent) { el.classList.remove("bad"); return; }   // hidden by the deploy choice
     const p = checkIp(el);
     if (p) out.push(`${dev ? dev.querySelector("b").textContent + ": " : ""}${(el.closest(".f") || el.parentElement).querySelector("label")?.textContent || el.id} — ${p}`);
   });
@@ -306,6 +307,7 @@ $("#btn_d0").onclick = async () => {
 const SCOPE_HINT = {
   all: "",
   fmg: "Alleen de FortiManager wordt gemaakt en voorbereid met ADOM, templates, policy packages en blueprints voor de hubs en spokes, zonder model devices. Namen, loopbacks, LAN's en hub-adressen zijn nodig voor de templates; serienummers, wan1-gateways, FortiGate-tokens en -wachtwoord niet (die komen bij 'Alleen FortiGates').",
+  tpl: "Rolt alleen de ADOM en de templates (metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups, blueprints) uit naar een bestaande FortiManager op het opgegeven IP, met de admin-gebruiker en het wachtwoord hieronder. Geen VM's en geen Proxmox; de FortiManager-instellingen (tijdzone, timers, FortiAnalyzer) blijven ongemoeid. Serienummers en wan1-gateways zijn niet nodig; model devices volgen met 'Alleen FortiGates'.",
   fgt: "De FortiManager moet al draaien op het opgegeven vaste IP en bereikbaar zijn met de admin-gebruiker en het wachtwoord hieronder. Er wordt geen FortiManager-VM gemaakt.",
 };
 const scope = () => (document.querySelector('input[name="scope"]:checked') || {}).value || "all";
@@ -331,10 +333,12 @@ function stepsDraw(states = {}) {
 $("#btn_deploy").onclick = async () => {
   showErr([]);
   { const e = ipErrors(); if (e.length) return showErr(e); }
-  const dry = $("#dry").checked, sc = scope(), mf = sc === "fgt" ? "none" : "day0", mg = sc === "fmg" ? "none" : "day0";   // Day-0 for what is deployed
+  const dry = $("#dry").checked, sc = scope(), mf = sc === "fgt" || sc === "tpl" ? "none" : "day0", mg = sc === "fmg" || sc === "tpl" ? "none" : "day0";   // Day-0 for what is deployed
   const what = { all: "de FortiManager- en FortiGate-VM's", fmg: "de FortiManager-VM", fgt: "de FortiGate-VM's" }[sc];
-  if (!dry && !confirm(`Dit schrijft naar FortiManager, maakt ${what} op Proxmox, configureert en licenseert ze (ze herstarten). Doorgaan?`)) return;
-  const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: sc === "fmg" ? null : $("#img_fgt").value || null, fmg: sc === "fgt" ? null : $("#img_fmg").value || null } });
+  const ask = sc === "tpl" ? "Dit schrijft de ADOM en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven). Doorgaan?"
+    : `Dit schrijft naar FortiManager, maakt ${what} op Proxmox, configureert en licenseert ze (ze herstarten). Doorgaan?`;
+  if (!dry && !confirm(ask)) return;
+  const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } });
   const j = await json(r);
   if (!r.ok) return showErr(errList(j));
   if (ES) ES.close();
