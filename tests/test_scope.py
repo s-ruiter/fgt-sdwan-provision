@@ -142,6 +142,7 @@ print("OK  alleen templates: bestaande FortiManager, geen Proxmox/VM's/instellin
 
 # ---------------------------------------------------------------- only the model devices, to an existing FortiManager
 creates = fake_proxmox.STATE["creates"]
+mock_fmg.STATE["cli"]["cli/global/system/global"]["fgfm-allow-vm"] = "disable"         # FMG 7.4.7+ default
 mock_fmg.STATE["devices"].clear()
 mock_fmg.STATE["bodies"].clear()
 mock_fmg.STATE["cli_sets"] = []
@@ -160,7 +161,9 @@ assert sorted(a["name"] for a in added) == sorted(x["name"] for x in devs), adde
 assert all(a["sn"] and a["device action"] == "add_model" for a in added), added      # model devices with serial
 assert any("dynamic_mapping" in str(d) for _, _, d in bodies)                         # per-device values set
 assert any(u.endswith("/object member") for _, u, _ in bodies)                        # devices in their device group
-assert not any(u.startswith("securityconsole/") for _, u, _ in bodies) and mock_fmg.STATE["cli_sets"] == []
+assert not any(u.startswith("securityconsole/") for _, u, _ in bodies)
+assert mock_fmg.STATE["cli_sets"] == [("cli/global/system/global", {"fgfm-allow-vm": "enable"})], mock_fmg.STATE["cli_sets"]
+assert any(s_ == "devices" and "fgfm-allow-vm aangezet" in m for s_, _, m in ev)        # FMG 7.4.7+: VM devices allowed
 try:
     pipeline(t, cfg, Fmg("http://127.0.0.1:1", "admin", PW), lambda *a: None, boot(scope="dev"))
     raise AssertionError("moest falen")

@@ -20,7 +20,7 @@ if APPLY:
     apply_fmg_settings(fmg, {"login_delay": 15}, lambda s, st, m: print(f"[{st}] {m}", flush=True))
 try:
     print("versie:", fmg.call("get", "/sys/status").get("data", {}).get("Version"))
-    for url, keys in (("/cli/global/system/global", ("adom-status", "adom-mode", "faz-status", "timezone")),
+    for url, keys in (("/cli/global/system/global", ("adom-status", "adom-mode", "faz-status", "timezone", "fgfm-allow-vm")),
                       ("/cli/global/system/admin/setting", None)):
         data = fmg.call("get", url).get("data", {})
         shown = {k: v for k, v in data.items() if keys is None and "time" in k or keys and k in keys}
