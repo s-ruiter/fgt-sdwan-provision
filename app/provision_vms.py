@@ -51,14 +51,14 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
         specs.append({"name": f.get("name") or "fmg", "role": "fmg", "cores": fm["cores"], "memory_mb": fm["memory_mb"],
                       "nics": [{"bridge": fm.get("bridge") or cfg["default_bridge"], "vlan": fm.get("vlan")}],
                       "extra_disks": [fm["data_disk_gb"]],
-                      "user_data": cloudinit.build_user_data(cli, fmg_token, mode)})
+                      "user_data": cloudinit.build_user_data(cli, fmg_token, cloudinit.license_mode("fmg", mode))})
     else:
         fg = cfg["fgt"]
         for d in topo["hubs"] + topo["edges"]:
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
             specs.append({"name": d["name"], "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
                           "nics": fgt_nics(d, cfg), "extra_disks": [],
-                          "user_data": cloudinit.build_user_data(cli, tokens.get(d["name"]), mode)})
+                          "user_data": cloudinit.build_user_data(cli, tokens.get(d["name"]), cloudinit.license_mode("fgt", mode))})
     return specs
 
 

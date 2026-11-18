@@ -239,7 +239,7 @@ def cloudinit_preview(r: PreviewReq):
     if errs:
         raise HTTPException(422, detail=errs)
     pw, tok = "<ADMIN-WACHTWOORD>", "XXXXXXXXXXXXXXXXXXXX"
-    mode = topo["pve"].get("license_mode", "cli")
+    mode = cloudinit.license_mode("fmg" if r.device == "fmg" else "fgt", topo["pve"].get("license_mode", "cli"))
     if r.device == "fmg":
         cli = cloudinit.fmg_cli(topo, pw)
     else:
