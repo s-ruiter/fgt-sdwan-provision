@@ -54,7 +54,7 @@ const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip" };
 const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip" };
 function markIpFields() {
   for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
-  if (["fgt", "tpl"].includes(scope())) $("#fm_ip").dataset.ip = "ipcidr";   // existing FortiManager: only its address is used
+  if (["fgt", "tpl", "dev"].includes(scope())) $("#fm_ip").dataset.ip = "ipcidr";   // existing FortiManager: only its address is used
   document.querySelectorAll(".dev [data-f]").forEach((el) => {
     const f = el.dataset.f, k = KIND_BY_FIELD[f] || (/^lan\d+_ip$/.test(f) ? "cidr" : null);
     if (k) el.dataset.ip = k;
@@ -81,7 +81,7 @@ function ipErrors() {
   const out = [];
   document.querySelectorAll("[data-ip]").forEach((el) => {
     const dev = el.closest(".dev");
-    if (el.closest(".only-vm, .only-fmg, .only-fgt") && !el.offsetParent) { el.classList.remove("bad"); return; }   // hidden by the deploy choice
+    if (el.closest(".only-vm, .only-fmg, .only-fgt, .only-dev") && !el.offsetParent) { el.classList.remove("bad"); return; }   // hidden by the deploy choice
     const p = checkIp(el);
     if (p) out.push(`${dev ? dev.querySelector("b").textContent + ": " : ""}${labelText(el)} — ${p}`);
   });
@@ -114,9 +114,9 @@ function pveFill(p) {
 function dev(kind, d, i) {
   const hub = kind === "hubs";
   let h = `<div class="dev" data-k="${kind}" data-i="${i}"><b>${esc(d.name)}</b><div class="fields">`;
-  h += fld("name", "Naam", d.name) + fld("serial", "Serienummer", d.serial, "", "only-fgt") + fld("loopback", "Loopback (BGP, router-id)", d.loopback);
+  h += fld("name", "Naam", d.name) + fld("serial", "Serienummer", d.serial, "", "only-dev") + fld("loopback", "Loopback (BGP, router-id)", d.loopback);
   // WAN design: hub = one wan (wan1, always static); branch = wan1 + optional wan2, both DHCP, each with a tunnel to wan1 of every hub
-  if (hub) h += fld("wan1_intf", "wan1-poort (ZTP)", d.wan1_intf) + fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway", d.wan1_gw, "", "only-fgt");
+  if (hub) h += fld("wan1_intf", "wan1-poort (ZTP)", d.wan1_intf) + fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway", d.wan1_gw, "", "only-dev");
   else h += fld("wan1_intf", "wan1-poort (ZTP, DHCP)", d.wan1_intf) + fld("wan2_intf", "wan2-poort (DHCP; leeg = geen)", d.wan2_intf);
   h += `<div class="f only-fgt"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
   (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
@@ -320,6 +320,7 @@ const SCOPE_HINT = {
   all: "",
   fmg: "Alleen de FortiManager wordt gemaakt en voorbereid met ADOM, templates, policy packages en blueprints voor de hubs en spokes, zonder model devices. Namen, loopbacks, LAN's en hub-adressen zijn nodig voor de templates; serienummers, wan1-gateways, FortiGate-tokens en -wachtwoord niet (die komen bij 'Alleen FortiGates').",
   tpl: "Rolt alleen de ADOM en de templates (metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups, blueprints) uit naar een bestaande FortiManager op het opgegeven IP, met de admin-gebruiker en het wachtwoord hieronder. Geen VM's en geen Proxmox; de FortiManager-instellingen (tijdzone, timers, FortiAnalyzer) blijven ongemoeid. Serienummers en wan1-gateways zijn niet nodig; model devices volgen met 'Alleen FortiGates'.",
+  dev: "Maakt in een bestaande FortiManager de ADOM, de model devices (met serienummer) en de templates met de waarden per device aan, zonder koppeling naar echte FortiGates: geen VM's, geen Proxmox, geen install. De FortiManager-instellingen blijven ongemoeid. Serienummers en hub-gateways zijn nodig; FortiGate-tokens en -wachtwoord niet. Echte FortiGates melden zich later op hun serienummer, of rol ze uit met 'Alleen FortiGates'.",
   fgt: "De FortiManager moet al draaien op het opgegeven vaste IP en bereikbaar zijn met de admin-gebruiker en het wachtwoord hieronder. Er wordt geen FortiManager-VM gemaakt.",
 };
 const scope = () => (document.querySelector('input[name="scope"]:checked') || {}).value || "all";
@@ -346,9 +347,10 @@ function stepsDraw(states = {}) {
 $("#btn_deploy").onclick = async () => {
   showErr([]);
   { const e = ipErrors(); if (e.length) return showErr(e); }
-  const dry = $("#dry").checked, sc = scope(), mf = sc === "fgt" || sc === "tpl" ? "none" : "day0", mg = sc === "fmg" || sc === "tpl" ? "none" : "day0";   // Day-0 for what is deployed
+  const dry = $("#dry").checked, sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";   // Day-0 for what is deployed
   const what = { all: "de FortiManager- en FortiGate-VM's", fmg: "de FortiManager-VM", fgt: "de FortiGate-VM's" }[sc];
   const ask = sc === "tpl" ? "Dit schrijft de ADOM en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven). Doorgaan?"
+    : sc === "dev" ? "Dit schrijft de ADOM, de model devices en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven). Doorgaan?"
     : `Dit schrijft naar FortiManager, maakt ${what} op Proxmox, configureert en licenseert ze (ze herstarten). Doorgaan?`;
   if (!dry && !confirm(ask)) return;
   const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } });

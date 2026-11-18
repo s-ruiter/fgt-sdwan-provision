@@ -140,6 +140,34 @@ except FmgError as e:
     assert "Alleen templates" in str(e), e
 print("OK  alleen templates: bestaande FortiManager, geen Proxmox/VM's/instellingen/devices/install; ADOM + templates gezet")
 
+# ---------------------------------------------------------------- only the model devices, to an existing FortiManager
+creates = fake_proxmox.STATE["creates"]
+mock_fmg.STATE["devices"].clear()
+mock_fmg.STATE["bodies"].clear()
+mock_fmg.STATE["cli_sets"] = []
+ev = []
+pipeline(t, cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m)),
+         boot(scope="dev", fgt_tokens={}, fgt_new_pw="", images={}))            # no FortiGate tokens/password needed
+last = {s_: st for s_, st, _ in ev if st != "info"}
+assert fake_proxmox.STATE["creates"] == creates                                      # nothing on Proxmox
+skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "pve_fgt", "bootstrap_fgt", "install")
+assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
+assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "templates")), last
+assert any(s_ == "install" and "alleen model devices" in m for s_, _, m in ev)
+bodies = mock_fmg.STATE["bodies"]
+added = [d["device"] for _, u, d in bodies if u == "dvm/cmd/add/device"]
+assert sorted(a["name"] for a in added) == sorted(x["name"] for x in devs), added
+assert all(a["sn"] and a["device action"] == "add_model" for a in added), added      # model devices with serial
+assert any("dynamic_mapping" in str(d) for _, _, d in bodies)                         # per-device values set
+assert any(u.endswith("/object member") for _, u, _ in bodies)                        # devices in their device group
+assert not any(u.startswith("securityconsole/") for _, u, _ in bodies) and mock_fmg.STATE["cli_sets"] == []
+try:
+    pipeline(t, cfg, Fmg("http://127.0.0.1:1", "admin", PW), lambda *a: None, boot(scope="dev"))
+    raise AssertionError("moest falen")
+except FmgError as e:
+    assert "Alleen model devices" in str(e), e
+print("OK  alleen model devices: bestaande FortiManager; ADOM, model devices (met serienummer) en templates met waarden per device; geen VM's/instellingen/install")
+
 # ---------------------------------------------------------------- everything (default) is unchanged
 fake_proxmox.reset()
 last, _ = run()
@@ -185,6 +213,9 @@ def errors(r):
 r = req("tpl")
 main._apply_scope(r)
 assert errors(r) == [], errors(r)                                                    # only the FMG password: no Proxmox, tokens, images
+r = req("dev")
+main._apply_scope(r)
+assert (r.bootstrap.fmg, r.bootstrap.fgt) == ("none", "none") and errors(r) == [], errors(r)   # no Proxmox, tokens, images
 r = req("fgt", fgt_tokens=TOKS, fgt_new_pw=PW, pve_token_secret="x")
 main._apply_scope(r)
 e = errors(r)

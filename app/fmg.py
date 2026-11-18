@@ -277,8 +277,10 @@ def osmr(topo):
     return ("7.0", 6) if v == "7.6" else (v, topo.get("mr", 0))
 
 
-SCOPES = ("all", "fmg", "fgt", "tpl")
+SCOPES = ("all", "fmg", "fgt", "tpl", "dev")
 NO_DEVICES = ("fmg", "tpl")           # scopes that create no model devices (templates only)
+EXISTING_FMG = ("fgt", "tpl", "dev")  # scopes against an existing FortiManager (no FMG VM, settings untouched)
+NO_FGT = ("fmg", "tpl", "dev")        # scopes that create no FortiGate VMs and do no install
 
 # FortiManager system settings the tool always sets (names/values checked on a real FMG 8.0.2 via `option: syntax`).
 # The idle timeouts are in SECONDS on FMG 8.0 (factory 900 = 15 min). timezone is the numeric FortiOS code:
@@ -357,19 +359,21 @@ def pipeline(topo, configs, fmg, emit, boot=None):
 
     scope: 'all' (default), 'fmg' (only the FortiManager: VM, ZTP, ADOM, templates; no model devices, no FortiGates,
     no install), 'fgt' (only the FortiGates against an existing FortiManager: no FMG VM/ZTP) or 'tpl' (only ADOM +
-    templates on an existing FortiManager: no VMs, no FMG system settings, no model devices, no install)."""
+    templates on an existing FortiManager: no VMs, no FMG system settings, no model devices, no install) or 'dev'
+    (only ADOM + model devices + templates with the per-device values on an existing FortiManager: no VMs, no link to
+    real FortiGates, no install)."""
     adom = topo["adom"]
     devices = [(d, "hub") for d in topo["hubs"]] + [(d, "edge") for d in topo["edges"]]
     boot = boot or {}
     scope = boot.get("scope") or "all"
     if scope not in SCOPES:
         raise FmgError(f"onbekende uitrol-keuze '{scope}'")
-    m_fmg = _method(boot.get("fmg")) if scope not in ("fgt", "tpl") else "none"
-    m_fgt = _method(boot.get("fgt")) if scope not in NO_DEVICES else "none"
+    m_fmg = _method(boot.get("fmg")) if scope not in EXISTING_FMG else "none"
+    m_fgt = _method(boot.get("fgt")) if scope not in NO_FGT else "none"
     why = {"fgt": "overgeslagen (alleen FortiGates)", "fmg": "overgeslagen (alleen FortiManager)",
-           "tpl": "overgeslagen (alleen templates)"}
-    why_fmg = why[scope] if scope in ("fgt", "tpl") else "overgeslagen (niet gevraagd)"
-    why_fgt = why[scope] if scope in NO_DEVICES else "overgeslagen (niet gevraagd)"
+           "tpl": "overgeslagen (alleen templates)", "dev": "overgeslagen (alleen model devices)"}
+    why_fmg = why[scope] if scope in EXISTING_FMG else "overgeslagen (niet gevraagd)"
+    why_fgt = why[scope] if scope in NO_FGT else "overgeslagen (niet gevraagd)"
     state = boot.setdefault("state", {})
     from . import bootstrap as bs
     from . import provision_vms as pv
@@ -403,8 +407,8 @@ def pipeline(topo, configs, fmg, emit, boot=None):
             if scope == "fgt":
                 raise FmgError(f"{e} - 'Alleen FortiGates' heeft een draaiende, bereikbare FortiManager nodig "
                                "(rol die eerst uit met 'Alleen FortiManager' of 'Alles')")
-            if scope == "tpl":
-                raise FmgError(f"{e} - 'Alleen templates' heeft een draaiende, bereikbare FortiManager nodig "
+            if scope in ("tpl", "dev"):
+                raise FmgError(f"{e} - '{'Alleen templates' if scope == 'tpl' else 'Alleen model devices'}' heeft een draaiende, bereikbare FortiManager nodig "
                                "(IP, admin-gebruiker en wachtwoord bij FortiManager)")
             raise
         st = fmg.call("get", "/sys/status").get("data", {}) if not fmg.dry else {"Version": "dry-run"}
@@ -415,7 +419,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     if not fmg.dry and f"v{topo['os_ver']}" not in ver:
         raise FmgError(f"FortiManager draait {ver}, maar de ADOM-versie is {topo['os_ver']}: kies de ADOM-versie van je FortiManager")
 
-    if scope in ("fgt", "tpl"):
+    if scope in EXISTING_FMG:
         emit("fmg_settings", "skipped", why[scope] + ": een bestaande FortiManager wordt niet aangepast")
     else:
         emit("fmg_settings", "running", "uitlogtimers, tijdzone, ADOM advanced mode en FortiAnalyzer-features")
@@ -481,6 +485,10 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     emit("templates", "running", "templates, variabelen, policy packages en blueprints in ADOM aanmaken")
     n = apply_plan(fmg, topo, configs, emit)
     emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd")
+
+    if scope == "dev":
+        emit("install", "skipped", f"{why[scope]}: geen koppeling met echte FortiGates; rol die uit met 'Alleen FortiGates'")
+        return
 
     emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")
     wait = boot.get("online_timeout", 600 if m_fgt != "none" else 30)
