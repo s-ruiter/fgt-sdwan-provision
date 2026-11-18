@@ -86,8 +86,8 @@ for s, st, m in events:
 print({k: v for k, v in last.items()})
 assert all(v == "ok" for v in last.values()), last
 order = [s for s, _, _ in events]
-firsts = [order.index(s) for s in ("pve_fmg", "bootstrap_fmg", "preflight", "adom", "devices", "pve_fgt",
-                                   "bootstrap_fgt", "templates", "install")]
+firsts = [order.index(s) for s in ("pve_fmg", "bootstrap_fmg", "preflight", "adom", "devices", "templates",
+                                   "pve_fgt", "bootstrap_fgt", "install")]      # templates before the FortGates register
 assert firsts == sorted(firsts), firsts
 
 vms = fake_proxmox.STATE["vms"]

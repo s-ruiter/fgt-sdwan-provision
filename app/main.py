@@ -57,10 +57,10 @@ STEPS = [
     ("fmg_settings", "FortiManager-instellingen", "Uitlogtimers 180 min, tijdzone Europe/Amsterdam, ADOMs in advanced mode, FortiAnalyzer-features aan (herstart)"),
     ("adom", "ADOM", "ADOM aanmaken op basis van jouw naam (bestaat hij al: hergebruiken)"),
     ("devices", "Model devices", "2 hubs + 3 branches toevoegen met opgegeven serienummers"),
-    ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1, DNS, FMG, FortiFlex-token) starten"),
-    ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wachten tot ze gelicenseerd online zijn in FMG; of via SSH op bestaande VM's"),
     ("templates", "Templates", "Metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups en blueprints in de ADOM"),
-    ("install", "Install", "Wachten tot FortiGates online zijn, dan policy package en device settings installeren"),
+    ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1: hub vast IP + gateway, branch DHCP; DNS, FMG-koppeling, FortiFlex-licentie) starten"),
+    ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wachten tot ze gelicenseerd online zijn in FMG; of via SSH op bestaande VM's"),
+    ("install", "Install", "Quick install (device settings) per device, daarna Re-install policy per rol; echte FortiGates pas als ze online zijn"),
 ]
 
 
