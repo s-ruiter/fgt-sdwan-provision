@@ -98,7 +98,7 @@ assert all(v["status"] == "running" for v in vms.values())
 assert "scsi1" in by["fmg"] and by["fmg"]["scsi1"] == "local-lvm:100" and by["fmg"]["cores"] == "4" and by["fmg"]["memory"] == "16384"
 assert by["fmg"]["net0"] == "virtio,bridge=vmbr0" and "net1" not in by["fmg"]
 nics = lambda p: len([k for k in p if re.fullmatch(r"net\d+", k)])
-assert nics(by["site1-H1"]) == 5 and nics(by["site1-1"]) == 6, (nics(by["site1-H1"]), nics(by["site1-1"]))
+assert nics(by["site1-H1"]) == 6 and nics(by["site1-1"]) == 6, (nics(by["site1-H1"]), nics(by["site1-1"]))   # always 6 (vm_interface_number)
 assert by["site1-1"]["net0"] == "virtio,bridge=vmbr1,tag=20" and by["site1-1"]["net1"] == "virtio,bridge=vmbr0"
 assert all(re.match(r"local:import/fgt-sdwan-[0-9a-f]{8}-(fgt|fmg)\.qcow2", p["scsi0"].split("import-from=")[1]) or True for p in by.values())
 print("OK  6 VM's (FMG + 2 hubs + 3 branches): tags, NIC-aantal per poortgebruik, VLAN op port1, FMG datadisk 100G / 4 vCPU / 16G")
