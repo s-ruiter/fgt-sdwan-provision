@@ -41,7 +41,7 @@ De container heeft uitgaand internet nodig (Debian-mirrors, PyPI, github.com voo
 Bovenaan de pagina *Uitrol* kies je **wat** je uitrolt:
 
 - **Alles** (standaard): FortiManager en FortiGates, alle stappen hieronder.
-- **Alleen FortiManager**: stappen 1-4 en 8 (VM, licentie, ADOM, templates voor hubs en spokes). Geen model devices, geen FortiGate-VM's en geen install. Device groups blijven leeg en metadata-variabelen/IP-pools krijgen nog geen waarde per device. Namen, loopbacks, LAN's en hub-adressen zijn nodig voor de templates; serienummers, wan1-gateways, FortiGate-tokens en -wachtwoord niet.
+- **Alleen FortiManager**: stappen 1-5 en 9 (VM, licentie, FortiManager-instellingen, ADOM, templates voor hubs en spokes). Geen model devices, geen FortiGate-VM's en geen install. Device groups blijven leeg en metadata-variabelen/IP-pools krijgen nog geen waarde per device. Namen, loopbacks, LAN's en hub-adressen zijn nodig voor de templates; serienummers, wan1-gateways, FortiGate-tokens en -wachtwoord niet.
 - **Alleen FortiGates**: tegen een bestaande, bereikbare FortiManager (vast IP + admin-wachtwoord uit de tool). Geen FortiManager-VM/ZTP en geen FMG-token of -image nodig; ADOM wordt hergebruikt, model devices toegevoegd (bestaande hergebruikt), de templates opnieuw gezet incl. de waarden per device (set/replace/update, dus handmatige wijzigingen aan deze tool-objecten worden overschreven), daarna FortiGate-VM's en install. Typisch na *Alleen FortiManager*.
 
 De API neemt dit als `scope` (`all`, `fmg`, `fgt`) in `POST /api/deploy`; de keuze wint van de methode per product.
@@ -51,12 +51,13 @@ Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool
 1. **FortiManager-VM** *(day0)* – image naar Proxmox, VM + datadisk + Day-0 config-drive ISO, starten
 2. **FortiManager ZTP** – day0: wachten op het vaste IP (licentie + reboot) · ssh: vast IP, route, DNS en `execute vm-license`
 3. **Preflight** – login + versiecheck (8.0.x); daarna wordt de FMG-ISO losgekoppeld en verwijderd
-4. **ADOM** – aanmaken (bestaand: hergebruiken)
-5. **Model devices** – 5 devices met opgegeven serienummers
-6. **FortiGate-VM's** *(day0)* – per FortiGate een VM + ISO (hostname, admin-wachtwoord, wan1 statisch/DHCP, DNS, `central-management`, FortiFlex-token), starten
-7. **FortiGate ZTP** – day0: wachten tot ze gelicenseerd online zijn in FMG, daarna ISO's opruimen · ssh: zie hieronder
-8. **Templates** – variabelen, system/SD-WAN/CLI-templates, policy packages, template groups, blueprints (alleen set/replace/update: herhaalbaar)
-9. **Install** – policy package per rol op de online devices (offline = waarschuwing, geen fout)
+4. **FortiManager-instellingen** – uitlogtimers (CLI, GUI, API, SSO) 180 min, tijdzone Europe/Amsterdam (code 28), ADOMs aan in advanced mode, FortiAnalyzer-features aan. Alleen wat afwijkt wordt gezet; FortiAnalyzer-features aanzetten herstart de FortiManager, de tool wacht daarop. Overgeslagen bij *Alleen FortiGates*.
+5. **ADOM** – aanmaken (bestaand: hergebruiken)
+6. **Model devices** – 5 devices met opgegeven serienummers
+7. **FortiGate-VM's** *(day0)* – per FortiGate een VM + ISO (hostname, admin-wachtwoord, wan1 statisch/DHCP, DNS, `central-management`, FortiFlex-token), starten
+8. **FortiGate ZTP** – day0: wachten tot ze gelicenseerd online zijn in FMG, daarna ISO's opruimen · ssh: zie hieronder
+9. **Templates** – variabelen, system/SD-WAN/CLI-templates, policy packages, template groups, blueprints (alleen set/replace/update: herhaalbaar)
+10. **Install** – policy package per rol op de online devices (offline = waarschuwing, geen fout)
 
 ## Images uploaden + Day-0 (cloud-init)
 
@@ -108,4 +109,6 @@ ORCH_DIR=../sdwan-advpn-reference .venv/bin/uvicorn app.main:app --port 8010
 .venv/bin/python tests/test_bootstrap.py    # ZTP over SSH tegen nep-FortiOS
 ORCH_DIR=../sdwan-advpn-reference .venv/bin/python tests/test_pipeline_ztp.py
 ORCH_DIR=../sdwan-advpn-reference .venv/bin/python tests/test_scope.py   # alles / alleen FMG / alleen FortiGates
+.venv/bin/python tests/test_fmg_settings.py   # timers, tijdzone, ADOM-modus, FortiAnalyzer + herstart
+.venv/bin/python tests/probe_fmg_settings.py <fmg-ip> [admin] [--apply]   # echte FMG: tonen, met --apply ook zetten (vraagt wachtwoord)
 ```

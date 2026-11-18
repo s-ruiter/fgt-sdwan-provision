@@ -4,7 +4,9 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-STATE = {"adoms": set(), "devices": set(), "scripts": [], "calls": [], "bodies": []}
+STATE = {"adoms": set(), "devices": set(), "scripts": [], "calls": [], "bodies": [],
+         # FortiAnalyzer features on by default: enabling them reboots a real FMG (tests/test_fmg_settings.py covers that)
+         "cli": {"cli/global/system/global": {"faz-status": "enable"}}}
 MISSING = lambda u: {"status": {"code": -3, "message": "Object does not exist"}, "url": u}
 
 
@@ -31,7 +33,14 @@ class H(BaseHTTPRequestHandler):
             return r
         res = ok()
         parts = url.split("/")
-        if url == "sys/status":
+        if url.startswith("cli/global/"):
+            cli = STATE.setdefault("cli", {}).setdefault(url, {})
+            if m == "get":
+                res = ok(dict(cli))
+            elif m in ("set", "update"):
+                cli.update(p.get("data") or {})
+                STATE.setdefault("cli_sets", []).append((url, dict(p.get("data") or {})))
+        elif url == "sys/status":
             res = ok({"Version": "v8.0.0-build0001 260101 (GA)", "Hostname": "mock-fmg"})
         elif m == "get" and url.startswith("dvmdb/adom/") and len(parts) == 3:
             res = ok({"name": parts[2]}) if parts[2] in STATE["adoms"] else MISSING(p["url"])
