@@ -82,15 +82,15 @@
       </div>
 
       <div class="card">
-        <h2><span class="num">02</span>FortiManager <small>(altijd een vast IP; Day-0)</small></h2>
+        <h2><span class="num">02</span>FortiManager <small class="only-fmg">(altijd een vast IP; Day-0)</small><small class="only-existing">(bestaande FortiManager: IP, ADOM en API-login)</small></h2>
         <div class="fields">
-          <div class="f only-vm"><label>Hostnaam</label><input id="fm_name"></div>
-          <div class="f"><label>Vast IP (a.b.c.d/nn)</label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
-          <div class="f only-vm"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
-          <div class="f only-vm"><label>Poort</label><input id="fm_port"></div>
+          <div class="f only-fmg"><label>Hostnaam</label><input id="fm_name"></div>
+          <div class="f"><label><span class="only-fmg">Vast IP</span><span class="only-existing">IP</span> (a.b.c.d/nn)</label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
+          <div class="f only-fmg"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
+          <div class="f only-fmg"><label>Poort</label><input id="fm_port"></div>
           <div class="f"><label>ADOM-naam</label><input id="adom"></div>
           <div class="f"><label>Admin-gebruiker</label><input id="fmg_user" value="admin"></div>
-          <div class="f"><label>Admin- en SSH-wachtwoord</label><input id="fmg_pass" type="password" autocomplete="off"></div>
+          <div class="f"><label><span class="only-fmg">Admin- en SSH-wachtwoord</span><span class="only-existing">Admin-wachtwoord</span></label><input id="fmg_pass" type="password" autocomplete="off"></div>
           <div class="f only-fmg"><label>FortiFlex-token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
@@ -130,7 +130,7 @@
         <h2><span class="num">04</span>Preview &amp; uitrol</h2>
         <div class="btnrow">
           <button id="btn_render">Templates genereren</button>
-          <select id="d0_dev" style="width:auto"></select><button id="btn_d0">Day-0 preview</button>
+          <span class="only-vm"><select id="d0_dev" style="width:auto"></select> <button id="btn_d0">Day-0 preview</button></span>
         </div>
         <pre class="cfg" id="d0_out" hidden></pre>
         <div id="preview" hidden><div class="tabs" id="tabs"></div><pre class="cfg" id="cfg"></pre></div>

@@ -11,7 +11,7 @@ function showErr(list, target = "#errors") {
   $(target).innerHTML = list.length ? `<div class="error">${list.map((x) => "✕ " + esc(x)).join("<br>")}</div>` : "";
   if (list.length) window.scrollTo({ top: 0, behavior: "smooth" });
 }
-const fld = (k, l, v, extra = "") => `<div class="f"><label>${l}</label><input data-f="${k}" value="${esc(v)}" ${extra}></div>`;
+const fld = (k, l, v, extra = "", cls = "") => `<div class="f${cls ? " " + cls : ""}"><label>${l}</label><input data-f="${k}" value="${esc(v)}" ${extra}></div>`;
 const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB");
 
 // ---- routing ----------------------------------------------------------------
@@ -109,10 +109,10 @@ const WAN = [["wan1_intf", "wan1-poort (ZTP)"], ["wan2_intf", "wan2-poort"]];
 function dev(kind, d, i) {
   const hub = kind === "hubs";
   let h = `<div class="dev" data-k="${kind}" data-i="${i}"><b>${esc(d.name)}</b><div class="fields">`;
-  h += fld("name", "Naam", d.name) + fld("serial", "Serienummer", d.serial) + fld("loopback", "Loopback", d.loopback);
+  h += fld("name", "Naam", d.name) + fld("serial", "Serienummer", d.serial, "", "only-fgt") + fld("loopback", "Loopback", d.loopback);
   WAN.forEach(([k, l]) => (h += fld(k, l, d[k])));
   h += `<div class="f"><label>wan1-adressering</label><select data-f="wan1_mode"><option value="static"${d.wan1_mode === "static" ? " selected" : ""}>Statisch</option><option value="dhcp"${d.wan1_mode === "dhcp" ? " selected" : ""}>Dynamisch (DHCP)</option></select></div>`;
-  h += fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway (statisch)", d.wan1_gw);
+  h += fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway (statisch)", d.wan1_gw, "", "only-fgt");
   h += `<div class="f only-fgt"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
   if (hub) h += fld("wan2_ip", "wan2 hub-IP", d.wan2_ip);
   (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
@@ -128,7 +128,15 @@ function draw() {
   $("#vrfs").innerHTML = "<thead><tr><th>VRF-id</th><th>LAN-summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
-  $("#d0_dev").innerHTML = ["fmg", ...T.hubs.map((d) => d.name), ...T.edges.map((d) => d.name)].map((n) => `<option>${esc(n)}</option>`).join("");
+  d0Opts();
+}
+// Day-0 preview: only the VMs the chosen deploy option creates
+function d0Opts() {
+  const s = scope(), cur = $("#d0_dev").value;
+  const l = [...(s === "all" || s === "fmg" ? ["fmg"] : []), ...(s === "all" || s === "fgt" ? [...T.hubs, ...T.edges].map((d) => d.name) : [])];
+  $("#d0_dev").innerHTML = l.map((n) => `<option>${esc(n)}</option>`).join("");
+  if (l.includes(cur)) $("#d0_dev").value = cur;
+  $("#d0_out").hidden = true;
 }
 function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);
@@ -315,6 +323,7 @@ function scopeApply() {
   const s = scope();
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
+  if (T) d0Opts();
   try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
 }
 document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
