@@ -165,7 +165,7 @@ def _check_bootstrap(topo, r):
         if not topo["pve"].get("server_id") and not topo["pve"].get("url"):
             errs.append("Proxmox: kies een server (menu Servers) of voeg er een toe")
         else:
-            errs += model.validate_pve(topo)
+            errs += model.validate_pve(topo, wanemu=mg == "day0" and r.scope not in ("fmg", "tpl", "dev"))
             if not s.pve_token_secret:
                 errs.append("Proxmox: token-secret ontbreekt")
         for role, m in (("fmg", mf), ("fgt", mg)):

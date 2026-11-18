@@ -78,3 +78,38 @@ except setup.WanEmuError as e:
 assert fake_proxmox.STATE["cts"] == {}
 srv.shutdown()
 print("OK  fouten: netem/ifb ontbreekt (duidelijke melding, bestaande CT blijft), nieuwe CT bij fout verwijderd, SSH-timeout")
+
+# ---- review fixes
+fake_proxmox.reset()
+srv = fake_proxmox.start(8099)
+pve = Pve("http://127.0.0.1:8099", "root@pam!t", "secret", poll=0)
+sh = FakeShell(installed=True)
+setup.deploy_wanemu(pve, t, SEC, emit, connector=connector(sh), waiter=waiter)
+unit = sh.files["/etc/systemd/system/wan-emu-agent.service"][0]
+assert "ExecStartPre=-/usr/sbin/sysctl -q -p /etc/sysctl.d/90-wan-emu.conf" in unit            # forwarding na reboot
+assert any(c == "sysctl -q -p /etc/sysctl.d/90-wan-emu.conf" for c in sh.cmds) and not any("--system" in c for c in sh.cmds)
+i_agent = next(i for i, c in enumerate(sh.cmds) if "ss -ltn" in c)
+assert i_agent < next(i for i, c in enumerate(sh.cmds) if c.startswith("ping"))                # agent (NAT) vóór de ping
+try:                                                                                          # agent komt niet op
+    setup.deploy_wanemu(pve, t, SEC, emit, connector=connector(FakeShell(installed=True, fail=("ss -ltn",))), waiter=waiter)
+    raise SystemExit("verwachtte fout")
+except setup.WanEmuError as e:
+    assert "agent" in str(e) and "journalctl -u wan-emu-agent" in str(e)
+ev.clear()                                                                                    # VMID gewijzigd bij hergebruik
+t3 = model.merged({"pve": {"node": "pve1"}, "wanemu": {"vmid": 555}})
+setup.deploy_wanemu(pve, t3, SEC, emit, connector=connector(FakeShell(installed=True)), waiter=waiter)
+assert any("CT-id 555" in m and "verwijder" in m for _, _, m in ev), ev
+# step status: no internet must stay a warning (not overwritten by ok)
+from app import fmg as fmgmod  # noqa: E402
+ev.clear()
+fmgmod._wanemu(t, {"pve_client": pve, "wanemu_secrets": SEC, "waiter": waiter,
+                   "wanemu_connector": connector(FakeShell(installed=True, fail=("ping",)))}, emit)
+assert [st for s_, st, _ in ev if s_ == "pve_wan" and st != "info"][-1] == "warn", ev
+srv.shutdown()
+# validation: the emulator is only checked when FortiGates are deployed with Day-0
+pv2 = model.merged({"pve": {"url": "https://pve:8006", "token_id": "a@pam!b", "node": "n", "disk_storage": "d",
+                            "import_storage": "i", "iso_storage": "s"}})
+pv2["hubs"][0]["wan1_ip"], pv2["hubs"][0]["wan1_gw"] = "100.64.1.1/29", "100.64.1.6"
+assert not any("ISP-HUB" in e for e in model.validate_pve(pv2, wanemu=False))
+assert any("ISP-HUB" in e for e in model.validate_pve(pv2))
+print("OK  review: forwarding na herstart, sysctl alleen eigen bestand, agent-check vóór ping, VMID-melding, warn blijft staan, validatie alleen bij FortiGate-VM's")

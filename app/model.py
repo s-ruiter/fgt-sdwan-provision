@@ -420,9 +420,10 @@ def validate_wanemu(t):
     return err
 
 
-def validate_pve(t):
-    """Extra checks when VMs are created on Proxmox (day-0); the WAN emulator always comes with it."""
-    c, err = t.get("pve", {}), validate_wanemu(t)
+def validate_pve(t, wanemu=True):
+    """Extra checks when VMs are created on Proxmox (day-0). wanemu=False: no FortiGate-VMs in this run (e.g. only the
+    FortiManager), so the WAN emulator - which comes with every FortiGate-VM deployment - is not checked."""
+    c, err = t.get("pve", {}), (validate_wanemu(t) if wanemu else [])
     if not re.match(r"^https?://[^\s/]+(:\d+)?/?$", c.get("url", "")):
         err.append("Proxmox: URL als https://host:8006 is verplicht")
     if not re.match(r"^[^\s!]+@[^\s!]+![^\s!]+$", c.get("token_id", "")):

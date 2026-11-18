@@ -219,7 +219,9 @@ def _wanemu(topo, boot, emit, step="pve_wan"):
     except setup.WanEmuError as e:
         raise FmgError(str(e)) from e
     segs = ", ".join(f"{g['name']} {g['subnet']}" for g in w["segments"].values())
-    emit(step, "ok", f"{w['hostname']} (CT {r['vmid']}{', nieuw' if r['created'] else ''}) klaar: {segs}")
+    emit(step, "ok" if r["internet"] else "warn",       # no internet: keep the step on warning (licences will fail)
+         f"{w['hostname']} (CT {r['vmid']}{', nieuw' if r['created'] else ''}) klaar: {segs}"
+         + ("" if r["internet"] else " - maar zonder internet vanuit de segmenten"))
 
 
 def _login_retry(fmg, attempts, delay, progress=None):

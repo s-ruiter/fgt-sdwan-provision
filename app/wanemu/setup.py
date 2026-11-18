@@ -70,6 +70,8 @@ def _unit(t):
     w = t["wanemu"]
     return ("[Unit]\nDescription=fgt-sdwan-provision WAN-emulator agent\nAfter=network-online.target\n"
             "Wants=network-online.target\n\n[Service]\n"
+            # systemd-sysctl skips itself in a container (/proc/sys read-only), so forwarding is set here on every start
+            "ExecStartPre=-/usr/sbin/sysctl -q -p /etc/sysctl.d/90-wan-emu.conf\n"
             f"ExecStart=/usr/bin/python3 /opt/wan-emu/agent.py --conf /etc/wan-emu --listen {_uplink_ip(t)} "
             f"--port {w['agent_port']}\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\n")
 
@@ -96,7 +98,7 @@ def provision(sh, t, agent_token, emit, step="pve_wan"):
         raise WanEmuError("netem/ifb werkt niet in de container: laad sch_netem en ifb op de PVE-host "
                           "(modprobe sch_netem ifb; blijvend via /etc/modules-load.d/wan-emu.conf)")
     sh.put("/etc/sysctl.d/90-wan-emu.conf", SYSCTL)
-    _must(sh, "sysctl -q --system", "forwarding aanzetten mislukt")
+    _must(sh, "sysctl -q -p /etc/sysctl.d/90-wan-emu.conf", "forwarding aanzetten mislukt")   # not --system: kernel.* is read-only in a CT
     sh.put("/etc/dnsmasq.d/wan-emu.conf", net.dnsmasq_conf(t))
     _must(sh, "systemctl enable -q dnsmasq && systemctl restart dnsmasq", "dnsmasq starten mislukt")
     _must(sh, "mkdir -p /etc/wan-emu /opt/wan-emu && chmod 700 /etc/wan-emu", "mappen aanmaken mislukt")
@@ -106,6 +108,12 @@ def provision(sh, t, agent_token, emit, step="pve_wan"):
     sh.put("/etc/systemd/system/wan-emu-agent.service", _unit(t))
     _must(sh, "systemctl daemon-reload && systemctl enable -q wan-emu-agent && systemctl restart wan-emu-agent",
           "WAN-emulator-agent starten mislukt")
+    # the agent applies tc + nft (incl. NAT) before it listens: listening = shaping and NAT are loaded
+    port = t["wanemu"]["agent_port"]
+    if sh.run(f"for i in $(seq 1 30); do systemctl is-active -q wan-emu-agent && ss -ltn | grep -q ':{port} ' && exit 0; "
+              "sleep 1; done; exit 1")[0] != 0:
+        log = sh.run("journalctl -u wan-emu-agent -n 15 --no-pager")[1].strip()
+        raise WanEmuError("WAN-emulator-agent komt niet op (journalctl -u wan-emu-agent): " + (log[-600:] or "geen log"))
 
 
 def internet_check(sh, t):
@@ -125,6 +133,9 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
     if found:
         vmid = int(found[0]["vmid"])
         emit(step, "running", f"{w['hostname']}: bestaat al (CT {vmid}), configuratie bijwerken")
+        if w.get("vmid") and int(w["vmid"]) != vmid:
+            emit(step, "running", f"{w['hostname']}: CT-id {w['vmid']} genegeerd, de bestaande CT {vmid} wordt gebruikt "
+                                  "(een CT-id kan niet wijzigen; verwijder CT {vmid} voor een nieuwe)".replace("{vmid}", str(vmid)))
         params = {k: v for k, v in net.ct_params(t, vmid, "").items() if k not in CREATE_ONLY}
         if pve.ct_status(node, vmid) == "running":
             pve.wait_task(node, pve.stop_ct(node, vmid))
