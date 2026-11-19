@@ -81,3 +81,11 @@ ev = []
 fmgmod._clients(t, {"dry": True}, lambda *a: ev.append(a))
 assert [st for s_, st, _ in ev if s_ == "clients"][-1] == "ok" and not any("client-site1-2" in m for _, _, m in ev), ev
 print("OK  LAN-clients dry-run: spoke zonder LAN wordt overgeslagen")
+
+# forwarded connections get wan-emu's segment address as source: the FortiGate always answers on a connected subnet
+# (a hub blackholes 10.0.0.0/8, so replies to a lab source like 10.10.106.1 were lost)
+t = model.merged({})
+r = agent.nft_ruleset(net.agent_topology(t), {})
+assert 'ct status dnat oifname { "eth1", "eth2", "eth3" } masquerade' in r, r
+assert "ct status dnat" not in agent.nft_ruleset(dict(net.agent_topology(t), forwards=[]), {})
+print("OK  port forwarding: bron van doorgestuurde verbindingen = wan-emu in het segment (antwoord altijd terug)")
