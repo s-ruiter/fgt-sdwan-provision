@@ -511,8 +511,10 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     why_fmg = why[scope] if scope in EXISTING_FMG else "skipped (not requested)"
     why_fgt = why[scope] if scope in NO_FGT else "skipped (not requested)"
     state = boot.setdefault("state", {})
+    fgt_vm = scope != "lan" and _method(boot.get("fgt")) == "day0" and scope not in NO_FGT
     _plan_vmids(topo, boot, scope, scope != "lan" and _method(boot.get("fmg")) == "day0" and scope not in EXISTING_FMG,
-                scope != "lan" and _method(boot.get("fgt")) == "day0" and scope not in NO_FGT)
+                fgt_vm)
+    _check_bridges(topo, boot, fgt_vm, fgt_vm or scope == "lan")
     if scope == "lan":                         # LAN clients only: no FortiManager, no FortiGates, no WAN emulator
         for s in ("pve_fmg", "bootstrap_fmg", "preflight", "fmg_settings", "adom", "devices", "templates", "pve_wan",
                   "pve_fgt", "bootstrap_fgt", "install"):
@@ -674,6 +676,17 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         _clients(topo, boot, emit)
     else:
         emit("clients", "skipped", why_fgt if m_fgt == "none" else "skipped (only with FortiGate VMs via Day-0)")
+
+
+def _check_bridges(topo, boot, fgts, clients):
+    """Before anything is created: every bridge this run uses exists and carries its VLANs (bridge-vids)."""
+    from .wanemu import net
+    if boot.get("dry") or not (fgts or clients) or not boot.get("pve_client"):
+        return
+    problems = net.bridge_problems(net.bridge_needs(topo, fgts, clients), boot["pve_client"].bridge_info(topo["pve"]["node"]))
+    if problems:
+        raise FmgError("Proxmox bridges: " + "; ".join(problems) + ". Choose the bridges under WAN emulation "
+                       "(uplink bridge to the lab, bridge for the ISP segments and LAN VLANs) - nothing was created.")
 
 
 def _plan_vmids(topo, boot, scope, fmg_vm, fgt_vm):

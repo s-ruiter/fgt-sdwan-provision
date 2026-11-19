@@ -116,12 +116,16 @@ function pveFill(p) {
   $("#ports").innerHTML = "<thead><tr><th>Port</th><th>Bridge</th><th>VLAN</th><th>Set by the tool</th></tr></thead><tbody>" +
     Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td><td class="hint" data-fix></td></tr>`).join("") + "</tbody>";
   portsFixed();
-  if (T && T.wanemu) setSel("#wan-bridge", PVE_OPT.bridges, $("#wan-bridge").value || T.wanemu.bridge);   // bridges of this node
+  if (T && T.wanemu) {                                                                                   // bridges of this node
+    setSel("#wan-bridge", PVE_OPT.bridges, $("#wan-bridge").value || T.wanemu.bridge);
+    setSel("#wan-uplink-bridge", PVE_OPT.bridges, $("#wan-uplink-bridge").value || T.wanemu.uplink.bridge || "", "(same as WAN emulator bridge)");
+  }
 }
 const WAN_SEGS = ["hub", "a", "b"];
 function wanFill(w) {
   $("#wan-vmid").value = w.vmid ?? ""; $("#wan-storage").value = w.storage;
   setSel("#wan-bridge", PVE_OPT.bridges, w.bridge);
+  setSel("#wan-uplink-bridge", PVE_OPT.bridges, w.uplink.bridge || "", "(same as WAN emulator bridge)");
   $("#wan-uplink-vlan").value = w.uplink.vlan ?? ""; $("#wan-uplink-ip").value = w.uplink.ip; $("#wan-uplink-gw").value = w.uplink.gw;
   WAN_SEGS.forEach((k) => {
     const g = w.segments[k];
@@ -133,7 +137,7 @@ function wanCollect() {
   const w = JSON.parse(JSON.stringify(T.wanemu)), n = (v) => (v === "" ? null : +v);
   w.vmid = n($("#wan-vmid").value); w.storage = $("#wan-storage").value.trim();
   w.bridge = $("#wan-bridge").value.trim();
-  w.uplink = { vlan: n($("#wan-uplink-vlan").value), ip: $("#wan-uplink-ip").value.trim(), gw: $("#wan-uplink-gw").value.trim() };
+  w.uplink = { bridge: $("#wan-uplink-bridge").value.trim(), vlan: n($("#wan-uplink-vlan").value), ip: $("#wan-uplink-ip").value.trim(), gw: $("#wan-uplink-gw").value.trim() };
   WAN_SEGS.forEach((k) => {
     Object.assign(w.segments[k], { vlan: n($(`#wan-seg-${k}-vlan`).value), subnet: $(`#wan-seg-${k}-subnet`).value.trim(), gw: $(`#wan-seg-${k}-gw`).value.trim() });
     if (k !== "hub") w.segments[k].res_start = n($(`#wan-seg-${k}-res`).value);
@@ -449,10 +453,12 @@ async function applyLast(sid) {
   if (!sid) return;
   const last = await (await fetch(`/api/servers/${sid}/last-used`)).json();
   if (!Object.keys(last).length) return;
-  const { wanemu_uplink: up, ...pve } = last;
+  const { wanemu_uplink: up, wanemu_bridge: wb, ...pve } = last;
   T.pve = Object.assign({}, T.pve, pve, { ports: Object.assign({}, T.pve.ports, pve.ports || {}) });
   pveFill(T.pve);
+  if (wb) { T.wanemu.bridge = wb; setSel("#wan-bridge", PVE_OPT.bridges, wb); }     // this server's last bridges
   if (up && !$("#wan-uplink-ip").value.trim()) {          // uplink of this server's last deployment (it has no default)
+    T.wanemu.uplink.bridge = up.bridge || ""; setSel("#wan-uplink-bridge", PVE_OPT.bridges, up.bridge || "", "(same as WAN emulator bridge)");
     $("#wan-uplink-vlan").value = up.vlan ?? ""; $("#wan-uplink-ip").value = up.ip || ""; $("#wan-uplink-gw").value = up.gw || "";
     topoDraw();
   }

@@ -157,6 +157,25 @@ def _method(v):
     return "ssh" if v is True else (v or "none")
 
 
+def _check_bridges(topo, r):
+    """The bridges this run uses exist on the node and carry its VLANs (asks Proxmox; nothing is created)."""
+    from . import provision_vms as pv
+    from .pve import PveError
+    from .wanemu import net
+    fgts = _method(r.bootstrap.fgt) == "day0" and r.scope not in ("fmg", "tpl", "dev", "lan")
+    if not (fgts or r.scope == "lan"):
+        return
+    try:
+        info = pv.make_pve(topo["pve"], r.secrets.pve_token_secret).bridge_info(topo["pve"]["node"])
+    except PveError as e:
+        raise HTTPException(422, detail=[f"Proxmox: cannot read the bridges of node {topo['pve']['node']}: {e}"])
+    problems = net.bridge_problems(net.bridge_needs(topo, fgts, True), info)
+    if problems:
+        raise HTTPException(422, detail=[f"Proxmox: {x}" for x in problems] +
+                            ["Choose the bridges under WAN emulation: the uplink bridge to your lab, the WAN emulator "
+                             "bridge for the ISP segments and the LAN VLANs"])
+
+
 def _check_bootstrap(topo, r):
     """Extra validation when ZTP bootstrap / day-0 deployment is requested."""
     errs = []
@@ -852,6 +871,8 @@ def deploy(r: DeployReq):
         render = lambda: _render(topo, create_psk=True, devices=r.scope not in ("fmg", "tpl"), fmg_vm=r.scope in ("all", "fmg"))
     _, _, cfg = render()
     _check_bootstrap(topo, r)
+    if not r.dry_run:
+        _check_bridges(topo, r)                # before FortiFlex creates anything: a wrong bridge costs no points
     if lic and not r.dry_run:
         lic = _licenses(topo, r, dry=False)    # real serials + tokens (under a lock), then render with the real serials
         _, _, cfg = render()

@@ -101,7 +101,7 @@ print("OK  CT-template vast (niet via API of CSV te kiezen)")
 
 # no lab-specific uplink in the defaults: it must be filled in; an empty VLAN = untagged
 d = model.merged({})
-assert d["wanemu"]["uplink"] == {"vlan": None, "ip": "", "gw": ""}, d["wanemu"]["uplink"]
+assert d["wanemu"]["uplink"] == {"bridge": "", "vlan": None, "ip": "", "gw": ""}, d["wanemu"]["uplink"]
 assert any("uplink: IP" in e for e in model.validate_wanemu(d)), model.validate_wanemu(d)
 u = model.merged({"wanemu": {"uplink": {"vlan": None, "ip": "192.168.50.250/24", "gw": "192.168.50.1"}}})
 assert model.validate_wanemu(u) == [], model.validate_wanemu(u)
@@ -111,3 +111,35 @@ assert any("unique" in e for e in model.validate_wanemu(u))
 d["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
 assert net.fmg_routes(d) == []                  # FortiManager-only run with the uplink not filled in: no crash
 print("OK  uplink zonder lab-default; lege VLAN = untagged")
+
+# separate uplink bridge: empty = the WAN emulator (segment) bridge; FortiGate WAN/LAN ports + clients on the segment bridge
+u = model.merged({"wanemu": {"uplink": LAB}})
+assert u["wanemu"]["uplink"]["bridge"] == ""
+assert net.ct_params(u, 130, "k")["net0"].startswith("name=eth0,bridge=vmbr0,tag=106,")
+u = model.merged({"wanemu": {"bridge": "vmbr5", "uplink": {"bridge": "vmbr0", "vlan": None, "ip": "10.2.199.250/24", "gw": "10.2.199.1"}}})
+assert model.validate_wanemu(u) == [], model.validate_wanemu(u)
+p = net.ct_params(u, 130, "k")
+assert p["net0"] == "name=eth0,bridge=vmbr0,ip=10.2.199.250/24,gw=10.2.199.1" and p["net1"].startswith("name=eth1,bridge=vmbr5,tag=3200"), p
+assert net.client_params(u, u["edges"][0], 140, "x")["net0"].startswith("name=eth0,bridge=vmbr5,tag=3303")
+bad = model.merged({"wanemu": {"uplink": dict(LAB, bridge="vm br0")}})
+assert any("bridge" in e for e in model.validate_wanemu(bad)), model.validate_wanemu(bad)
+
+# which VLANs each bridge must carry, and whether the Proxmox bridges allow them (bridge-vids)
+need = net.bridge_needs(u, fgts=True, clients=True)
+assert need["vmbr5"] == {3200, 3201, 3202} | set(range(3301, 3306)) | {3403, 3404, 3405}, sorted(need["vmbr5"])
+assert need["vmbr0"] == set()
+assert net.bridge_needs(u, fgts=False, clients=True) == {"vmbr5": {3303, 3304, 3305}}      # LAN clients only: LAN1 of the spokes
+info = {"vmbr0": {"iface": "vmbr0", "bridge_ports": "nic0"},
+        "vmbr1": {"iface": "vmbr1", "bridge_ports": "enp129s0", "bridge_vlan_aware": 1, "bridge_vids": "301-350"},
+        "vmbr2": {"iface": "vmbr2"},
+        "vmbr4": {"iface": "vmbr4", "bridge_vlan_aware": 1, "bridge_vids": "10 20 100"},
+        "vmbr5": {"iface": "vmbr5", "bridge_vlan_aware": 1, "bridge_vids": "2-4094"},
+        "vmbr6": {"iface": "vmbr6", "bridge_vlan_aware": 1}}                             # no vids: PVE default 2-4094
+assert net.bridge_problems(need, info) == []
+assert net.bridge_problems({"vmbr6": {3200}}, info) == []
+pr = net.bridge_problems({"vmbr1": {3200, 3201, 320}}, info)
+assert len(pr) == 1 and "vmbr1" in pr[0] and "3200" in pr[0] and "3201" in pr[0] and "301-350" in pr[0] and "320," not in pr[0], pr
+assert "not on" in net.bridge_problems({"vmbr9": set()}, info)[0]
+assert "physical port" in net.bridge_problems({"vmbr2": {3200}}, info)[0]               # not VLAN-aware, no port: PVE can't tag
+assert net.bridge_problems({"vmbr0": {3200}, "vmbr2": set()}, info) == []                # not VLAN-aware + port: PVE makes vmbr0v3200
+print("OK  aparte uplink-bridge; VLANs per bridge vooraf gecontroleerd (bridge-vids, VLAN-aware, fysieke poort)")

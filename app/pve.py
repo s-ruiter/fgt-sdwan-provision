@@ -120,6 +120,11 @@ class Pve:
         rows = self._req("GET", f"/nodes/{node}/network", params={"type": "any_bridge"}) or []
         return sorted(b["iface"] for b in rows)
 
+    def bridge_info(self, node):
+        """{iface: row} of the node's bridges (bridge_vlan_aware, bridge_vids, bridge_ports)."""
+        rows = self._req("GET", f"/nodes/{node}/network", params={"type": "any_bridge"}) or []
+        return {b["iface"]: b for b in rows}
+
     def node_options(self, node):
         """Active storages per content type (with free space) and bridges of one node."""
         def st(content):

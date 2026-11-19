@@ -65,9 +65,11 @@ def save_last_used(conn, server_id, pve_cfg, wanemu=None):
     data = {k: pve_cfg[k] for k in REMEMBER if k in pve_cfg}
     up = (wanemu or {}).get("uplink") or {}
     if str(up.get("ip") or "").strip():
-        data["wanemu_uplink"] = {k: up.get(k) for k in ("vlan", "ip", "gw")}
-    elif "wanemu_uplink" in get_last_used(conn, server_id):
-        data["wanemu_uplink"] = get_last_used(conn, server_id)["wanemu_uplink"]
+        data["wanemu_uplink"] = {k: up.get(k) for k in ("bridge", "vlan", "ip", "gw")}
+        data["wanemu_bridge"] = (wanemu or {}).get("bridge")
+    else:
+        prev = get_last_used(conn, server_id)
+        data.update({k: prev[k] for k in ("wanemu_uplink", "wanemu_bridge") if k in prev})
     conn.execute("INSERT INTO last_used(server_id,data) VALUES(?,?) ON CONFLICT(server_id) DO UPDATE SET data=excluded.data",
                  (server_id, json.dumps(data)))
     conn.execute("INSERT INTO settings(key,value) VALUES('last_server',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",

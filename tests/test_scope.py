@@ -249,6 +249,32 @@ assert cts == ["client-site1-1", "client-site1-2", "client-site1-3"] and not fak
 assert len(mock_fmg.STATE["calls"]) == n_calls, "geen FortiManager-aanroepen bij alleen LAN-clients"
 print("OK  alleen LAN-clients: drie client-CT's, alle andere stappen overgeslagen, FortiManager niet aangesproken")
 
+# ---------------------------------------------------------------- bridges checked before anything is created
+for sc, fm, fg in (("all", "day0", "day0"), ("lan", "none", "none")):
+    fake_proxmox.reset()
+    fake_proxmox.STATE["bridges"] = [{"iface": "vmbr0", "type": "bridge", "bridge_ports": "eno1", "bridge_vlan_aware": 1,
+                                      "bridge_vids": "301-350"}]
+    try:
+        run(scope=sc, fmg=fm, fgt=fg, **({"images": {}} if sc == "lan" else {}))
+        raise AssertionError("expected FmgError")
+    except FmgError as e:
+        assert "vmbr0" in str(e) and "301-350" in str(e) and "nothing was created" in str(e), e
+    assert not fake_proxmox.STATE["vms"] and not fake_proxmox.STATE["cts"] and not fake_proxmox.STATE["uploads"]
+from types import SimpleNamespace as NS  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+rq = lambda sc, fg="day0": NS(scope=sc, bootstrap=NS(fgt=fg), secrets=NS(pve_token_secret="pve-secret"))
+for sc in ("all", "fgt", "lan"):                 # the API checks too, before FortiFlex creates any licence
+    try:
+        main._check_bridges(t, rq(sc))
+        raise AssertionError("expected 422")
+    except HTTPException as e:
+        assert e.status_code == 422 and any("301-350" in x for x in e.detail), e.detail
+for sc in ("fmg", "tpl", "dev"):
+    main._check_bridges(t, rq(sc))               # no FortiGate VMs / clients: bridges not asked
+fake_proxmox.STATE["bridges"] = None
+main._check_bridges(t, rq("all"))                # default fake bridges are fine
+print("OK  bridges vooraf gecontroleerd: VLAN buiten bridge-vids -> duidelijke fout, niets aangemaakt (alles en LAN-clients; ook in de API vóór FortiFlex)")
+
 # ---------------------------------------------------------------- API: scope overrides the methods + validation
 def req(scope, **sec):
     s = {"fgt_tokens": {}, "fgt_new_pw": "", **sec}

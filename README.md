@@ -86,7 +86,11 @@ De tool stopt nooit zelf een licentie; dat kan per licentie op de pagina FortiFl
 
 Bij FortiGate-VM's (methode `day0`) zitten de FortiGates niet in het lab-netwerk maar achter een gesimuleerde provider,
 altijd. De standaardwaarden (aan te passen onder *Proxmox & images*); de uplink heeft géén standaard en vul je zelf in
-(adres van `wan-emu` in jouw lab-netwerk; VLAN leeg = untagged). Hieronder een voorbeeld-uplink:
+(adres van `wan-emu` in jouw lab-netwerk; VLAN leeg = untagged). Er zijn twee bridges: de *uplink-bridge* naar het lab
+(leeg = dezelfde als de WAN-emulator-bridge) en de *WAN-emulator-bridge* voor de ISP-segmenten, de WAN/LAN-poorten van de
+FortiGates en de LAN-clients (ideaal: een interne VLAN-aware bridge zonder fysieke poort). Vóór de uitrol (en vóór er
+FortiFlex-licenties worden gemaakt) controleert de tool via de Proxmox-API of elke bridge bestaat en de benodigde VLAN's
+doorlaat (`bridge-vids`; een niet-VLAN-aware bridge heeft een fysieke poort nodig). Hieronder een voorbeeld-uplink:
 
 | Segment | VLAN | Subnet | Gateway (container) | Wie |
 |---|---|---|---|---|
