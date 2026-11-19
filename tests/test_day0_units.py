@@ -163,6 +163,24 @@ def test_pve_client():
     print("OK  Proxmox-client: check (PVE 9, import/iso/images storages), 3 MB streaming upload byte-voor-byte, delete, fouten")
 
 
+def test_pve_perm_warning():
+    fake_proxmox.reset()
+    srv = fake_proxmox.start(8097)
+    try:
+        p = Pve("http://127.0.0.1:8097", "root@pam!t", "secret")
+        assert "warning" not in p.check()
+        fake_proxmox.STATE["storage_hidden"] = True                     # token without Datastore.Audit: sees nothing
+        w = p.check()["warning"]
+        assert "Datastore.Audit" in w and "Privilege Separation" in w and "PVEAdmin" in w, w
+        fake_proxmox.STATE["storage_hidden"] = False
+        fake_proxmox.STATE["no_import"] = True                          # storages visible, none with content import
+        w = p.check()["warning"]
+        assert "content type 'import'" in w and "sees no storage" not in w, w
+    finally:
+        srv.shutdown()
+    print("OK  Proxmox-check: token zonder storage-rechten krijgt een eigen melding (Datastore.Audit / Privilege Separation)")
+
+
 def test_pve_lxc():
     fake_proxmox.reset()
     srv = fake_proxmox.start(8097)
@@ -195,4 +213,5 @@ if __name__ == "__main__":
     test_cloudinit()
     test_pve_client()
     test_pve_lxc()
+    test_pve_perm_warning()
     print("alle day-0 unit-tests geslaagd")

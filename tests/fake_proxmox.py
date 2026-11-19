@@ -66,7 +66,10 @@ class H(BaseHTTPRequestHandler):
         if path == "/nodes":
             return self._send([{"node": "pve1"}])
         if path == "/storage":
-            return self._send([{"storage": "local", "content": "iso,vztmpl,import,backup"},
+            if STATE.get("storage_hidden"):                     # API token without Datastore.Audit
+                return self._send([])
+            imp = "" if STATE.get("no_import") else ",import"
+            return self._send([{"storage": "local", "content": "iso,vztmpl,backup" + imp},
                                {"storage": "local-lvm", "content": "images,rootdir"}])
         if path == "/nodes/pve1/storage" and method == "GET":
             allst = [("local", "iso,vztmpl,import,backup", 1, 90e9), ("local-lvm", "images,rootdir", 1, 400e9),

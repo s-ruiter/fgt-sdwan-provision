@@ -104,8 +104,13 @@ class Pve:
         res["import_storages"] = [s["storage"] for s in cfg if "import" in str(s.get("content", "")).split(",")]
         res["iso_storages"] = [s["storage"] for s in cfg if "iso" in str(s.get("content", "")).split(",")]
         res["image_storages"] = [s["storage"] for s in cfg if "images" in str(s.get("content", "")).split(",")]
-        if not res["import_storages"]:
-            res["warning"] = "no storage with content type 'import' (Datacenter > Storage > Content > Import)"
+        if not cfg:                  # /storage only lists storages the token has Datastore.Audit on: it sees none
+            res["warning"] = ("the API token sees no storage at all: it lacks Datastore.Audit. Give the token a role on / "
+                              "(Datacenter > Permissions > Add > API Token Permission, e.g. PVEAdmin) or turn off "
+                              "Privilege Separation for the token (it then has the rights of its user)")
+        elif not res["import_storages"]:
+            res["warning"] = ("no storage with content type 'import' (Datacenter > Storage > Content > Import). If it is "
+                              "enabled, the API token lacks Datastore.Audit on that storage")
         return res
 
     def nodes(self):
