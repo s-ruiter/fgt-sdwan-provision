@@ -38,11 +38,11 @@ def _out(row, last):
 
 def _check(body):
     if not NAME.match(body.name):
-        raise HTTPException(422, "Naam: 1-40 tekens (letters, cijfers, spatie, _ . -)")
+        raise HTTPException(422, "Name: 1-40 characters (letters, digits, space, _ . -)")
     if not URL.match(body.url.strip()):
-        raise HTTPException(422, "URL als https://host:8006")
+        raise HTTPException(422, "URL as https://host:8006")
     if not TOKEN_ID.match(body.token_id.strip()):
-        raise HTTPException(422, "Token-ID als user@realm!naam")
+        raise HTTPException(422, "Token ID as user@realm!name")
 
 
 def client(row):
@@ -60,7 +60,7 @@ def list_servers():
 def create_server(body: ServerIn):
     _check(body)
     if not body.token_secret:
-        raise HTTPException(422, "Token-secret is verplicht")
+        raise HTTPException(422, "Token secret is required")
     c = conn()
     try:
         cur = c.execute("INSERT INTO servers(name,url,token_id,token_secret,verify_tls) VALUES(?,?,?,?,?)",
@@ -69,7 +69,7 @@ def create_server(body: ServerIn):
     except sqlite3.IntegrityError:
         c.rollback()
         c.close()
-        raise HTTPException(409, f"Er bestaat al een server met de naam '{body.name}'")
+        raise HTTPException(409, f"A server named '{body.name}' already exists")
     c.commit()
     out = _out(db.get_server(c, cur.lastrowid), None)
     c.close()
@@ -82,17 +82,17 @@ def update_server(sid: int, body: ServerIn):
     c = conn()
     old = db.get_server(c, sid)
     if old is None:
-        raise HTTPException(404, "Server niet gevonden")
+        raise HTTPException(404, "Server not found")
     url, tid = body.url.strip().rstrip("/"), body.token_id.strip()
     if not body.token_secret and (url != old["url"] or tid != old["token_id"]):
-        raise HTTPException(422, "Voer het token-secret opnieuw in als URL of token-ID verandert")
+        raise HTTPException(422, "Enter the token secret again when the URL or token ID changes")
     try:
         c.execute("UPDATE servers SET name=?,url=?,token_id=?,token_secret=?,verify_tls=? WHERE id=?",
                   (body.name.strip(), url, tid, body.token_secret or old["token_secret"], int(body.verify_tls), sid))
     except sqlite3.IntegrityError:
         c.rollback()
         c.close()
-        raise HTTPException(409, f"Er bestaat al een server met de naam '{body.name}'")
+        raise HTTPException(409, f"A server named '{body.name}' already exists")
     c.commit()
     out = _out(db.get_server(c, sid), db.last_server(c))
     c.close()
@@ -111,7 +111,7 @@ def delete_server(sid: int):
 def test_server(sid: int, body: TestIn):
     row = db.get_server(conn(), sid)
     if row is None:
-        raise HTTPException(404, "Server niet gevonden")
+        raise HTTPException(404, "Server not found")
     p = client(row)
     try:
         res = p.check()
@@ -126,7 +126,7 @@ def test_server(sid: int, body: TestIn):
 def node_options(sid: int, node: str):
     row = db.get_server(conn(), sid)
     if row is None:
-        raise HTTPException(404, "Server niet gevonden")
+        raise HTTPException(404, "Server not found")
     if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", node):
         raise HTTPException(422, "Ongeldige node")
     try:

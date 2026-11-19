@@ -29,7 +29,7 @@ em, es = csvio.export_csv(m), csvio.export_csv(s)
 # only [devices]; nothing from the GUI settings, no secrets
 for txt in (em, es):
     body = "\n".join(l for l in txt.splitlines() if not l.lstrip("\ufeff").startswith("#")).lower()
-    assert txt.startswith("\ufeff") and "[devices]" in txt and "[algemeen]" not in txt and "[vrf]" not in txt
+    assert txt.startswith("\ufeff") and "[devices]" in txt and "[general]" not in txt and "[vrf]" not in txt
     assert not any(w in body for w in ("acme", "adom", "dns", "psk", "secret", "wachtwoord", "password"))
     assert "initial_ip" not in txt
 # LAN columns follow the mode
@@ -54,19 +54,19 @@ assert len(edges) == 3
 # [algemeen]/[vrf] in an old file are ignored with a note
 old = "[algemeen]\nsleutel;waarde\nadom;HACK\n[vrf]\nid;lan_summary\n99;10.0.0.0/8\n" + em.split("[devices]")[0].count("x") * "" + "[devices]" + em.split("[devices]")[1]
 hubs, edges, notes, todo = imp(old, m)
-assert sum("genegeerd" in n for n in notes) == 1 and len(hubs) == 2
+assert sum("ignored" in n for n in notes) == 1 and len(hubs) == 2
 # blank template -> serials missing is a todo, not an error
 h2, e2, _, todo = imp(csvio.export_csv(model.merged({})), model.merged({}))
-assert any("serienummer" in e for e in todo) and len(h2) == 2
+assert any("serial number" in e for e in todo) and len(h2) == 2
 # WAN design is forced: hub wan1 static, branch DHCP; old columns ignored with a note; Excel-ish whitespace
 h3, e3, n3, _ = imp("[devices]\ntype;name;serial;wan1_mode;wan1_ip;wan2_intf\n Hub ;H;X;dhcp;100.64.1.1/29;port2\nspoke;E;Y;static;100.64.9.1/29;port2\n", m)
 assert h3[0]["wan1_mode"] == "static" and h3[0]["wan1_ip"] == "100.64.1.1/29" and "wan2_intf" not in h3[0]
 assert e3[0]["wan1_mode"] == "dhcp" and "wan1_ip" not in e3[0] and e3[0]["wan2_intf"] == "port2"
-assert any("wan1_mode" in n for n in n3) and any("hubs genegeerd" in n for n in n3) and any("branches genegeerd" in n for n in n3), n3
+assert any("wan1_mode" in n for n in n3) and any("hubs ignored" in n for n in n3) and any("branches ignored" in n for n in n3), n3
 # errors name the row/column
-for bad, needle in [("", "[devices]"), ("[algemeen]\nk;v\n", "[devices]"), ("[bogus]\n", "onbekende sectie"), ("a;b\n", "buiten een sectie"),
-                    ("[devices]\ntype;name\nrouter;A\n", "type 'router'"), ("[devices]\ntype;name\nhub;A\nhub;A\n", "dubbel"),
-                    ("[devices]\nname\nA\n", "kolom 'type'")]:
+for bad, needle in [("", "[devices]"), ("[algemeen]\nk;v\n", "[devices]"), ("[bogus]\n", "unknown section"), ("a;b\n", "outside a section"),
+                    ("[devices]\ntype;name\nrouter;A\n", "type 'router'"), ("[devices]\ntype;name\nhub;A\nhub;A\n", "appears twice"),
+                    ("[devices]\nname\nA\n", "column 'type'")]:
     try:
         imp(bad, m)
         raise SystemExit(f"geen fout voor {bad!r}")
@@ -82,14 +82,14 @@ for multi in (True, False):
     if multi:
         g["region"]["vrfs"][1]["dia"] = True
     full = csvio.export_csv(g, full=True, server_name="pve01")
-    assert all(x in full for x in ("[algemeen]", "[proxmox]", "[devices]")) and ("[vrf]" in full) == multi
+    assert all(x in full for x in ("[general]", "[proxmox]", "[devices]")) and ("[vrf]" in full) == multi
     assert "region.lan_summary" in full.split("[proxmox]")[0] or multi
     body_full = "\n".join(l for l in full.splitlines() if not l.startswith("#"))
     assert [l for l in body_full.splitlines() if l.startswith("fmgr.fortiflex_token;")] == ["fmgr.fortiflex_token;;" + csvio.SETTINGS_LABEL["fmgr.fortiflex_token"]]   # key present, value empty
     assert not any(w in body_full.replace(csvio.SETTINGS_LABEL["fmgr.fortiflex_token"], "").lower() for w in ("secret", "password", "wachtwoord"))
     # devices-only import ignores the settings (note), full import applies them
     r = csvio.import_devices(full, topo(not multi))
-    assert r["settings"] == {} and r["has_settings"] and any("genegeerd" in n for n in r["notes"])
+    assert r["settings"] == {} and r["has_settings"] and any("ignored" in n for n in r["notes"])
     r = csvio.import_devices(full, topo(not multi), True)
     st = r["settings"]
     assert st["adom"] == "ACME" and st["hub2hub"] is True
@@ -107,9 +107,9 @@ for multi in (True, False):
 full = csvio.export_csv(topo(True), full=True)
 for k in ("platform", "dns_primary", "dns_secondary", "wan1_access", "psk", "lo_summary", "region.name", "region.bgp_as", "region.lo_summary", "pve.license_mode"):
     assert f"\n{k};" not in full, k
-old = full.replace("hub2hub;nee", "hub2hub;nee\ndns_primary;4.4.4.4\npsk;ikkiezzelf\nregion.bgp_as;1")
+old = full.replace("hub2hub;no", "hub2hub;no\ndns_primary;4.4.4.4\npsk;ikkiezzelf\nregion.bgp_as;1")
 r = csvio.import_devices(old, topo(True), True)
-assert any("onbekende sleutel" in n for n in r["notes"]) and "dns_primary" not in r["settings"] and "psk" not in r["settings"]
+assert any("unknown key" in n for n in r["notes"]) and "dns_primary" not in r["settings"] and "psk" not in r["settings"]
 fx = model.merged({"dns_primary": "4.4.4.4", "dns_secondary": "", "wan1_access": "x", "platform": "p", "region": {"name": "Oost", "bgp_as": 1, "lo_summary": "1.2.3.0/24", "multi_vrf": False}})
 assert (fx["dns_primary"], fx["dns_secondary"], fx["wan1_access"], fx["platform"]) == ("1.1.1.1", "8.8.8.8", "ping https ssh fgfm", "FortiGate-VM64")
 assert (fx["region"]["name"], fx["region"]["bgp_as"], fx["region"]["lo_summary"]) == ("West", 65001, "10.200.1.0/24") and fx["region"]["multi_vrf"] is False
@@ -120,7 +120,7 @@ try:
     csvio.import_devices(bad, topo(True), True)
     raise SystemExit("geen fout")
 except csvio.CsvError as e:
-    assert "geen getal" in str(e) and "pve.fmg.cores" in str(e)
+    assert "not a number" in str(e) and "pve.fmg.cores" in str(e)
 # ---- WAN naming, no MPLS, FortiFlex tokens ----------------------------------------------------------------------
 for bad in ("isp", "mpls", "MPLS"):
     assert bad not in em + es, bad

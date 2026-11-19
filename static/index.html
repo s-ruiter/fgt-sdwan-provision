@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="nl">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,52 +13,57 @@
     <div class="wrap nav-inner">
       <a class="brand" href="#/deploy"><i><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v4M12 11l-6 6M12 11l6 6"/></svg></i>FGT SD-WAN</a>
       <nav>
-        <a href="#/deploy" data-nav="deploy">Uitrol</a>
-        <a href="#/progress" data-nav="progress">Voortgang</a>
+        <a href="#/deploy" data-nav="deploy">Deploy</a>
+        <a href="#/progress" data-nav="progress">Progress</a>
         <a href="#/images" data-nav="images">Images</a>
-        <a href="#/wanemu" data-nav="wanemu">WAN-emulatie</a>
+        <a href="#/wanemu" data-nav="wanemu">WAN emulation</a>
         <a href="#/fortiflex" data-nav="fortiflex">FortiFlex</a>
         <a href="#/servers" data-nav="servers">Servers</a>
-        <a href="#/about" data-nav="about">Over</a>
+        <a href="#/about" data-nav="about">About</a>
       </nav>
     </div>
   </header>
   <main class="wrap" id="view">
 
     <section id="v_deploy">
-      <h1>Uitrol</h1>
+      <h1>Deploy</h1>
       <div id="job_banner" class="hint" hidden></div>
       <div id="errors"></div>
 
       <div class="card" id="sec_scope">
-        <h2>Wat wil je uitrollen?</h2>
-        <div class="opts" role="radiogroup" aria-label="Wat wil je uitrollen">
-          <div class="inline"><input type="radio" name="scope" id="scope_all" value="all" checked><label for="scope_all"><b>Alles</b> &ndash; FortiManager en FortiGates</label></div>
-          <div class="inline"><input type="radio" name="scope" id="scope_fmg" value="fmg"><label for="scope_fmg"><b>Alleen FortiManager</b> &ndash; VM, licentie, ADOM en templates voor hubs en spokes; geen model devices, geen FortiGate-VM's en geen install</label></div>
-          <div class="inline"><input type="radio" name="scope" id="scope_fgt" value="fgt"><label for="scope_fgt"><b>Alleen FortiGates</b> &ndash; tegen een bestaande, bereikbare FortiManager; ADOM en templates worden hergebruikt of bijgewerkt, model devices toegevoegd, daarna install</label></div>
-          <div class="inline"><input type="radio" name="scope" id="scope_dev" value="dev"><label for="scope_dev"><b>Alleen model devices</b> &ndash; naar een bestaande, bereikbare FortiManager: ADOM, model devices en templates met de waarden per device, daarna per device een Quick install en een Re-install policy; geen koppeling naar echte FortiGates, geen VM's en geen Proxmox</label></div>
-          <div class="inline"><input type="radio" name="scope" id="scope_tpl" value="tpl"><label for="scope_tpl"><b>Alleen templates</b> &ndash; naar een bestaande, bereikbare FortiManager: ADOM en templates voor hubs en spokes; geen VM's, geen Proxmox, geen model devices en geen install</label></div>
+        <h2>What do you want to deploy?</h2>
+        <div class="opts" role="radiogroup" aria-label="What to deploy">
+          <div class="inline"><input type="radio" name="scope" id="scope_all" value="all" checked><label for="scope_all"><b>Everything</b> &ndash; FortiManager and FortiGates</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_fmg" value="fmg"><label for="scope_fmg"><b>FortiManager only</b> &ndash; VM, licence, ADOM and templates for hubs and spokes; no model devices, no FortiGate VMs and no install</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_fgt" value="fgt"><label for="scope_fgt"><b>FortiGates only</b> &ndash; against an existing, reachable FortiManager; ADOM and templates are reused or updated, model devices added, then install</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_dev" value="dev"><label for="scope_dev"><b>Model devices only</b> &ndash; to an existing, reachable FortiManager: ADOM, model devices and templates with the per-device values, then a Quick install and a Re-install policy per device; no link to real FortiGates, no VMs and no Proxmox</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_tpl" value="tpl"><label for="scope_tpl"><b>Templates only</b> &ndash; to an existing, reachable FortiManager: ADOM and templates for hubs and spokes; no VMs, no Proxmox, no model devices and no install</label></div>
         </div>
         <div class="hint" id="scope_hint"></div>
       </div>
 
+      <div class="card" id="sec_topo">
+        <h2>Topology <small>(what this deployment builds; grey = not part of this choice)</small></h2>
+        <div id="topo" class="topo"></div>
+      </div>
+
       <div class="card only-vm" id="sec_pve">
-        <h2><span class="num">01</span>Proxmox &amp; images <small>(de VM's worden via Day-0 aangemaakt)</small></h2>
+        <h2><span class="num">01</span>Proxmox &amp; images <small>(the VMs are created with Day-0)</small></h2>
         <div class="fields">
           <div class="f"><label>Proxmox-server</label><select id="pve_server"></select></div>
         </div>
-        <div class="btnrow"><button id="btn_pve">Vernieuwen</button><span class="hint" id="pve_res"></span></div>
-        <div class="hint" id="pve_none" hidden>Nog geen server. Voeg er een toe op de pagina <a href="#/servers" style="color:var(--accent)">Servers</a>; je hoeft dat maar één keer te doen.</div>
+        <div class="btnrow"><button id="btn_pve">Refresh</button><span class="hint" id="pve_res"></span></div>
+        <div class="hint" id="pve_none" hidden>No server yet. Add one on the <a href="#/servers" style="color:var(--accent)">Servers</a> page; you only need to do that once.</div>
         <div class="fields">
           <div class="f"><label>Node</label><select id="pve_node"></select></div>
-          <div class="f"><label>Disk-storage (VM-schijven)</label><select id="pve_dstore"></select></div>
-          <div class="f"><label>Import-storage (content: import)</label><select id="pve_istore"></select></div>
-          <div class="f"><label>ISO-storage</label><select id="pve_isostore"></select></div>
-          <div class="f"><label>Standaard bridge</label><select id="pve_br"></select></div>
-          <div class="f"><label>CPU-type</label><select id="pve_cpu"><option>host</option><option>x86-64-v2-AES</option><option>x86-64-v3</option><option>kvm64</option></select></div>
+          <div class="f"><label>Disk storage (VM disks)</label><select id="pve_dstore"></select></div>
+          <div class="f"><label>Import storage (content: import)</label><select id="pve_istore"></select></div>
+          <div class="f"><label>ISO storage</label><select id="pve_isostore"></select></div>
+          <div class="f"><label>Default bridge</label><select id="pve_br"></select></div>
+          <div class="f"><label>CPU type</label><select id="pve_cpu"><option>host</option><option>x86-64-v2-AES</option><option>x86-64-v3</option><option>kvm64</option></select></div>
         </div>
         <div class="only-fmg">
-        <h3>FortiManager-VM</h3>
+        <h3>FortiManager VM</h3>
         <div class="fields">
           <div class="f"><label>Image</label><select id="img_fmg"></select></div>
           <div class="f"><label>vCPU</label><input id="fmg_cores" type="number"></div>
@@ -67,27 +72,27 @@
           <div class="f"><label>Bridge</label><select id="fmg_br"></select></div>
           <div class="f"><label>VLAN</label><input id="fmg_vlan" type="number"></div>
         </div>
-        <div class="hint">Fortinet adviseert voor FortiManager &ge;4 vCPU, 16 GB RAM en een datadisk van &ge;500 GB (thin kan in een lab).</div>
+        <div class="hint">Fortinet recommends &ge;4 vCPU, 16 GB RAM and a data disk of &ge;500 GB for FortiManager (thin is fine in a lab).</div>
         </div>
 
         <div class="only-fgt">
-        <h3>FortiGate-VM's <small>(hub en branches)</small></h3>
+        <h3>FortiGate VMs <small>(hubs and branches)</small></h3>
         <div class="fields">
           <div class="f"><label>Image</label><select id="img_fgt"></select></div>
           <div class="f"><label>vCPU</label><input id="fgt_cores" type="number"></div>
           <div class="f"><label>RAM (MB)</label><input id="fgt_mem" type="number"></div>
         </div>
-        <div class="hint">vCPU moet passen bij de FortiFlex-entitlement.</div>
-        <h4>Poorten <small>&rarr; bridge/VLAN voor de LAN-poorten (de wan-poorten gaan altijd naar de WAN-emulatie; leeg = standaard bridge)</small></h4>
+        <div class="hint">vCPU must match the FortiFlex entitlement.</div>
+        <h4>Ports <small>&rarr; bridge/VLAN for other ports (WAN ports always go to the WAN emulator, LAN ports to their own VLAN; empty = default bridge)</small></h4>
         <table id="ports" class="tbl"></table>
-        <div class="hint">Nog geen image? Upload het <code>.out.kvm.zip</code> van FortiCloud op de pagina <a href="#/images" style="color:var(--accent)">Images</a>.</div>
+        <div class="hint">No image yet? Upload the <code>.out.kvm.zip</code> from FortiCloud on the <a href="#/images" style="color:var(--accent)">Images</a> page.</div>
         </div>
 
         <div class="only-fgt" id="wanemu-section">
-        <h3>WAN-emulatie <small>(LXC wan-emu, altijd mee bij FortiGate-VM's)</small></h3>
-        <div class="hint">De container routeert tussen ISP-HUB (hubs, vast IP), ISP-A (wan1 van de spokes) en ISP-B (wan2), geeft de spokes een DHCP-reservering en doet NAT naar het lab via de uplink. Latency, jitter, loss en bandbreedte per link stel je in op de pagina <a href="#/wanemu" style="color:var(--accent)">WAN-emulatie</a>.</div>
+        <h3>WAN emulation <small>(LXC wan-emu, always deployed with FortiGate VMs)</small></h3>
+        <div class="hint">The container routes between ISP-HUB (hubs, static IP), ISP-A (spoke wan1) and ISP-B (spoke wan2), gives the spokes a DHCP reservation and NATs to the lab via the uplink. Set latency, jitter, loss and bandwidth per link on the <a href="#/wanemu" style="color:var(--accent)">WAN emulation</a> page.</div>
         <div class="fields">
-          <div class="f"><label>CT-id (leeg = automatisch)</label><input id="wan-vmid" type="number"></div>
+          <div class="f"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
           <div class="f"><label>Template</label><input id="wan-template" class="mono"></div>
           <div class="f"><label>Storage (rootfs)</label><input id="wan-storage"></div>
           <div class="f"><label>Bridge</label><select id="wan-bridge"></select></div>
@@ -95,129 +100,129 @@
           <div class="f"><label>Uplink IP/prefix</label><input id="wan-uplink-ip" class="mono"></div>
           <div class="f"><label>Uplink gateway</label><input id="wan-uplink-gw" class="mono"></div>
         </div>
-        <table class="tbl" id="wan-segs"><thead><tr><th>Segment</th><th>VLAN</th><th>Subnet</th><th>Gateway (= container)</th><th>Reservering vanaf</th></tr></thead><tbody>
-          <tr><td><b>ISP-HUB</b></td><td><input id="wan-seg-hub-vlan" type="number"></td><td><input id="wan-seg-hub-subnet" class="mono"></td><td><input id="wan-seg-hub-gw" class="mono"></td><td><span class="hint">vast (hubs)</span></td></tr>
-          <tr><td><b>ISP-A</b></td><td><input id="wan-seg-a-vlan" type="number"></td><td><input id="wan-seg-a-subnet" class="mono"></td><td><input id="wan-seg-a-gw" class="mono"></td><td><input id="wan-seg-a-res" type="number" title="eerste reservering (laatste octet)"></td></tr>
-          <tr><td><b>ISP-B</b></td><td><input id="wan-seg-b-vlan" type="number"></td><td><input id="wan-seg-b-subnet" class="mono"></td><td><input id="wan-seg-b-gw" class="mono"></td><td><input id="wan-seg-b-res" type="number" title="eerste reservering (laatste octet)"></td></tr>
+        <table class="tbl" id="wan-segs"><thead><tr><th>Segment</th><th>VLAN</th><th>Subnet</th><th>Gateway (= container)</th><th>Reservations from</th></tr></thead><tbody>
+          <tr><td><b>ISP-HUB</b></td><td><input id="wan-seg-hub-vlan" type="number"></td><td><input id="wan-seg-hub-subnet" class="mono"></td><td><input id="wan-seg-hub-gw" class="mono"></td><td><span class="hint">static (hubs)</span></td></tr>
+          <tr><td><b>ISP-A</b></td><td><input id="wan-seg-a-vlan" type="number"></td><td><input id="wan-seg-a-subnet" class="mono"></td><td><input id="wan-seg-a-gw" class="mono"></td><td><input id="wan-seg-a-res" type="number" title="first reservation (last octet)"></td></tr>
+          <tr><td><b>ISP-B</b></td><td><input id="wan-seg-b-vlan" type="number"></td><td><input id="wan-seg-b-subnet" class="mono"></td><td><input id="wan-seg-b-gw" class="mono"></td><td><input id="wan-seg-b-res" type="number" title="first reservation (last octet)"></td></tr>
         </tbody></table>
-        <div class="hint">Spoke n krijgt .start+n in ISP-A (port1) en ISP-B (port2), op een vast MAC-adres; de pool voor overige clients is .100&ndash;.199. Hub-wan1 moet in ISP-HUB liggen met de ISP-HUB-gateway.</div>
+        <div class="hint">Spoke n gets .start+n in ISP-A (port1) and ISP-B (port2), on a fixed MAC address; the pool for other clients is .100&ndash;.199. Hub wan1 must be in ISP-HUB with the ISP-HUB gateway.</div>
         </div><!-- /wanemu -->
       </div>
 
       <div class="card">
-        <h2><span class="num">02</span>FortiManager <small class="only-fmg">(altijd een vast IP; Day-0)</small><small class="only-existing">(bestaande FortiManager: IP, ADOM en API-login)</small></h2>
+        <h2><span class="num">02</span>FortiManager <small class="only-fmg">(always a static IP; Day-0)</small><small class="only-existing">(existing FortiManager: IP, ADOM and API login)</small></h2>
         <div class="fields">
-          <div class="f only-fmg"><label>Hostnaam</label><input id="fm_name"></div>
-          <div class="f"><label><span class="only-fmg">Vast IP (a.b.c.d/nn)</span><span class="only-existing">IP-adres (a.b.c.d)</span></label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
+          <div class="f only-fmg"><label>Hostname</label><input id="fm_name"></div>
+          <div class="f"><label><span class="only-fmg">Static IP (a.b.c.d/nn)</span><span class="only-existing">IP address (a.b.c.d)</span></label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
           <div class="f only-fmg"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
-          <div class="f only-fmg"><label>Poort</label><input id="fm_port"></div>
-          <div class="f"><label>ADOM-naam</label><input id="adom"></div>
-          <div class="f"><label>Admin-gebruiker</label><input id="fmg_user" value="admin"></div>
-          <div class="f"><label><span class="only-fmg">Admin- en SSH-wachtwoord</span><span class="only-existing">Admin-wachtwoord</span></label><input id="fmg_pass" type="password" autocomplete="off"></div>
-          <div class="f only-fmg"><label>FortiFlex-token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
+          <div class="f only-fmg"><label>Port</label><input id="fm_port"></div>
+          <div class="f"><label>ADOM name</label><input id="adom"></div>
+          <div class="f"><label>Admin user</label><input id="fmg_user" value="admin"></div>
+          <div class="f"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><input id="fmg_pass" type="password" autocomplete="off"></div>
+          <div class="f only-fmg"><label>FortiFlex token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
 
       <div class="card">
-        <h2><span class="num">03</span>Topologie</h2>
+        <h2><span class="num">03</span>Topology</h2>
         <div class="btnrow">
-          <button id="btn_csv_dl" title="De devices als CSV (incl. ingevulde FortiFlex-tokens), met LAN-kolommen volgens de gekozen modus; zonder wachtwoorden">CSV downloaden (devices)</button>
-          <button id="btn_csv_up">CSV importeren (devices)</button><input type="file" id="csv_file" accept=".csv,text/csv" hidden>
+          <button id="btn_csv_dl" title="The devices as CSV (including FortiFlex tokens you entered), LAN columns per the chosen mode; no passwords">Download CSV (devices)</button>
+          <button id="btn_csv_up">Import CSV (devices)</button><input type="file" id="csv_file" accept=".csv,text/csv" hidden>
           <span class="hint" id="csv_res"></span>
         </div>
         <div class="hint" id="csv_todo" hidden></div>
         <div class="opts">
-          <div class="inline"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-naar-hub tunnels (DC-to-DC)</label></div>
-          <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + klant-VRF's met leak naar de PE-VRF; uit = klassiek single-VRF, één LAN per device)</label></div>
+          <div class="inline"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-to-hub tunnels (DC-to-DC)</label></div>
+          <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + customer VRFs leaking to the PE-VRF; off = classic single-VRF, one LAN per device, everything in VRF 0)</label></div>
         </div>
-        <div class="hint">Vast: regio West (AS 65001), loopback-summary 10.200.1.0/24, health-check-loopback <code>Lo-HC</code> 10.200.99.1/32 op elke hub (de branches meten daar naartoe via elke tunnel), DNS 1.1.1.1 en 8.8.8.8, wan1 allowaccess <code>ping https ssh fgfm</code>, platform FortiGate-VM64. De IPsec-PSK genereert de tool zelf (willekeurig, per ADOM bewaard).</div>
-        <h3>VRF's</h3>
-        <div class="f" id="sv_box" hidden><label>LAN-summary (single-VRF)</label><input id="r_lansum"></div>
+        <div class="hint">Fixed: region West (AS 65001), loopback summary 10.200.1.0/24, health-check loopback <code>Lo-HC</code> 10.200.99.1/32 on every hub (the branches measure towards it through every tunnel), DNS 1.1.1.1 and 8.8.8.8, wan1 allowaccess <code>ping https ssh fgfm</code>, platform FortiGate-VM64. The tool generates the IPsec PSK itself (random, kept per ADOM).</div>
+        <h3>VRFs</h3>
+        <div class="f" id="sv_box" hidden><label>LAN summary (single-VRF)</label><input id="r_lansum"></div>
         <table id="vrfs" class="tbl"></table>
         <div class="only-fgt">
-        <h3>FortiGates: wachtwoord &amp; licentie</h3>
+        <h3>FortiGates: password &amp; licence</h3>
         <div class="fields">
-          <div class="f"><label>Admin- en SSH-wachtwoord FortiGates</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
+          <div class="f"><label>FortiGate admin and SSH password</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
         </div>
-        <div class="hint">Per FortiGate vul je hieronder het serienummer en het FortiFlex-token in. Hubs hebben één WAN (wan1, statisch IP + gateway); branches gebruiken wan1 en optioneel wan2, altijd via DHCP. Elke branch-WAN krijgt een tunnel naar wan1 van elke hub. De tool maakt de VM's via Day-0 (cloud-init) op Proxmox: IP, wachtwoord, FMG-koppeling en token gaan mee in de config-drive.</div>
+        <div class="hint">Enter the serial number and FortiFlex token per FortiGate below (or let FortiFlex fill them in). Hubs have one WAN (wan1, static IP + gateway); branches use wan1 and optionally wan2, always via DHCP. Every branch WAN gets a tunnel to wan1 of every hub. The tool creates the VMs with Day-0 (cloud-init) on Proxmox: IP, password, FMG link and token go into the config drive.</div>
         </div>
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
         <div class="btnrow" style="margin-top:18px">
-          <button id="btn_csv_full" title="Instellingen (ADOM, VRF's, FortiManager, Proxmox) + alle devices incl. FortiFlex-tokens; geen wachtwoorden">Alles exporteren naar CSV</button>
-          <span class="hint">Instellingen + devices, importeerbaar voor een volgende uitrol. Bevat de ingevulde FortiFlex-tokens (behandel het bestand als geheim); nooit wachtwoorden.</span>
+          <button id="btn_csv_full" title="Settings (ADOM, VRFs, FortiManager, Proxmox) + all devices including FortiFlex tokens; no passwords">Export everything to CSV</button>
+          <span class="hint">Settings + devices, importable for a next deployment. Contains the FortiFlex tokens you entered (treat the file as a secret); never passwords.</span>
         </div>
       </div>
 
       <div class="card">
-        <h2><span class="num">04</span>Preview &amp; uitrol</h2>
+        <h2><span class="num">04</span>Preview &amp; deploy</h2>
         <div class="btnrow">
-          <button id="btn_render">Templates genereren</button>
+          <button id="btn_render">Generate templates</button>
           <span class="only-vm"><select id="d0_dev" style="width:auto"></select> <button id="btn_d0">Day-0 preview</button></span>
-          <span class="only-vm"><button id="btn_flexcheck">Licenties controleren</button></span>
+          <span class="only-vm"><button id="btn_flexcheck">Check licences</button></span>
         </div>
         <div id="flex_check" hidden></div>
         <pre class="cfg" id="d0_out" hidden></pre>
         <div id="preview" hidden><div class="tabs" id="tabs"></div><pre class="cfg" id="cfg"></pre></div>
       </div>
       <div class="actions space">
-        <div class="inline"><input type="checkbox" id="dry" checked><label for="dry">Dry-run (stuurt niets naar FortiManager, FortiGates of Proxmox)</label></div>
-        <button id="btn_deploy" class="primary">Uitrollen</button>
+        <div class="inline"><input type="checkbox" id="dry" checked><label for="dry">Dry run (sends nothing to FortiManager, FortiGates or Proxmox; FortiFlex is only queried)</label></div>
+        <button id="btn_deploy" class="primary">Deploy</button>
       </div>
       <div id="deploy_status" class="card" hidden></div>
     </section>
 
     <section id="v_progress" hidden>
-      <h1 id="p_title">Uitrol</h1>
-      <p class="summary" id="p_sum">Bezig…</p>
+      <h1 id="p_title">Deployment</h1>
+      <p class="summary" id="p_sum">Working…</p>
       <div class="card"><ul class="steps" id="pl"></ul></div>
       <div class="card"><h2>Log</h2><pre class="log" id="log"></pre></div>
-      <a class="back" href="#/deploy"><span class="i"><svg viewBox="0 0 24 24"><path d="M19 12H5m6-6l-6 6 6 6"/></svg></span>Nieuwe uitrol</a>
+      <a class="back" href="#/deploy"><span class="i"><svg viewBox="0 0 24 24"><path d="M19 12H5m6-6l-6 6 6 6"/></svg></span>New deployment</a>
     </section>
 
     <section id="v_servers" hidden>
       <h1>Servers</h1>
       <div id="srv_err"></div>
       <div class="card">
-        <h2><span class="num">01</span>Proxmox-servers</h2>
+        <h2><span class="num">01</span>Proxmox servers</h2>
         <div id="srv_list"></div>
-        <div class="hint">Opgeslagen servers staan bij elke uitrol klaar. De token-secret wordt bewaard in de container (database met rechten 0600) en nooit teruggetoond. Per server onthoudt de tool ook je laatste keuzes (node, storages, bridges, VM-grootte).</div>
+        <div class="hint">Saved servers are ready for every deployment. The token secret is kept in the container (database with mode 0600) and never shown again. Per server the tool also remembers your last choices (node, storages, bridges, VM size).</div>
       </div>
       <div class="card">
-        <h2><span class="num">02</span><span id="srv_form_title">Server toevoegen</span></h2>
+        <h2><span class="num">02</span><span id="srv_form_title">Add server</span></h2>
         <div class="fields">
-          <div class="f"><label>Naam</label><input id="srv_name" placeholder="pve-lab"></div>
+          <div class="f"><label>Name</label><input id="srv_name" placeholder="pve-lab"></div>
           <div class="f"><label>URL</label><input id="srv_url" placeholder="https://pve.example:8006"></div>
-          <div class="f"><label>API token-ID</label><input id="srv_tid" placeholder="user@pam!naam"></div>
-          <div class="f"><label>API token-secret</label><input id="srv_secret" type="password" autocomplete="new-password"></div>
+          <div class="f"><label>API token ID</label><input id="srv_tid" placeholder="user@pam!name"></div>
+          <div class="f"><label>API token secret</label><input id="srv_secret" type="password" autocomplete="new-password"></div>
         </div>
-        <div class="inline"><input type="checkbox" id="srv_tls" checked><label for="srv_tls">TLS-certificaat controleren (uitzetten bij een zelfondertekend certificaat)</label></div>
-        <div class="btnrow"><button id="srv_test">Testen</button><span class="hint" id="srv_res"></span></div>
-        <div class="actions"><button id="srv_cancel" hidden>Annuleren</button><button id="srv_save" class="primary">Opslaan</button></div>
+        <div class="inline"><input type="checkbox" id="srv_tls" checked><label for="srv_tls">Verify the TLS certificate (turn off for a self-signed certificate)</label></div>
+        <div class="btnrow"><button id="srv_test">Test</button><span class="hint" id="srv_res"></span></div>
+        <div class="actions"><button id="srv_cancel" hidden>Cancel</button><button id="srv_save" class="primary">Save</button></div>
       </div>
     </section>
 
     <section id="v_wanemu" hidden>
-      <h1>WAN-emulatie</h1>
+      <h1>WAN emulation</h1>
       <div id="wanemu-err"></div>
       <div class="card">
-        <h2><span class="num">01</span>Presets <small id="wanemu-addr"></small></h2>
-        <div class="hint">Waarden gelden in beide richtingen: een vertraging van 40 ms geeft een RTT van 80 ms. Een preset zonder link geldt voor alle links; de storing-presets zetten alleen die links down. Per link kies je onder de kaart ook een preset.</div>
+        <h2><span class="num">01</span>Failures <small id="wanemu-addr"></small></h2>
+        <div class="hint">Values apply in both directions: a delay of 40 ms adds 80 ms of RTT. A slider or "link down" is applied as soon as you let go. The failure presets take all links of ISP-A, ISP-B or hub 1 down at once; "All neutral" resets everything.</div>
         <div class="btnrow" id="wanemu-presets"></div>
       </div>
       <div class="card">
-        <h2><span class="num">02</span>FortiGates <small>(via port forwarding op wan-emu)</small></h2>
+        <h2><span class="num">02</span>FortiGates <small>(via port forwarding on wan-emu)</small></h2>
         <div id="wanemu-fgts"></div>
-        <div class="hint">De GUI opent in een nieuw tabblad (de FortiGate gebruikt een eigen certificaat: accepteer de waarschuwing). SSH loopt via deze tool; gebruiker en wachtwoord worden niet bewaard.</div>
+        <div class="hint">The GUI opens in a new tab (the FortiGate uses its own certificate: accept the warning). SSH runs through this tool; user and password are not kept.</div>
       </div>
       <div class="wan-cols" id="wanemu-links"></div>
       <div class="term-overlay" id="term_overlay" hidden>
         <div class="term-win">
-          <div class="term-head"><b id="term_title">SSH</b><button id="term_close">Sluiten</button></div>
+          <div class="term-head"><b id="term_title">SSH</b><button id="term_close">Close</button></div>
           <div class="fields" id="term_form">
-            <div class="f"><label>Gebruiker</label><input id="term_user" value="admin" autocomplete="off"></div>
-            <div class="f"><label>Wachtwoord</label><input id="term_pw" type="password" autocomplete="off"></div>
-            <div class="f"><label>&nbsp;</label><button id="term_go" class="primary">Verbinden</button></div>
+            <div class="f"><label>User</label><input id="term_user" value="admin" autocomplete="off"></div>
+            <div class="f"><label>Password</label><input id="term_pw" type="password" autocomplete="off"></div>
+            <div class="f"><label>&nbsp;</label><button id="term_go" class="primary">Connect</button></div>
           </div>
           <div id="term_box" class="term-box"></div>
         </div>
@@ -228,31 +233,31 @@
       <h1>FortiFlex</h1>
       <div id="ff_err"></div>
       <div class="card">
-        <h2><span class="num">01</span>API-gebruiker</h2>
-        <div class="hint">Maak in FortiCloud IAM een API-gebruiker met rechten op FortiFlex (aanmaken van licenties vraagt ReadWrite). Het wachtwoord wordt bewaard in de container (database met rechten 0600) en nooit teruggetoond.</div>
+        <h2><span class="num">01</span>API user</h2>
+        <div class="hint">Create an API user in FortiCloud IAM with access to FortiFlex (creating licences needs ReadWrite). The password is kept in the container (database with mode 0600) and never shown again.</div>
         <div class="fields">
-          <div class="f"><label>API-gebruiker (username)</label><input id="ff_user" autocomplete="off" spellcheck="false"></div>
-          <div class="f"><label>Wachtwoord</label><input id="ff_pw" type="password" autocomplete="new-password"></div>
+          <div class="f"><label>API user (username)</label><input id="ff_user" autocomplete="off" spellcheck="false"></div>
+          <div class="f"><label>Password</label><input id="ff_pw" type="password" autocomplete="new-password"></div>
         </div>
-        <div class="btnrow"><button id="ff_test">Testen</button><span class="hint" id="ff_res"></span></div>
+        <div class="btnrow"><button id="ff_test">Test</button><span class="hint" id="ff_res"></span></div>
       </div>
       <div class="card">
-        <h2><span class="num">02</span>Configuraties</h2>
+        <h2><span class="num">02</span>Configurations</h2>
         <div class="fields">
-          <div class="f"><label>Programma</label><select id="ff_program"></select></div>
+          <div class="f"><label>Program</label><select id="ff_program"></select></div>
           <div class="f"><label>FortiManager</label><select id="ff_fmg"></select></div>
-          <div class="f"><label>FortiGates (hubs en spokes)</label><select id="ff_fgt"></select></div>
-          <div class="f"><label>Asset folder voor nieuwe licenties</label><input id="ff_folder" list="ff_folders" placeholder="My Assets/Lab/SD-WAN" spellcheck="false" autocomplete="off"><datalist id="ff_folders"></datalist></div>
+          <div class="f"><label>FortiGates (hubs and spokes)</label><select id="ff_fgt"></select></div>
+          <div class="f"><label>Asset folder for new licences</label><input id="ff_folder" list="ff_folders" placeholder="My Assets/Lab/SD-WAN" spellcheck="false" autocomplete="off"><datalist id="ff_folders"></datalist></div>
         </div>
-        <div class="hint">Kies een folder uit Asset Management (de lijst vraagt rechten op Asset Management voor de API-gebruiker) of typ een pad; leeg = standaardlocatie. Geldt alleen voor nieuw aangemaakte licenties; bestaande blijven waar ze staan.</div>
+        <div class="hint">Pick a folder from Asset Management (the list needs Asset Management access for the API user) or type a path; empty = default location. Only applies to newly created licences; existing ones stay where they are.</div>
         <div class="hint" id="ff_params"></div>
-        <div class="inline"><input type="checkbox" id="ff_enabled"><label for="ff_enabled">FortiFlex gebruiken bij de uitrol: serienummers en tokens worden per device opgehaald (bestaande licentie hergebruiken, anders een nieuwe aanmaken &ndash; dat kost punten)</label></div>
-        <div class="actions"><button id="ff_save" class="primary">Opslaan</button></div>
+        <div class="inline"><input type="checkbox" id="ff_enabled"><label for="ff_enabled">Use FortiFlex when deploying: serial numbers and tokens are fetched per device (reuse an existing licence, otherwise create a new one &ndash; that costs points)</label></div>
+        <div class="actions"><button id="ff_save" class="primary">Save</button></div>
       </div>
       <div class="card">
-        <h2><span class="num">03</span>Licenties van deze tool <small>(omschrijving &lsquo;fgt-sdwan &hellip;&rsquo;)</small></h2>
+        <h2><span class="num">03</span>Licences of this tool <small>(description &lsquo;fgt-sdwan &hellip;&rsquo;)</small></h2>
         <div id="ff_list"></div>
-        <div class="hint">De tool stopt nooit zelf een licentie. Een gestopte licentie wordt bij een volgende uitrol van dat device weer geactiveerd.</div>
+        <div class="hint">The tool never stops a licence by itself. A stopped licence is reactivated on the next deployment of that device.</div>
       </div>
     </section>
 
@@ -260,25 +265,25 @@
       <h1>Images</h1>
       <div id="img_err"></div>
       <div class="card">
-        <h2><span class="num">01</span>Uploaden</h2>
-        <div class="hint">Download bij FortiCloud (Support &rarr; Firmware Downloads) het <code>FGT_VM64_KVM-…out.kvm.zip</code> en <code>FMG_VM64_KVM-…out.kvm.zip</code>.</div>
+        <h2><span class="num">01</span>Upload</h2>
+        <div class="hint">Download <code>FGT_VM64_KVM-…out.kvm.zip</code> and <code>FMG_VM64_KVM-…out.kvm.zip</code> from FortiCloud (Support &rarr; Firmware Downloads).</div>
         <div class="row">
-          <div><label>FortiGate</label><div class="dropzone" id="dz_fgt"><input type="file" id="up_fgt" accept=".zip,.qcow2"><b>Sleep het bestand hierheen of klik</b><small>.zip of .qcow2</small></div><div class="bar"><div id="bar_fgt"></div></div></div>
-          <div><label>FortiManager</label><div class="dropzone" id="dz_fmg"><input type="file" id="up_fmg" accept=".zip,.qcow2"><b>Sleep het bestand hierheen of klik</b><small>.zip of .qcow2</small></div><div class="bar"><div id="bar_fmg"></div></div></div>
+          <div><label>FortiGate</label><div class="dropzone" id="dz_fgt"><input type="file" id="up_fgt" accept=".zip,.qcow2"><b>Drop the file here or click</b><small>.zip or .qcow2</small></div><div class="bar"><div id="bar_fgt"></div></div></div>
+          <div><label>FortiManager</label><div class="dropzone" id="dz_fmg"><input type="file" id="up_fmg" accept=".zip,.qcow2"><b>Drop the file here or click</b><small>.zip or .qcow2</small></div><div class="bar"><div id="bar_fmg"></div></div></div>
         </div>
       </div>
-      <div class="card"><h2><span class="num">02</span>Opgeslagen images</h2><div id="img_list"></div>
-        <div class="hint">Vergelijk de sha256 met de checksum in de FortiCloud-portal. Images staan in de container; ze gaan pas naar Proxmox bij een uitrol.</div></div>
+      <div class="card"><h2><span class="num">02</span>Saved images</h2><div id="img_list"></div>
+        <div class="hint">Compare the sha256 with the checksum in the FortiCloud portal. Images are kept in the container; they only go to Proxmox when you deploy.</div></div>
     </section>
 
     <section id="v_about" hidden>
-      <h1>Over</h1>
+      <h1>About</h1>
       <div class="card">
-        <h2><span class="num">01</span>Wat doet deze tool?</h2>
-        <p>Rolt via FortiManager 8.0 een SD-WAN/ADVPN-topologie met <b>meerdere VRF's</b> uit (hubs en branches in één regio). De tool maakt in FortiManager <b>native templates</b> aan (metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups en blueprints), afgeleid van Fortinet's Orchestrator &mdash; <b>geen Jinja in FortiManager</b>. De tool kan ook de VM's zelf op Proxmox aanmaken (Day-0 met FortiFlex) of bestaande VM's bootstrappen over SSH.</p>
+        <h2><span class="num">01</span>What does this tool do?</h2>
+        <p>Deploys an SD-WAN/ADVPN topology through FortiManager 8.0 (hubs and branches in one region, single- or multi-VRF). The tool creates <b>native templates</b> in FortiManager (metadata variables, system, SD-WAN and CLI templates, policy packages, template groups and blueprints), derived from Fortinet's Orchestrator &mdash; <b>no Jinja in FortiManager</b>. It can also create the VMs on Proxmox (Day-0 with FortiFlex) behind an emulated WAN, or bootstrap existing VMs over SSH.</p>
         <p class="muted" id="orch"></p>
       </div>
-      <div class="card"><h2><span class="num">02</span>Uitrolstappen</h2><ol class="about" id="steps"></ol></div>
+      <div class="card"><h2><span class="num">02</span>Deployment steps</h2><ol class="about" id="steps"></ol></div>
     </section>
 
   </main>

@@ -1,6 +1,7 @@
 """Static UI checks (no browser): app.js parses, the start-up line only calls functions that exist, and every
 element id used via $("#id") exists in index.html.  python -m tests.test_ui_static"""
 import os, re, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 js = open(os.path.join(root, "static", "app.js")).read()
 html = open(os.path.join(root, "static", "index.html")).read()
@@ -86,3 +87,32 @@ assert "/api/wanemu/forwards" in js and "/api/term/" in js
 assert re.search(r"cdn\.jsdelivr\.net/npm/xterm@\d+\.\d+\.\d+/", js) and re.search(r"xterm-addon-fit@\d+\.\d+\.\d+/", js)
 assert "term_pw\").value = \"\"" in js.replace("'", '"'), "wachtwoordveld wordt na het verbinden leeggemaakt"
 print("OK  UI: FortiGates met 'GUI openen' en SSH in de browser (xterm.js vast versienummer), wachtwoord niet bewaard")
+
+# WAN-emulatie: releasing a slider / toggling "link down" applies at once (no hidden "Toepassen" step), with feedback
+ch = js[js.index('$("#v_wanemu").addEventListener("change"'):]
+ch = ch[:ch.index("\n});") + 4]
+assert "wanApply(" in ch and "[data-wf]" in ch, "loslaten van een schuifje past de link direct toe"
+assert "wan-ok" in js and ".wan-ok" in open(os.path.join(root, "static", "style.css")).read()
+print("OK  UI: WAN-emulatie past een schuifje/link down direct toe bij loslaten, met bevestiging in de kaart")
+
+assert "data-wps" not in js, "geen preset-keuze per link meer (alleen de storing-presets bovenaan)"
+print("OK  UI: alleen storing-presets")
+
+# topology picture on the deploy page, drawn from the form and redrawn on changes / scope switches
+assert 'id="topo"' in html
+for f in ("topoSvg", "topoDraw"):
+    assert re.search(rf"function\s+{f}\b", js), f
+assert "topoDraw()" in js[js.index("function draw()"):js.index("function draw()") + 1500], "draw() tekent de topologie"
+assert "topoDraw()" in js[js.index("function scopeApply()"):js.index("function scopeApply()") + 600], "scope-wissel tekent opnieuw"
+try:                                                       # render it for real with node (optional, like the syntax check)
+    probe = ("const esc=s=>String(s);" + js[js.index("function topoSvg"):js.index("function topoDraw")] +
+             "const T=" + __import__("json").dumps(__import__("app.model", fromlist=["x"]).merged({})) + ";"
+             "const s=topoSvg(T,'all');if(!s.startsWith('<svg'))throw 'geen svg';"
+             "for(const w of ['site1-H1','site1-3','ISP-A','100.127.201.13','VLAN 3305','client-site1-1','wan-emu','FortiManager'])"
+             "if(!s.includes(w))throw 'mist '+w;"
+             "const d=topoSvg(T,'tpl');if(!d.includes('opacity'))throw 'tpl: niets gedimd';console.log('ok')")
+    r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stderr[:400]
+except FileNotFoundError:
+    pass
+print("OK  UI: topologieplaatje (FMG, wan-emu, ISP-HUB/A/B, hubs, spokes, LAN-VLAN's, clients), per scope gedimd")

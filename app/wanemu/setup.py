@@ -89,31 +89,31 @@ def _must(sh, cmd, what):
 def provision(sh, t, agent_token, emit, step="pve_wan"):
     """Packages, netem/ifb check, forwarding, DHCP, agent. Safe to run again."""
     if sh.run(f"dpkg -s {PACKAGES} >/dev/null 2>&1")[0] != 0:
-        emit(step, "running", f"pakketten installeren: {PACKAGES}")
+        emit(step, "running", f"installing packages: {PACKAGES}")
         _must(sh, f"DEBIAN_FRONTEND=noninteractive apt-get update -q && "
-                  f"DEBIAN_FRONTEND=noninteractive apt-get install -y -q {PACKAGES}", "pakketten installeren mislukt")
+                  f"DEBIAN_FRONTEND=noninteractive apt-get install -y -q {PACKAGES}", "installing packages failed")
     seg_if = net.SEG_IFACE["hub"]
     if sh.run("ip link add ifb-test type ifb && ip link del ifb-test")[0] != 0 or \
             sh.run(f"tc qdisc replace dev {seg_if} root netem delay 0ms && tc qdisc del dev {seg_if} root")[0] != 0:
-        raise WanEmuError("netem/ifb werkt niet in de container: laad sch_netem en ifb op de PVE-host "
-                          "(modprobe sch_netem ifb; blijvend via /etc/modules-load.d/wan-emu.conf)")
+        raise WanEmuError("netem/ifb do not work in the container: load sch_netem and ifb on the PVE host "
+                          "(modprobe sch_netem ifb; permanently via /etc/modules-load.d/wan-emu.conf)")
     sh.put("/etc/sysctl.d/90-wan-emu.conf", SYSCTL)
-    _must(sh, "sysctl -q -p /etc/sysctl.d/90-wan-emu.conf", "forwarding aanzetten mislukt")   # not --system: kernel.* is read-only in a CT
+    _must(sh, "sysctl -q -p /etc/sysctl.d/90-wan-emu.conf", "turning on forwarding failed")   # not --system: kernel.* is read-only in a CT
     sh.put("/etc/dnsmasq.d/wan-emu.conf", net.dnsmasq_conf(t))
-    _must(sh, "systemctl enable -q dnsmasq && systemctl restart dnsmasq", "dnsmasq starten mislukt")
-    _must(sh, "mkdir -p /etc/wan-emu /opt/wan-emu && chmod 700 /etc/wan-emu", "mappen aanmaken mislukt")
+    _must(sh, "systemctl enable -q dnsmasq && systemctl restart dnsmasq", "starting dnsmasq failed")
+    _must(sh, "mkdir -p /etc/wan-emu /opt/wan-emu && chmod 700 /etc/wan-emu", "creating directories failed")
     sh.put("/etc/wan-emu/topology.json", json.dumps(net.agent_topology(t), indent=1))
     sh.put("/etc/wan-emu/token", agent_token, 0o600)
     sh.put("/opt/wan-emu/agent.py", AGENT_SRC.read_text(), 0o755)
     sh.put("/etc/systemd/system/wan-emu-agent.service", _unit(t))
     _must(sh, "systemctl daemon-reload && systemctl enable -q wan-emu-agent && systemctl restart wan-emu-agent",
-          "WAN-emulator-agent starten mislukt")
+          "starting the WAN emulator agent failed")
     # the agent applies tc + nft (incl. NAT) before it listens: listening = shaping and NAT are loaded
     port = t["wanemu"]["agent_port"]
     if sh.run(f"for i in $(seq 1 30); do systemctl is-active -q wan-emu-agent && ss -ltn | grep -q ':{port} ' && exit 0; "
               "sleep 1; done; exit 1")[0] != 0:
         log = sh.run("journalctl -u wan-emu-agent -n 15 --no-pager")[1].strip()
-        raise WanEmuError("WAN-emulator-agent komt niet op (journalctl -u wan-emu-agent): " + (log[-600:] or "geen log"))
+        raise WanEmuError("WAN emulator agent does not come up (journalctl -u wan-emu-agent): " + (log[-600:] or "no log"))
 
 
 def internet_check(sh, t):
@@ -132,24 +132,24 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
     created = not found
     if found:
         vmid = int(found[0]["vmid"])
-        emit(step, "running", f"{w['hostname']}: bestaat al (CT {vmid}), configuratie bijwerken")
+        emit(step, "running", f"{w['hostname']}: exists (CT {vmid}), updating its configuration")
         if w.get("vmid") and int(w["vmid"]) != vmid:
-            emit(step, "running", f"{w['hostname']}: CT-id {w['vmid']} genegeerd, de bestaande CT {vmid} wordt gebruikt "
-                                  "(een CT-id kan niet wijzigen; verwijder CT {vmid} voor een nieuwe)".replace("{vmid}", str(vmid)))
+            emit(step, "running", f"{w['hostname']}: CT id {w['vmid']} ignored, the existing CT {vmid} is used "
+                                  "(a CT id cannot change; delete CT {vmid} for a new one)".replace("{vmid}", str(vmid)))
         params = {k: v for k, v in net.ct_params(t, vmid, "").items() if k not in CREATE_ONLY}
         if pve.ct_status(node, vmid) == "running":
             pve.wait_task(node, pve.stop_ct(node, vmid))
         pve.set_ct_config(node, vmid, params)
     else:
         vmid = int(w.get("vmid") or pve.next_vmid())
-        emit(step, "running", f"{w['hostname']}: CT {vmid} aanmaken ({w['template'].split('/')[-1]})")
+        emit(step, "running", f"{w['hostname']}: creating CT {vmid} ({w['template'].split('/')[-1]})")
         pve.wait_task(node, pve.create_ct(node, net.ct_params(t, vmid, public_key(secrets["ssh_key"]))))
     try:
         pve.wait_task(node, pve.start_ct(node, vmid))
-        emit(step, "running", f"{w['hostname']}: gestart, wachten op SSH op {ip}")
+        emit(step, "running", f"{w['hostname']}: started, waiting for SSH on {ip}")
         if not waiter(ip, 22, True, 180):
-            raise WanEmuError(f"{w['hostname']} niet bereikbaar via SSH op {ip}:22 (controleer uplink-VLAN "
-                              f"{w['uplink']['vlan']} en gateway {w['uplink']['gw']})")
+            raise WanEmuError(f"{w['hostname']} not reachable via SSH on {ip}:22 (check uplink VLAN "
+                              f"{w['uplink']['vlan']} and gateway {w['uplink']['gw']})")
         sh = connector(ip, secrets["ssh_key"])
         try:
             provision(sh, t, secrets["agent_token"], emit, step)
@@ -158,7 +158,7 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
             sh.close()
     except Exception as e:
         if created:
-            emit(step, "running", f"{w['hostname']}: inrichten mislukt, CT {vmid} wordt verwijderd")
+            emit(step, "running", f"{w['hostname']}: provisioning failed, deleting CT {vmid}")
             try:
                 pve.wait_task(node, pve.stop_ct(node, vmid))
             except Exception:
@@ -171,8 +171,8 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
             raise
         raise WanEmuError(f"{w['hostname']}: {e}") from e
     if not internet:
-        emit(step, "warn", "geen internet vanuit ISP-A: controleer NAT op wan-emu en de uplink "
-                           f"{w['uplink']['gw']} (FortiGates krijgen dan geen FortiFlex-licentie)")
+        emit(step, "warn", "no internet from ISP-A: check NAT on wan-emu and the uplink "
+                           f"{w['uplink']['gw']} (the FortiGates will not get a FortiFlex licence)")
     return {"vmid": vmid, "created": created, "internet": internet}
 
 
@@ -199,6 +199,6 @@ def deploy_clients(pve, t, password, emit, step="clients"):
             created = True
         pve.wait_task(node, pve.start_ct(node, vmid))
         ip = net.client_params(t, e, vmid, "").get("net0").split("ip=")[1].split(",")[0]
-        emit(step, "running", f"{name}: CT {vmid} {'aangemaakt' if created else 'bijgewerkt'}, {ip} achter {e['name']}")
+        emit(step, "running", f"{name}: CT {vmid} {'created' if created else 'updated'}, {ip} behind {e['name']}")
         out.append({"name": name, "vmid": vmid, "created": created, "ip": ip})
     return out

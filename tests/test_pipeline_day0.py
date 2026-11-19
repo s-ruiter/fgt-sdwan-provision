@@ -163,7 +163,7 @@ n_vm, n_calls = len(vms), len(fake_proxmox.STATE["calls"])
 events.clear()
 pipeline(t, cfg, Fmg(FMG, "admin", NEWPW), emit, boot())
 assert len(vms) == n_vm == 6 and fake_proxmox.STATE["creates"] == 6, fake_proxmox.STATE["creates"]
-assert any("bestaat al" in m for _, _, m in events) and not list(fake_proxmox.STATE["uploads"])
+assert any("exists" in m for _, _, m in events) and not list(fake_proxmox.STATE["uploads"])
 print("OK  2e run idempotent: bestaande VM's hergebruikt (geen nieuwe create/upload)")
 
 # ---------------------------------------------------------------- dry-run

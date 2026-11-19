@@ -49,7 +49,7 @@ class Chan:                                       # fake paramiko channel: echoe
 def fake_connect(host, port, user, password, cols, rows):
     seen.update(host=host, port=port, user=user, password=password, cols=cols, rows=rows)
     if password != "goed":
-        raise main.TermError("inloggen geweigerd")
+        raise main.TermError("login refused")
     seen["chan"] = Chan()
     return seen["chan"], lambda: seen.update(closed_client=True)
 
@@ -105,9 +105,9 @@ assert not errors, errors                                               # review
 with connect(f"ws://127.0.0.1:{port}/api/term/site1-1") as ws:          # wrong password: message, then closed
     ws.send(json.dumps({"user": "admin", "password": "fout", "cols": 80, "rows": 24}))
     msg = ws.recv(timeout=3)
-    assert "inloggen geweigerd" in msg and "fout" not in msg, msg
+    assert "login refused" in msg and "fout" not in msg, msg
 with connect(f"ws://127.0.0.1:{port}/api/term/bestaat-niet") as ws:
     ws.send(json.dumps({"user": "admin", "password": "goed"}))
-    assert "onbekend" in ws.recv(timeout=3).lower()
+    assert "unknown" in ws.recv(timeout=3).lower()
 srv.should_exit = True
 print("OK  SSH in de browser: websocket naar de doorgestuurde SSH-poort, invoer/uitvoer, resize, foute login en onbekend device")

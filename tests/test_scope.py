@@ -69,7 +69,7 @@ import copy
 bare = copy.deepcopy(t)
 for d in bare["hubs"] + bare["edges"]:
     d["serial"] = ""
-assert any("serienummer" in x for x in model.validate(bare))                       # still required for FortiGates
+assert any("serial number" in x for x in model.validate(bare))                       # still required for FortiGates
 assert model.validate(bare, devices=False) == [], model.validate(bare, devices=False)
 nogw = copy.deepcopy(bare)
 nogw["hubs"][0]["wan1_gw"] = ""
@@ -83,7 +83,7 @@ assert names() == {"fmg"}, names()
 skip = ("devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "install", "clients")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
 assert all(last[k] == "ok" for k in ("pve_fmg", "bootstrap_fmg", "preflight", "fmg_settings", "adom", "templates")), last
-assert any(s_ == "pve_fgt" and "alleen FortiManager" in m for s_, _, m in ev)
+assert any(s_ == "pve_fgt" and "FortiManager only" in m for s_, _, m in ev)
 bodies = mock_fmg.STATE["bodies"]
 assert not any(u == "dvm/cmd/add/device" for _, u, _ in bodies)                     # no model devices
 assert not any(u.startswith("securityconsole/") for _, u, _ in bodies)               # no install
@@ -98,10 +98,10 @@ last, ev = run(scope="fgt")
 assert names() == {"fmg", *TOKS}, names()
 assert fake_proxmox.STATE["creates"] == 1 + len(devs), fake_proxmox.STATE["creates"]       # FMG not created again
 assert last["pve_fmg"] == last["bootstrap_fmg"] == last["fmg_settings"] == "skipped", last
-assert any(s == "pve_fmg" and "alleen FortiGates" in m for s, _, m in ev)
+assert any(s == "pve_fmg" and "FortiGates only" in m for s, _, m in ev)
 assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "templates", "install")), last
 assert fake_proxmox.STATE["cts"], "alleen FortiGates (Day-0): WAN-emulator hoort erbij"
-assert any(s == "adom" and "hergebruikt" in m for s, _, m in ev)
+assert any(s == "adom" and "reused" in m for s, _, m in ev)
 assert any("dynamic_mapping" in str(d) for _, _, d in mock_fmg.STATE["bodies"])        # per-device values filled now
 inst = [(u, d) for _, u, d in mock_fmg.STATE["bodies"] if u.startswith("securityconsole/")]
 assert [d["scope"][0]["name"] for u, d in inst if u.endswith("install/device")] == [x["name"] for x in devs], inst
@@ -116,7 +116,7 @@ try:
     pipeline(t, cfg, Fmg("http://127.0.0.1:1", "admin", PW), lambda *a: None, boot(scope="fgt", fgt="none"))
     raise AssertionError("moest falen")
 except FmgError as e:
-    assert "bestaande" in str(e) or "bereikbare FortiManager" in str(e), e
+    assert "existing" in str(e) or "reachable FortiManager" in str(e), e
 print("OK  alleen FortiGates zonder bereikbare FortiManager: duidelijke foutmelding")
 
 # ---------------------------------------------------------------- only the templates, to an existing FortiManager
@@ -142,7 +142,7 @@ assert fake_proxmox.STATE["creates"] == creates                                 
 skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "install", "clients")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
 assert all(last[k] == "ok" for k in ("preflight", "adom", "templates")), last
-assert any(s_ == "fmg_settings" and "alleen templates" in m for s_, _, m in ev)
+assert any(s_ == "fmg_settings" and "templates only" in m for s_, _, m in ev)
 bodies = mock_fmg.STATE["bodies"]
 assert mock_fmg.STATE["cli_sets"] == []                                              # FMG system settings untouched
 assert not any(u == "dvm/cmd/add/device" or u.startswith("securityconsole/") for _, u, _ in bodies)
@@ -152,7 +152,7 @@ try:
     pipeline(tb, bare_cfg, Fmg("http://127.0.0.1:1", "admin", PW), lambda *a: None, boot(scope="tpl"))
     raise AssertionError("moest falen")
 except FmgError as e:
-    assert "Alleen templates" in str(e), e
+    assert "Templates only" in str(e), e
 print("OK  alleen templates: bestaande FortiManager, geen Proxmox/VM's/instellingen/devices/install; ADOM + templates gezet")
 
 # ---------------------------------------------------------------- only the model devices, to an existing FortiManager
@@ -200,12 +200,12 @@ assert dev_inst == [x["name"] for x in devs], dev_inst                          
 assert sorted(pkg_inst) == sorted((r["name"], sorted(r["devices"])) for r in cfg["roles"]), pkg_inst   # Re-install policy
 assert [u for u, _ in inst][:len(devs)] == ["securityconsole/install/device"] * len(devs)              # devices first
 assert mock_fmg.STATE["cli_sets"] == [("cli/global/system/global", {"fgfm-allow-vm": "enable"})], mock_fmg.STATE["cli_sets"]
-assert any(s_ == "devices" and "fgfm-allow-vm aangezet" in m for s_, _, m in ev)        # FMG 7.4.7+: VM devices allowed
+assert any(s_ == "devices" and "fgfm-allow-vm turned on" in m for s_, _, m in ev)        # FMG 7.4.7+: VM devices allowed
 try:
     pipeline(t, cfg, Fmg("http://127.0.0.1:1", "admin", PW), lambda *a: None, boot(scope="dev"))
     raise AssertionError("moest falen")
 except FmgError as e:
-    assert "Alleen model devices" in str(e), e
+    assert "Model devices only" in str(e), e
 print("OK  alleen model devices: bestaande FortiManager; ADOM, model devices (met serienummer) en templates met waarden per device; geen VM's/instellingen/install")
 
 # ---------------------------------------------------------------- everything (default) is unchanged
@@ -226,14 +226,14 @@ t_sn["hubs"][0]["serial"] = "FGVMELTM26990001"
 ev = []
 pipeline(t_sn, cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m)), boot(scope="dev", fgt_tokens={}, images={}))
 assert ("site1-H1", "FGVMELTM26990001") in mock_fmg.STATE["sn_updates"], mock_fmg.STATE.get("sn_updates")
-assert any("serienummer" in m and "FGVMELTM26990001" in m for _, _, m in ev)
+assert any("serial number" in m and "FGVMELTM26990001" in m for _, _, m in ev)
 mock_fmg.STATE["refuse_sn_update"] = True
 t_sn["hubs"][0]["serial"] = "FGVMELTM26990002"
 try:
     pipeline(t_sn, cfg, Fmg(FMG, "admin", PW), lambda *a: None, boot(scope="dev", fgt_tokens={}, images={}))
     raise AssertionError("moest falen")
 except FmgError as e:
-    assert "verwijder" in str(e).lower() and "site1-H1" in str(e), e
+    assert "delete" in str(e).lower() and "site1-H1" in str(e), e
 mock_fmg.STATE["refuse_sn_update"] = False
 print("OK  model device met ander serienummer: bijgewerkt; weigert FortiManager dat, dan duidelijke fout")
 
@@ -281,11 +281,11 @@ assert not any("FortiManager: FortiFlex" in x or "FortiManager: image" in x for 
 r = req("fmg", fmg_token="FMGTOKEN0123456789", pve_token_secret="x")
 main._apply_scope(r)
 e = errors(r)
-assert not any("FortiFlex-token ontbreekt" in x and "FortiManager" not in x for x in e), e     # FGT tokens not needed
-assert not any("FortiGates: admin-wachtwoord" in x or "FortiGate: image" in x for x in e), e
+assert not any("FortiFlex token missing" in x and "FortiManager" not in x for x in e), e     # FGT tokens not needed
+assert not any("FortiGates: admin password" in x or "FortiGate: image" in x for x in e), e
 r = req("fgt", fgt_tokens=TOKS, fgt_new_pw=PW, pve_token_secret="x")
 r.fmg.password = None
 main._apply_scope(r)
-assert any("FortiManager: admin-wachtwoord" in x for x in errors(r))                          # API login always needed
+assert any("FortiManager: admin password" in x for x in errors(r))                          # API login always needed
 print("OK  API: keuze zet de methode van het andere product op 'none'; alleen de benodigde tokens/images/wachtwoorden verplicht")
 print("alle scope-tests geslaagd")

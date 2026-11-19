@@ -43,14 +43,14 @@ sets = mock_fmg.STATE["cli_sets"]
 assert sets[-1] == (G, {"faz-status": "enable"}), sets                 # FAZ (reboot) is the very last change
 assert not any("adom-status" in d for _, d in sets), sets             # already enabled: not sent again
 assert waits == [("127.0.0.1", 8102, False), ("127.0.0.1", 8102, True)], waits
-assert ev[-1][1] == "ok" and "FortiAnalyzer-features aan" in ev[-1][2], ev[-1]
+assert ev[-1][1] == "ok" and "FortiAnalyzer features on" in ev[-1][2], ev[-1]
 print("OK  eerste run: timers 180 min (10800 s), tijdzone 28, ADOM advanced, FAZ aan als laatste + herstart afgewacht")
 
 # 2. second run: nothing to change, no reboot
 mock_fmg.STATE["cli_sets"], waits[:] = [], []
 ev = run()
 assert mock_fmg.STATE["cli_sets"] == [] and waits == [], (mock_fmg.STATE["cli_sets"], waits)
-assert ev[-1][1] == "ok" and "stonden al aan" in ev[-1][2]
+assert ev[-1][1] == "ok" and "were already on" in ev[-1][2]
 print("OK  tweede run: niets gewijzigd, geen herstart (idempotent)")
 
 # 3. FMG does not come back -> clear error
@@ -62,7 +62,7 @@ try:
     apply_fmg_settings(f, {"waiter": lambda h, p, up, t: not up}, lambda *a: ev.append(a))
     raise AssertionError("moest falen")
 except FmgError as e:
-    assert "niet terug" in str(e), e
+    assert "does not come back" in str(e), e
 print("OK  FortiManager komt niet terug na FAZ-herstart: duidelijke fout")
 
 # 4. dry-run sends nothing

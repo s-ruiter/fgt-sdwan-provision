@@ -36,7 +36,7 @@ def qcow2_virtual_size(path):
     with open(path, "rb") as fh:
         head = fh.read(32)
     if len(head) < 32 or head[:4] != MAGIC:
-        raise ImageError(f"{Path(path).name} is geen geldig qcow2-bestand")
+        raise ImageError(f"{Path(path).name} is not a valid qcow2 file")
     return struct.unpack(">Q", head[24:32])[0]
 
 
@@ -48,7 +48,7 @@ def _pick_qcow2(zip_path, dest, role):
     try:
         zf = zipfile.ZipFile(zip_path)
     except zipfile.BadZipFile as e:
-        raise ImageError("ongeldig zip-bestand") from e
+        raise ImageError("invalid zip file") from e
     out = []
     with zf:
         for info in zf.infolist():
@@ -60,10 +60,10 @@ def _pick_qcow2(zip_path, dest, role):
                 with zf.open(info) as src, open(target, "wb") as dst:
                     shutil.copyfileobj(src, dst, CHUNK)
             except (zipfile.BadZipFile, OSError) as e:
-                raise ImageError("zip-bestand is beschadigd") from e
+                raise ImageError("zip file is damaged") from e
             out.append(target)
     if not out:
-        raise ImageError("geen .qcow2 in de zip gevonden")
+        raise ImageError("no .qcow2 found in the zip")
     for p in out:                      # prefer the file that matches the role (fortios.qcow2 / fmg.qcow2)
         if _HINT[role].search(p.name):
             return p
@@ -73,14 +73,14 @@ def _pick_qcow2(zip_path, dest, role):
 def save_upload(data_dir, fileobj, filename, role):
     """Stream an upload to disk, verify and register it. Returns the metadata dict."""
     if role not in ROLES:
-        raise ImageError("role moet 'fgt' of 'fmg' zijn")
+        raise ImageError("role must be 'fgt' or 'fmg'")
     name = Path(filename or "upload").name
     low = name.lower()
     if not low.endswith((".zip", ".qcow2")):
-        raise ImageError("alleen .zip of .qcow2 toegestaan")
+        raise ImageError("only .zip or .qcow2 allowed")
     other = "fmg" if role == "fgt" else "fgt"
     if _HINT[other].search(name) and not _HINT[role].search(name):
-        raise ImageError(f"'{name}' lijkt een {ROLES[other]}-image, maar is als {ROLES[role]} geupload")
+        raise ImageError(f"'{name}' looks like a {ROLES[other]} image, but was uploaded as {ROLES[role]}")
     cleanup_stale(data_dir)
     iid = uuid.uuid4().hex[:12]
     d = images_dir(data_dir) / iid
@@ -108,7 +108,7 @@ def save_upload(data_dir, fileobj, filename, role):
                 "version": m.group(1) if m else None, "build": m.group(2) if m else None,
                 "uploaded_at": time.time(), "warnings": []}
         if role == "fmg" and meta["version"] and not meta["version"].startswith("8.0"):
-            meta["warnings"].append(f"FortiManager-image is v{meta['version']}, de tool verwacht 8.0.x")
+            meta["warnings"].append(f"FortiManager image is v{meta['version']}, the tool expects 8.0.x")
         (d / "meta.json").write_text(json.dumps(meta))
         return meta
     except Exception:
@@ -128,10 +128,10 @@ def list_images(data_dir):
 
 def get_image(data_dir, iid):
     if not ID_RE.match(iid or ""):
-        raise ImageError("onbekende image")
+        raise ImageError("unknown image")
     p = images_dir(data_dir) / iid / "meta.json"
     if not p.exists():
-        raise ImageError("onbekende image")
+        raise ImageError("unknown image")
     meta = json.loads(p.read_text())
     meta["path"] = str(p.parent / meta["qcow2"])
     return meta
@@ -139,7 +139,7 @@ def get_image(data_dir, iid):
 
 def delete_image(data_dir, iid):
     if not ID_RE.match(iid or ""):
-        raise ImageError("onbekende image")
+        raise ImageError("unknown image")
     shutil.rmtree(images_dir(data_dir) / iid, ignore_errors=True)
 
 

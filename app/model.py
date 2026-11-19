@@ -72,7 +72,7 @@ DEFAULTS = {
         "name": "West",
         "bgp_as": 65001,
         "lo_summary": "10.200.1.0/24",
-        "multi_vrf": True,                   # False: classic single-VRF design (one LAN per device, no PE-VRF/leak)
+        "multi_vrf": False,                  # False: classic single-VRF design (one LAN per device, no PE-VRF/leak)
         "lan_summary": "10.0.0.0/8",         # single-VRF only (multi-VRF: per VRF)
         "vrfs": [
             {"id": 11, "lan_summary": "10.0.0.0/14", "dia": True},
@@ -143,76 +143,76 @@ def validate(t, devices=True, fmg_vm=True):
     err = []
     normalize_wans(t)
     if not _NAME.match(t.get("adom", "")):
-        err.append("ADOM-naam: 1-35 tekens (letters, cijfers, _ . -), begint met letter/cijfer")
+        err.append("ADOM name: 1-35 characters (letters, digits, _ . -), starting with a letter/digit")
     if t.get("os_ver") not in ("7.6", "8.0"):
-        err.append("os_ver moet 8.0 (FortiManager 8.0.x) of 7.6 (FortiManager 7.6.x) zijn")
+        err.append("os_ver must be 8.0 (FortiManager 8.0.x) or 7.6 (FortiManager 7.6.x)")
     r = t.get("region", {})
     if _multi(t):
         if not r.get("vrfs"):
-            err.append("Multi-VRF: minstens 1 VRF nodig (of zet multi-VRF uit)")
+            err.append("Multi-VRF: at least 1 VRF needed (or turn multi-VRF off)")
         ids = [v.get("id") for v in r.get("vrfs", [])]
         if len(set(ids)) != len(ids) or any(not isinstance(i, int) or i < 2 or i > 251 for i in ids):
-            err.append("VRF-id's: uniek, geheel getal 2-251 (VRF 1 is gereserveerd als PE-VRF)")
+            err.append("VRF ids: unique, integer 2-251 (VRF 1 is reserved as PE-VRF)")
         for v in r.get("vrfs", []):
             if not _ip(v.get("lan_summary", ""), True):
-                err.append(f"VRF {v.get('id')}: ongeldige lan_summary")
+                err.append(f"VRF {v.get('id')}: invalid lan_summary")
     elif not _ip(r.get("lan_summary", ""), True):
-        err.append("Single-VRF: ongeldige LAN-summary")
+        err.append("Single-VRF: invalid LAN summary")
     if len(t.get("hubs", [])) < 1 or len(t.get("edges", [])) < 1:
-        err.append("Minstens 1 hub en 1 branch nodig")
+        err.append("At least 1 hub and 1 branch needed")
 
     f = t.get("fmgr", {})
     if not fmg_vm:                             # existing FortiManager: only its address is used (API + FortiGate central-management)
         if not (_ip(f.get("ip", "")) or _cidr(f.get("ip", ""))):
-            err.append("FortiManager: IP-adres (a.b.c.d) is verplicht")
+            err.append("FortiManager: IP address (a.b.c.d) is required")
     elif not _cidr(f.get("ip", "")):
-        err.append("FortiManager: vast IP-adres als a.b.c.d/nn is verplicht")
+        err.append("FortiManager: a static IP address as a.b.c.d/nn is required")
     elif fmg_vm and (not _ip(f.get("gateway", "")) or not _gw_ok(f["ip"], f["gateway"])):
-        err.append("FortiManager: gateway ontbreekt of ligt niet in het subnet van het FMG-IP")
+        err.append("FortiManager: gateway missing or not in the subnet of the FMG IP")
     if f.get("initial_ip") and not _ip(f["initial_ip"]):
-        err.append("FortiManager: ongeldig initieel IP")
+        err.append("FortiManager: invalid initial IP")
 
     if not t.get("dns_primary"):
-        err.append("DNS primair is verplicht (FortiFlex-licentie en FortiGuard hebben DNS nodig)")
+        err.append("Primary DNS is required (the FortiFlex licence and FortiGuard need DNS)")
     for k in ("dns_primary", "dns_secondary"):
         if t.get(k) and not _ip(t[k]):
-            err.append(f"{k}: ongeldig IP")
+            err.append(f"{k}: invalid IP")
     if not re.fullmatch(r"[a-z ]+", t.get("wan1_access", "")):
-        err.append("wan1_access: alleen kleine letters en spaties (bv. 'ping https ssh fgfm')")
+        err.append("wan1_access: lower-case letters and spaces only (e.g. 'ping https ssh fgfm')")
 
     names, sns = set(), set()
     for kind in ("hubs", "edges"):
         for d in t.get(kind, []):
             n = d.get("name", "")
             if not _NAME.match(n):
-                err.append(f"{kind}: ongeldige naam '{n}'")
+                err.append(f"{kind}: invalid name '{n}'")
             if n in names:
-                err.append(f"Dubbele naam '{n}'")
+                err.append(f"Duplicate name '{n}'")
             names.add(n)
             sn = d.get("serial", "").strip()
             if devices and not _SN.match(sn):
-                err.append(f"{n}: serienummer ontbreekt/ongeldig ('{sn}')")
+                err.append(f"{n}: serial number missing/invalid ('{sn}')")
             if devices and sn and sn.upper() in sns:
-                err.append(f"{n}: dubbel serienummer")
+                err.append(f"{n}: duplicate serial number")
             sns.add(sn.upper())
             if not _ip(d.get("loopback", "")):
-                err.append(f"{n}: ongeldig loopback-adres")
+                err.append(f"{n}: invalid loopback address")
             for k, l in enumerate(d.get("lans", [])):
                 if l.get("intf") and not _cidr(l.get("ip", "")):
-                    err.append(f"{n}: LAN{k+1} ongeldig IP/prefix")
+                    err.append(f"{n}: LAN{k+1} invalid IP/prefix")
             if _multi(t) and len(d.get("lans", [])) > len(r.get("vrfs", [])):
-                err.append(f"{n}: meer LAN's dan VRF's")
+                err.append(f"{n}: more LANs than VRFs")
             if not d.get("wan1_intf"):
-                err.append(f"{n}: wan1-poort (bv. port1) is verplicht: ZTP/FMG-verbinding loopt hierover")
+                err.append(f"{n}: wan1 port (e.g. port1) is required: the ZTP/FMG connection runs over it")
             if kind == "hubs":                     # hubs: wan1 always static (branches dial in to this address)
                 if not _cidr(d.get("wan1_ip", "")):
-                    err.append(f"{n}: wan1 IP als a.b.c.d/nn verplicht (hub: altijd statisch)")
+                    err.append(f"{n}: wan1 IP as a.b.c.d/nn required (hub: always static)")
                 elif not _ip(d.get("wan1_gw", "")) or not _gw_ok(d["wan1_ip"], d["wan1_gw"]):   # also without devices:
-                    err.append(f"{n}: wan1 gateway ontbreekt of ligt niet in het subnet")          # it is in the hub SD-WAN template
+                    err.append(f"{n}: wan1 gateway missing or not in the subnet")          # it is in the hub SD-WAN template
             elif d.get("wan2_intf") and d["wan2_intf"] == d.get("wan1_intf"):
-                err.append(f"{n}: wan2-poort moet een andere poort zijn dan wan1")
+                err.append(f"{n}: wan2 port must be another port than wan1")
             if d.get("initial_ip") and not _ip(d["initial_ip"]):
-                err.append(f"{n}: ongeldig initieel IP")
+                err.append(f"{n}: invalid initial IP")
     return err
 
 
@@ -384,55 +384,55 @@ def validate_wanemu(t):
         try:
             n = ipaddress.ip_network(str(g.get("subnet", "")).strip())
         except ValueError:
-            err.append(f"WAN-emulatie {name}: ongeldig subnet (a.b.c.0/nn)")
+            err.append(f"WAN emulation {name}: invalid subnet (a.b.c.0/nn)")
             continue
         nets[name] = n
         if not _ip(g.get("gw", "")) or ipaddress.ip_address(g["gw"].strip()) not in n:
-            err.append(f"WAN-emulatie {name}: gateway ontbreekt of ligt niet in {n}")
+            err.append(f"WAN emulation {name}: gateway missing or not in {n}")
         if key != "hub":
             lo, hi = (g.get("pool") or [0, 0])[:2]
             rs = g.get("res_start")
             if not all(isinstance(x, int) for x in (lo, hi, rs)) or not (0 < rs < lo <= hi < n.num_addresses - 1):
-                err.append(f"WAN-emulatie {name}: reserveringen en pool moeten binnen het subnet vallen (start < pool)")
+                err.append(f"WAN emulation {name}: reservations and pool must be inside the subnet (start < pool)")
             elif rs + len(t.get("edges", [])) - 1 >= lo:
-                err.append(f"WAN-emulatie {name}: te veel spokes voor de reserveringen (.{rs} t/m .{lo - 1})")
+                err.append(f"WAN emulation {name}: too many spokes for the reservations (.{rs} to .{lo - 1})")
     try:
         ui = ipaddress.ip_interface(str(up.get("ip", "")).strip())
         if ui.network.prefixlen == 32 or not _ip(up.get("gw", "")) or ipaddress.ip_address(up["gw"].strip()) not in ui.network:
-            err.append("WAN-emulatie uplink: gateway ontbreekt of ligt niet in het subnet van het uplink-IP")
+            err.append("WAN emulation uplink: gateway missing or not in the subnet of the uplink IP")
         nets["uplink"] = ui.network
     except ValueError:
-        err.append("WAN-emulatie uplink: IP als a.b.c.d/nn is verplicht")
+        err.append("WAN emulation uplink: IP as a.b.c.d/nn is required")
     names = list(nets)
     for i, a in enumerate(names):
         for b in names[i + 1:]:
             if nets[a].overlaps(nets[b]):
-                err.append(f"WAN-emulatie: {a} en {b} overlappen")
+                err.append(f"WAN emulation: {a} and {b} overlap")
     for key in ("lan_vlan_base", "lan2_vlan_base"):            # LAN VLANs base+1 .. base+n must stay clear
         b = w.get(key)
         rng = range(b + 1, b + 1 + n_fgt) if isinstance(b, int) else range(0)
         if not isinstance(b, int) or b < 1 or b + n_fgt > 4094:
-            err.append(f"WAN-emulatie: LAN-VLAN-basis {key} moet 1-{4094 - n_fgt} zijn")
+            err.append(f"WAN emulation: LAN VLAN base {key} must be 1-{4094 - n_fgt}")
         elif any(v in rng for v in [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]):
-            err.append(f"WAN-emulatie: LAN-VLAN's {rng.start}-{rng.stop - 1} botsen met uplink- of ISP-VLAN's")
+            err.append(f"WAN emulation: LAN VLANs {rng.start}-{rng.stop - 1} clash with the uplink or ISP VLANs")
     if isinstance(w.get("lan_vlan_base"), int) and isinstance(w.get("lan2_vlan_base"), int) and \
             abs(w["lan_vlan_base"] - w["lan2_vlan_base"]) < n_fgt:
-        err.append("WAN-emulatie: LAN-VLAN's voor LAN1 en LAN2 overlappen")
+        err.append("WAN emulation: the LAN VLANs for LAN1 and LAN2 overlap")
     vlans = [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]
     if any(not isinstance(v, int) or not 1 <= v <= 4094 for v in vlans) or len(set(vlans)) != len(vlans):
-        err.append("WAN-emulatie: VLAN's moeten uniek zijn en 1-4094")
+        err.append("WAN emulation: VLANs must be unique and 1-4094")
     ranges = []
     for key, lbl in (("fwd_https_base", "HTTPS"), ("fwd_ssh_base", "SSH")):
         b = w.get(key)
         if not isinstance(b, int) or not 1024 <= b <= 65535 - n_fgt:
-            err.append(f"WAN-emulatie: poort-forward {lbl}-basis moet 1024-{65535 - n_fgt} zijn")
+            err.append(f"WAN emulation: port forward {lbl} base must be 1024-{65535 - n_fgt}")
         else:
             ranges.append((lbl, b, b + n_fgt - 1))
     if len(ranges) == 2 and not (ranges[0][2] < ranges[1][1] or ranges[1][2] < ranges[0][1]):
-        err.append("WAN-emulatie: de poortbereiken voor HTTPS en SSH overlappen")
+        err.append("WAN emulation: the port ranges for HTTPS and SSH overlap")
     for lbl, lo, hi in ranges:
         if lo <= w.get("agent_port", 8090) <= hi:
-            err.append(f"WAN-emulatie: {lbl}-poortbereik {lo}-{hi} bevat de agent-poort {w.get('agent_port', 8090)}")
+            err.append(f"WAN emulation: {lbl} port range {lo}-{hi} contains the agent port {w.get('agent_port', 8090)}")
     hub = seg.get("hub", {})
     hn = nets.get(hub.get("name", "hub"))
     for h in t.get("hubs", []):
@@ -441,9 +441,9 @@ def validate_wanemu(t):
         except ValueError:
             inside = False
         if not inside:
-            err.append(f"{h.get('name')}: wan1 moet in ISP-HUB ({hn}) liggen")
+            err.append(f"{h.get('name')}: wan1 must be in ISP-HUB ({hn})")
         elif (h.get("wan1_gw") or "").strip() != hub.get("gw"):
-            err.append(f"{h.get('name')}: wan1 gateway moet de ISP-HUB-gateway {hub.get('gw')} zijn")
+            err.append(f"{h.get('name')}: wan1 gateway must be the ISP-HUB gateway {hub.get('gw')}")
     return err
 
 
@@ -452,28 +452,28 @@ def validate_pve(t, wanemu=True):
     FortiManager), so the WAN emulator - which comes with every FortiGate-VM deployment - is not checked."""
     c, err = t.get("pve", {}), (validate_wanemu(t) if wanemu else [])
     if not re.match(r"^https?://[^\s/]+(:\d+)?/?$", c.get("url", "")):
-        err.append("Proxmox: URL als https://host:8006 is verplicht")
+        err.append("Proxmox: URL as https://host:8006 is required")
     if not re.match(r"^[^\s!]+@[^\s!]+![^\s!]+$", c.get("token_id", "")):
-        err.append("Proxmox: token-ID als user@realm!naam is verplicht")
-    for k, lbl in (("node", "node"), ("disk_storage", "disk-storage"), ("import_storage", "import-storage"),
-                   ("iso_storage", "ISO-storage")):
+        err.append("Proxmox: token ID as user@realm!name is required")
+    for k, lbl in (("node", "node"), ("disk_storage", "disk storage"), ("import_storage", "import storage"),
+                   ("iso_storage", "ISO storage")):
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", c.get(k, "")):
-            err.append(f"Proxmox: {lbl} ontbreekt of is ongeldig")
+            err.append(f"Proxmox: {lbl} missing or invalid")
     if c.get("license_mode") not in ("mime", "cli"):
-        err.append("Proxmox: licentiemodus moet 'mime' of 'cli' zijn")
+        err.append("Proxmox: licence mode must be 'mime' or 'cli'")
     br = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
     bridges = [c.get("default_bridge", "")] + [p.get("bridge") for p in c.get("ports", {}).values() if p.get("bridge")]
     bridges.append(c.get("fmg", {}).get("bridge") or c.get("default_bridge", ""))
     if any(not br.match(b or "") for b in bridges):
-        err.append("Proxmox: ongeldige bridge-naam")
+        err.append("Proxmox: invalid bridge name")
     vlans = [p.get("vlan") for p in c.get("ports", {}).values()] + [c.get("fmg", {}).get("vlan")]
     if any(v not in (None, "") and not (isinstance(v, int) and 1 <= v <= 4094) for v in vlans):
-        err.append("Proxmox: VLAN-id moet 1-4094 zijn")
+        err.append("Proxmox: VLAN id must be 1-4094")
     fm, fg = c.get("fmg", {}), c.get("fgt", {})
     for lbl, d, keys in (("FortiManager", fm, ("cores", "memory_mb", "data_disk_gb")), ("FortiGate", fg, ("cores", "memory_mb"))):
         for k in keys:
             if not isinstance(d.get(k), int) or d[k] < 1:
-                err.append(f"Proxmox: {lbl} {k} moet een positief geheel getal zijn")
+                err.append(f"Proxmox: {lbl} {k} must be a positive integer")
     if isinstance(fg.get("memory_mb"), int) and fg["memory_mb"] < 1024:
-        err.append("Proxmox: FortiGate-geheugen minimaal 1024 MB")
+        err.append("Proxmox: FortiGate memory at least 1024 MB")
     return err

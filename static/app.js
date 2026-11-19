@@ -44,13 +44,13 @@ function maskToPrefix(m) {                     // 255.255.255.0 -> 24 (null if n
 }
 function ipProblem(kind, v) {
   if (!v) return "";
-  if (kind === "ip" || (kind === "ipcidr" && !v.includes("/"))) return RE_IP.test(v) ? "" : "Geen geldig IPv4-adres (a.b.c.d)";
-  if (!RE_CIDR.test(v)) return "Gebruik a.b.c.d/nn, bijvoorbeeld 10.0.0.5/24";
+  if (kind === "ip" || (kind === "ipcidr" && !v.includes("/"))) return RE_IP.test(v) ? "" : "Not a valid IPv4 address (a.b.c.d)";
+  if (!RE_CIDR.test(v)) return "Use a.b.c.d/nn, for example 10.0.0.5/24";
   const [a, p] = v.split("/"), pre = +p;
   if (pre <= 30) {
     const size = 2 ** (32 - pre), net = Math.floor(ipNum(a) / size) * size;
-    if (ipNum(a) === net) return "Dit is het netwerkadres, geen host-adres";
-    if (ipNum(a) === net + size - 1) return "Dit is het broadcast-adres, geen host-adres";
+    if (ipNum(a) === net) return "This is the network address, not a host address";
+    if (ipNum(a) === net + size - 1) return "This is the broadcast address, not a host address";
   }
   return "";
 }
@@ -112,7 +112,7 @@ function pveFill(p) {
   $("#fgt_cores").value = p.fgt.cores; $("#fgt_mem").value = p.fgt.memory_mb;
   $("#fmg_cores").value = p.fmg.cores; $("#fmg_mem").value = p.fmg.memory_mb; $("#fmg_disk").value = p.fmg.data_disk_gb; $("#fmg_vlan").value = p.fmg.vlan ?? "";
   const opt = (v) => `<option value="">(standaard bridge)</option>` + [...new Set([...PVE_OPT.bridges, ...(v ? [v] : [])])].map((x) => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
-  $("#ports").innerHTML = "<thead><tr><th>Poort</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
+  $("#ports").innerHTML = "<thead><tr><th>Port</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
     Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
   if (T && T.wanemu) setSel("#wan-bridge", PVE_OPT.bridges, $("#wan-bridge").value || T.wanemu.bridge);   // bridges of this node
 }
@@ -141,12 +141,12 @@ function wanCollect() {
 function dev(kind, d, i) {
   const hub = kind === "hubs";
   let h = `<div class="dev" data-k="${kind}" data-i="${i}"><b>${esc(d.name)}</b><div class="fields">`;
-  h += fld("name", "Naam", d.name) + fld("serial", "Serienummer", d.serial, "", "only-dev") + fld("loopback", "Loopback (BGP, router-id)", d.loopback);
+  h += fld("name", "Name", d.name) + fld("serial", "Serial number", d.serial, "", "only-dev") + fld("loopback", "Loopback (BGP, router-id)", d.loopback);
   // WAN design: hub = one wan (wan1, always static); branch = wan1 + optional wan2, both DHCP, each with a tunnel to wan1 of every hub
-  if (hub) h += fld("wan1_intf", "wan1-poort (ZTP)", d.wan1_intf) + fld("wan1_ip", "wan1 IP/prefix (statisch)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway", d.wan1_gw);
-  else h += fld("wan1_intf", "wan1-poort (ZTP, DHCP)", d.wan1_intf) + fld("wan2_intf", "wan2-poort (DHCP; leeg = geen)", d.wan2_intf);
-  h += `<div class="f only-fgt"><label>FortiFlex-token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
-  (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + "-poort", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
+  if (hub) h += fld("wan1_intf", "wan1 port (ZTP)", d.wan1_intf) + fld("wan1_ip", "wan1 IP/prefix (static)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway", d.wan1_gw);
+  else h += fld("wan1_intf", "wan1 port (ZTP, DHCP)", d.wan1_intf) + fld("wan2_intf", "wan2 port (DHCP; empty = none)", d.wan2_intf);
+  h += `<div class="f only-fgt"><label>FortiFlex token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
+  (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + " port", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
   return h + "</div></div>";
 }
 function draw() {
@@ -156,10 +156,10 @@ function draw() {
   pveFill(p); wanFill(T.wanemu);
   const mv = T.region.multi_vrf !== false;
   $("#r_multi").checked = mv; $("#sv_box").hidden = mv; $("#vrfs").hidden = !mv; $("#r_lansum").value = T.region.lan_summary || "10.0.0.0/8";
-  $("#vrfs").innerHTML = "<thead><tr><th>VRF-id</th><th>LAN-summary</th><th>DIA</th></tr></thead><tbody>" +
+  $("#vrfs").innerHTML = "<thead><tr><th>VRF id</th><th>LAN summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
-  d0Opts(); flexFields();
+  d0Opts(); flexFields(); topoDraw();
 }
 // Day-0 preview: only the VMs the chosen deploy option creates
 function d0Opts() {
@@ -205,32 +205,32 @@ const fmgCfg = () => ({ host: null, username: $("#fmg_user").value, password: $(
 function imgDraw() {
   for (const r of ["fgt", "fmg"]) {
     const s = $("#img_" + r), cur = s.value, l = IMGS.filter((i) => i.role === r);
-    s.innerHTML = l.length ? l.map((i) => `<option value="${i.id}">${esc(i.filename)}${i.version ? " (v" + i.version + ")" : ""}</option>`).join("") : '<option value="">— nog geen image —</option>';
+    s.innerHTML = l.length ? l.map((i) => `<option value="${i.id}">${esc(i.filename)}${i.version ? " (v" + i.version + ")" : ""}</option>`).join("") : '<option value="">— no image yet —</option>';
     if (cur && l.some((i) => i.id === cur)) s.value = cur;
   }
   $("#img_list").innerHTML = IMGS.length
-    ? `<table class="imgtbl"><thead><tr><th>Rol</th><th>Bestand</th><th>Versie</th><th>Virtueel</th><th>SHA-256</th><th></th></tr></thead><tbody>` +
-      IMGS.map((i) => `<tr><td>${i.role === "fgt" ? "FortiGate" : "FortiManager"}</td><td class="mono">${esc(i.filename)}${i.warnings.map((w) => `<div class="hint warn">⚠ ${esc(w)}</div>`).join("")}</td><td class="mono">${i.version ? "v" + i.version + (i.build ? " b" + i.build : "") : "—"}</td><td class="mono">${i.virtual_gb} GB</td><td class="mono" title="${i.sha256}">${i.sha256.slice(0, 16)}…</td><td class="actions-cell"><button class="icon danger" data-del="${i.id}" title="Verwijderen"><span class="i"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span></button></td></tr>`).join("") + "</tbody></table>"
-    : '<p class="muted">Nog geen images geüpload.</p>';
+    ? `<table class="imgtbl"><thead><tr><th>Role</th><th>File</th><th>Version</th><th>Virtual</th><th>SHA-256</th><th></th></tr></thead><tbody>` +
+      IMGS.map((i) => `<tr><td>${i.role === "fgt" ? "FortiGate" : "FortiManager"}</td><td class="mono">${esc(i.filename)}${i.warnings.map((w) => `<div class="hint warn">⚠ ${esc(w)}</div>`).join("")}</td><td class="mono">${i.version ? "v" + i.version + (i.build ? " b" + i.build : "") : "—"}</td><td class="mono">${i.virtual_gb} GB</td><td class="mono" title="${i.sha256}">${i.sha256.slice(0, 16)}…</td><td class="actions-cell"><button class="icon danger" data-del="${i.id}" title="Delete"><span class="i"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span></button></td></tr>`).join("") + "</tbody></table>"
+    : '<p class="muted">No images uploaded yet.</p>';
 }
 async function imgLoad() { IMGS = await (await fetch("/api/images")).json(); imgDraw(); }
 function upload(role, file) {
   if (!file) return;
   const fd = new FormData(); fd.append("role", role); fd.append("file", file);
   const x = new XMLHttpRequest(), dz = $("#dz_" + role), bar = $("#bar_" + role);
-  dz.classList.add("has"); dz.querySelector("b").textContent = file.name; dz.querySelector("small").textContent = fmtBytes(file.size) + " · uploaden…";
+  dz.classList.add("has"); dz.querySelector("b").textContent = file.name; dz.querySelector("small").textContent = fmtBytes(file.size) + " · uploading…";
   x.open("POST", "/api/images");
   x.upload.onprogress = (e) => { if (e.lengthComputable) bar.style.transform = `scaleX(${e.loaded / e.total})`; };
   x.onload = async () => {
     bar.style.transform = "scaleX(0)";
     if (x.status === 200) {
       const m = JSON.parse(x.responseText);
-      dz.querySelector("small").textContent = `${fmtBytes(file.size)} · ${m.virtual_gb} GB virtueel · klaar`;
+      dz.querySelector("small").textContent = `${fmtBytes(file.size)} · ${m.virtual_gb} GB virtual · done`;
       showErr([], "#img_err"); await imgLoad();
     } else {
       let d; try { d = JSON.parse(x.responseText).detail; } catch (_) { d = x.responseText; }
-      dz.classList.remove("has"); dz.querySelector("b").textContent = "Sleep het bestand hierheen of klik"; dz.querySelector("small").textContent = ".zip of .qcow2";
-      showErr(["Upload mislukt: " + d], "#img_err");
+      dz.classList.remove("has"); dz.querySelector("b").textContent = "Drop the file here or click"; dz.querySelector("small").textContent = ".zip or .qcow2";
+      showErr(["Upload failed: " + d], "#img_err");
     }
   };
   x.send(fd);
@@ -245,7 +245,7 @@ for (const role of ["fgt", "fmg"]) {
 }
 $("#img_list").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-del]");
-  if (b && confirm("Image verwijderen?")) { await fetch("/api/images/" + b.dataset.del, { method: "DELETE" }); imgLoad(); }
+  if (b && confirm("Delete this image?")) { await fetch("/api/images/" + b.dataset.del, { method: "DELETE" }); imgLoad(); }
 });
 
 // ---- actions ----------------------------------------------------------------
@@ -256,14 +256,14 @@ async function loadPve(msg) {
   const sid = $("#pve_server").value, out = $("#pve_res");
   out.className = "hint";
   if (!sid) { PVE_OPT = { nodes: [], image_storages: [], import_storages: [], iso_storages: [], bridges: [] }; pveFill(collect().pve); out.textContent = ""; return; }
-  out.textContent = "Gegevens ophalen…";
+  out.textContent = "Fetching data…";
   const p = collect().pve;
   const r = await post(`/api/servers/${sid}/test`, {}), j = await json(r);
-  if (!r.ok) { out.className = "hint error"; out.textContent = "Fout: " + j.detail; return; }
+  if (!r.ok) { out.className = "hint error"; out.textContent = "Error: " + j.detail; return; }
   PVE_OPT.nodes = j.nodes;
   const node = j.nodes.includes(p.node) ? p.node : j.nodes[0];
   const r2 = await fetch(`/api/servers/${sid}/nodes/${encodeURIComponent(node)}/options`), o = await json(r2);
-  if (!r2.ok) { out.className = "hint error"; out.textContent = "Fout: " + o.detail; return; }
+  if (!r2.ok) { out.className = "hint error"; out.textContent = "Error: " + o.detail; return; }
   Object.assign(PVE_OPT, o);
   const pick = (cur, list) => (names(list).includes(cur) ? cur : names(list)[0] || "");
   pveFill(Object.assign(p, { node, disk_storage: pick(p.disk_storage, o.image_storages), import_storage: pick(p.import_storage, o.import_storages), iso_storage: pick(p.iso_storage, o.iso_storages), default_bridge: o.bridges.includes(p.default_bridge) ? p.default_bridge : o.bridges[0] || "" }));
@@ -279,10 +279,10 @@ function csvTokens() {
 }
 async function csvDownload(full) {
   const r = await post("/api/csv/export", { topology: collect(), full, tokens: csvTokens() });
-  if (!r.ok) { $("#csv_res").textContent = "Export mislukt"; return; }
+  if (!r.ok) { $("#csv_res").textContent = "Export failed"; return; }
   const url = URL.createObjectURL(await r.blob()), a = document.createElement("a");
   a.href = url; a.download = full ? "sdwan-volledig.csv" : "sdwan-devices.csv"; a.click(); URL.revokeObjectURL(url);
-  $("#csv_res").textContent = full ? "Volledige export gedownload (instellingen + devices)." : "Gedownload: vul het in en importeer het weer.";
+  $("#csv_res").textContent = full ? "Full export downloaded (settings + devices)." : "Downloaded: fill it in and import it again.";
 }
 $("#btn_csv_dl").onclick = () => csvDownload(false);
 $("#btn_csv_full").onclick = () => csvDownload(true);
@@ -296,12 +296,12 @@ $("#btn_csv_up").onclick = () => $("#csv_file").click();
 $("#csv_file").onchange = async (ev) => {
   const f = ev.target.files[0]; ev.target.value = "";
   if (!f) return;
-  const fail = (j) => { $("#csv_res").textContent = "✕ " + (typeof j.detail === "string" ? j.detail : "import mislukt"); };
+  const fail = (j) => { $("#csv_res").textContent = "✕ " + (typeof j.detail === "string" ? j.detail : "import failed"); };
   $("#csv_todo").hidden = true;
   let [r, j] = await csvPost(f, false);
   if (!r.ok) return fail(j);
   let applied = false;
-  if (j.has_settings && confirm("Dit bestand bevat ook instellingen (ADOM, DNS, regio, VRF's, FortiManager, Proxmox).\n\nOK = instellingen én devices overnemen\nAnnuleren = alleen de devices overnemen (instellingen blijven zoals ze nu in de tool staan)")) {
+  if (j.has_settings && confirm("This file also contains settings (ADOM, DNS, region, VRFs, FortiManager, Proxmox).\n\nOK = take over settings and devices\nCancel = take over only the devices (settings stay as they are in the tool now)")) {
     [r, j] = await csvPost(f, true);
     if (!r.ok) return fail(j);
     applied = true;
@@ -312,15 +312,15 @@ $("#csv_file").onchange = async (ev) => {
     const { pve: sp = {}, ...rest } = j.settings, sname = sp.server_name; delete sp.server_name;
     nt = deepMerge(JSON.parse(JSON.stringify(nt)), rest);
     nt.pve = deepMerge(JSON.parse(JSON.stringify(nt.pve)), sp);
-    if (sname) { srv = SERVERS.find((s) => s.name === sname); if (srv) $("#pve_server").value = srv.id; else extra.push(`Proxmox-server '${sname}' bestaat niet: kies of voeg er een toe op de pagina Servers`); }
+    if (sname) { srv = SERVERS.find((s) => s.name === sname); if (srv) $("#pve_server").value = srv.id; else extra.push(`Proxmox server '${sname}' does not exist: pick or add one on the Servers page`); }
   }
   T = nt; draw(); markIpFields();
   const imp = j.tokens || {};
   document.querySelectorAll("[data-tok]").forEach((e) => { const v = imp[e.dataset.tok] || toks[e.dataset.tok]; if (v) e.value = v; });
   if (j.fmg_token) $("#fm_token").value = j.fmg_token;
   if (srv) await loadPve();
-  $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (Object.keys(imp).length || j.fmg_token ? ` · FortiFlex-tokens: ${Object.keys(imp).length + (j.fmg_token ? 1 : 0)}` : "") + ([...j.notes, ...extra].length ? ` (${[...j.notes, ...extra].join("; ")})` : "");
-  if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Nog in te vullen/te corrigeren: " + j.todo.join(" · "); }
+  $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (Object.keys(imp).length || j.fmg_token ? ` · FortiFlex tokens: ${Object.keys(imp).length + (j.fmg_token ? 1 : 0)}` : "") + ([...j.notes, ...extra].length ? ` (${[...j.notes, ...extra].join("; ")})` : "");
+  if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Still to fill in / correct: " + j.todo.join(" · "); }
 };
 $("#btn_render").onclick = async () => {
   showErr([]);
@@ -340,23 +340,23 @@ $("#btn_d0").onclick = async () => {
   const r = await post("/api/cloudinit/preview", { topology: collect(), device: $("#d0_dev").value }), j = await json(r);
   if (!r.ok) return showErr(errList(j));
   $("#d0_out").hidden = false;
-  $("#d0_out").textContent = `# ${j.layout} · licentiemodus: ${j.mode} · token/wachtwoord gemaskeerd\n` + j.user_data;
+  $("#d0_out").textContent = `# ${j.layout} · licence mode: ${j.mode} · token/password masked\n` + j.user_data;
 };
 
 // ---- scope: all / only FortiManager / only FortiGates ------------------------
 const SCOPE_HINT = {
   all: "",
-  fmg: "Alleen de FortiManager wordt gemaakt en voorbereid met ADOM, templates, policy packages en blueprints voor de hubs en spokes, zonder model devices. Namen, loopbacks, LAN's en hub-adressen zijn nodig voor de templates; serienummers, wan1-gateways, FortiGate-tokens en -wachtwoord niet (die komen bij 'Alleen FortiGates').",
-  tpl: "Rolt alleen de ADOM en de templates (metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups, blueprints) uit naar een bestaande FortiManager op het opgegeven IP, met de admin-gebruiker en het wachtwoord hieronder. Geen VM's en geen Proxmox; de FortiManager-instellingen (tijdzone, timers, FortiAnalyzer) blijven ongemoeid. Serienummers en wan1-gateways zijn niet nodig; model devices volgen met 'Alleen FortiGates'.",
-  dev: "Maakt in een bestaande FortiManager de ADOM, de model devices (met serienummer) en de templates met de waarden per device aan, zonder koppeling naar echte FortiGates: geen VM's, geen Proxmox. Daarna doet de tool per device een Quick install (device settings) en per rol een Re-install policy, naar de device-database. De FortiManager-instellingen blijven ongemoeid. Serienummers en hub-gateways zijn nodig; FortiGate-tokens en -wachtwoord niet. Echte FortiGates melden zich later op hun serienummer, of rol ze uit met 'Alleen FortiGates'.",
-  fgt: "De FortiManager moet al draaien op het opgegeven vaste IP en bereikbaar zijn met de admin-gebruiker en het wachtwoord hieronder. Er wordt geen FortiManager-VM gemaakt.",
+  fmg: "Only the FortiManager is created and prepared with ADOM, templates, policy packages and blueprints for the hubs and spokes, without model devices. Names, loopbacks, LANs and hub addresses are needed for the templates; serial numbers, wan1 gateways, FortiGate tokens and password are not (they come with 'FortiGates only').",
+  tpl: "Deploys only the ADOM and the templates (metadata variables, system, SD-WAN and CLI templates, policy packages, template groups, blueprints) to an existing FortiManager at the given IP, with the admin user and password below. No VMs and no Proxmox; the FortiManager settings (time zone, timers, FortiAnalyzer) are left alone. Serial numbers and wan1 gateways are not needed; model devices follow with 'FortiGates only'.",
+  dev: "Creates the ADOM, the model devices (with serial number) and the templates with the per-device values in an existing FortiManager, without a link to real FortiGates: no VMs, no Proxmox. Then the tool does a Quick install (device settings) per device and a Re-install policy per role, to the device database. The FortiManager settings are left alone. Serial numbers and hub gateways are needed; FortiGate tokens and password are not. Real FortiGates register later on their serial number, or deploy them with 'FortiGates only'.",
+  fgt: "The FortiManager must already run on the given static IP and be reachable with the admin user and password below. No FortiManager VM is created.",
 };
 const scope = () => (document.querySelector('input[name="scope"]:checked') || {}).value || "all";
 function scopeApply() {
   const s = scope();
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
-  if (T) { d0Opts(); flexFields(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
+  if (T) { d0Opts(); flexFields(); topoDraw(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
   try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
 }
 document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
@@ -376,24 +376,24 @@ $("#btn_deploy").onclick = async () => {
   showErr([]);
   { const e = ipErrors(); if (e.length) return showErr(e); }
   const dry = $("#dry").checked, sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";   // Day-0 for what is deployed
-  const what = { all: "de FortiManager- en FortiGate-VM's", fmg: "de FortiManager-VM", fgt: "de FortiGate-VM's" }[sc];
-  const ask = sc === "tpl" ? "Dit schrijft de ADOM en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven). Doorgaan?"
-    : sc === "dev" ? "Dit schrijft de ADOM, de model devices en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven) en doet daarna per device een Quick install en een Re-install policy. Doorgaan?"
-    : `Dit schrijft naar FortiManager, maakt ${what} op Proxmox, configureert en licenseert ze (ze herstarten). Doorgaan?`;
+  const what = { all: "the FortiManager and FortiGate VMs", fmg: "the FortiManager VM", fgt: "the FortiGate VMs" }[sc];
+  const ask = sc === "tpl" ? "This writes the ADOM and the templates to the existing FortiManager (set/update: earlier objects of this tool are overwritten). Continue?"
+    : sc === "dev" ? "This writes the ADOM, the model devices and the templates to the existing FortiManager (set/update: earlier objects of this tool are overwritten) and then does a Quick install and a Re-install policy per device. Continue?"
+    : `This writes to FortiManager, creates ${what} on Proxmox, configures and licenses them (they reboot). Continue?`;
   if (!dry && !confirm(ask)) return;
   const btn = $("#btn_deploy"); if (btn.disabled) return;
   btn.disabled = true;                                   // FortiFlex licenses are fetched in this request: no double click
   const body = { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } };
   let plan = null;
   if (!$("#btn_flexcheck").hidden) {                     // FortiFlex in this run: show what is looked up and why it takes a while
-    deployStatus("FortiFlex: licenties opzoeken voor de devices van deze uitrol…");
+    deployStatus("FortiFlex: looking up licences for the devices of this deployment…");
     const c = await post("/api/fortiflex/check", { ...body, dry_run: true }), cj = await json(c);
     if (!c.ok) { deployStatus(null); btn.disabled = false; return showErr(errList(cj)); }
     plan = cj.devices;
   }
   const t0 = Date.now(), msg = () => (plan && plan.length
-    ? (dry ? "Dry-run: alleen opgezocht, er wordt niets aangemaakt of vernieuwd. " : `FortiFlex: per device de licentie ophalen (${plan.filter((d) => d.action !== "use").length} met een nieuw token of nieuwe licentie) en daarna alles controleren. `)
-      + `Uitrol starten… ${Math.round((Date.now() - t0) / 1000)} s` : `Uitrol starten… ${Math.round((Date.now() - t0) / 1000)} s`);
+    ? (dry ? "Dry run: lookup only, nothing is created or renewed. " : `FortiFlex: fetching the licence per device (${plan.filter((d) => d.action !== "use").length} with a new token or a new licence), then checking everything. `)
+      + `Starting deployment… ${Math.round((Date.now() - t0) / 1000)} s` : `Starting deployment… ${Math.round((Date.now() - t0) / 1000)} s`);
   deployStatus(msg(), plan);
   const tick = setInterval(() => deployStatus(msg(), plan), 1000);
   const r = await post("/api/deploy", body);
@@ -408,17 +408,17 @@ function progressMsg(t, cls) { $("#p_sum").className = "summary" + (cls ? " " + 
 async function progressOpen(id) {
   if (!id) {                                              // "Voortgang" without a job: the most recent one
     const l = await (await fetch("/api/jobs")).json();
-    if (!l.latest) { if (ES) { ES.close(); ES = null; } CUR_JOB = null; $("#p_title").textContent = "Voortgang"; stepsDraw(); $("#log").textContent = ""; return progressMsg("Er is nog geen uitrol gestart. Start er een op de pagina Uitrol."); }
+    if (!l.latest) { if (ES) { ES.close(); ES = null; } CUR_JOB = null; $("#p_title").textContent = "Progress"; stepsDraw(); $("#log").textContent = ""; return progressMsg("No deployment has been started yet. Start one on the Deploy page."); }
     location.replace("#/progress/" + l.latest); return;
   }
   if (id === CUR_JOB && ES) return;                       // already showing this one
   if (ES) ES.close();
   CUR_JOB = id;
   const r = await fetch("/api/jobs/" + id);
-  if (!r.ok) { ES = null; CUR_JOB = null; $("#p_title").textContent = "Voortgang"; stepsDraw(); $("#log").textContent = ""; return progressMsg("Deze uitrol bestaat niet meer (de lijst met uitrollen is leeg of gewist). Start een nieuwe op de pagina Uitrol."); }
+  if (!r.ok) { ES = null; CUR_JOB = null; $("#p_title").textContent = "Progress"; stepsDraw(); $("#log").textContent = ""; return progressMsg("This deployment no longer exists (the list of deployments is empty or cleared). Start a new one on the Deploy page."); }
   const info = await r.json();
-  $("#p_title").textContent = info.title || "Uitrol";
-  progressMsg("Bezig…"); $("#log").textContent = ""; stepsDraw();
+  $("#p_title").textContent = info.title || "Deployment";
+  progressMsg("Working…"); $("#log").textContent = ""; stepsDraw();
   ES = new EventSource(`/api/jobs/${id}/stream`);        // replays the whole log, then follows a running job
   ES.addEventListener("log", (e) => {
     const x = JSON.parse(e.data), d = document.createElement("div");
@@ -431,7 +431,7 @@ async function progressOpen(id) {
     document.querySelectorAll("#pl li").forEach((li) => { const st = s.steps[li.dataset.id]; li.className = "st-" + st; li.querySelector(".dot").className = "dot st-" + st; });
     if (s.state !== "running") {
       ES.close(); ES = null;
-      progressMsg(s.state === "done" ? "✔ Klaar" : "✕ Mislukt — zie de log", s.state === "done" ? "ok" : "error");
+      progressMsg(s.state === "done" ? "✔ Done" : "✕ Failed — see the log", s.state === "done" ? "ok" : "error");
     }
   });
 }
@@ -440,25 +440,25 @@ async function bannerLoad() {
   try {
     const l = await (await fetch("/api/jobs")).json(), j = l.jobs[0];
     if (!j) { el.hidden = true; return; }
-    const st = { running: "loopt nu", done: "is klaar", failed: "is mislukt" }[j.state] || j.state;
-    el.hidden = false; el.innerHTML = `Laatste uitrol: <b>${esc(j.title)}</b> (${esc(j.created)}) ${st} &middot; <a href="#/progress/${j.id}" style="color:var(--accent)">Voortgang en log bekijken</a>`;
+    const st = { running: "is running", done: "is done", failed: "failed" }[j.state] || j.state;
+    el.hidden = false; el.innerHTML = `Last deployment: <b>${esc(j.title)}</b> (${esc(j.created)}) ${st} &middot; <a href="#/progress/${j.id}" style="color:var(--accent)">View progress and log</a>`;
   } catch (_) { el.hidden = true; }
 }
 
 // ---- servers ----------------------------------------------------------------
 let SERVERS = [], EDIT = null;
 function srvReset() {
-  EDIT = null; $("#srv_form_title").textContent = "Server toevoegen";
+  EDIT = null; $("#srv_form_title").textContent = "Add server";
   for (const id of ["name", "url", "tid", "secret"]) $("#srv_" + id).value = "";
   $("#srv_secret").placeholder = ""; $("#srv_tls").checked = true; $("#srv_cancel").hidden = true; $("#srv_res").textContent = ""; $("#srv_res").className = "hint";
 }
 function srvDraw() {
   $("#srv_list").innerHTML = SERVERS.length
-    ? `<table><thead><tr><th>Naam</th><th>URL</th><th>Token-ID</th><th>TLS</th><th></th></tr></thead><tbody>` +
-      SERVERS.map((s) => `<tr><td>${esc(s.name)}</td><td class="mono">${esc(s.url)}</td><td class="mono">${esc(s.token_id)}</td><td>${s.verify_tls ? "gecontroleerd" : "niet gecontroleerd"}</td><td class="actions-cell"><span class="hint" id="srv_t${s.id}"></span> <button class="link" data-st="${s.id}">Testen</button><button class="link" data-se="${s.id}">Bewerken</button><button class="icon danger" data-sd="${s.id}" title="Verwijderen"><span class="i"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span></button></td></tr>`).join("") + "</tbody></table>"
-    : '<p class="muted">Nog geen servers. Voeg hieronder je eerste Proxmox-server toe.</p>';
+    ? `<table><thead><tr><th>Name</th><th>URL</th><th>Token ID</th><th>TLS</th><th></th></tr></thead><tbody>` +
+      SERVERS.map((s) => `<tr><td>${esc(s.name)}</td><td class="mono">${esc(s.url)}</td><td class="mono">${esc(s.token_id)}</td><td>${s.verify_tls ? "verified" : "not verified"}</td><td class="actions-cell"><span class="hint" id="srv_t${s.id}"></span> <button class="link" data-st="${s.id}">Test</button><button class="link" data-se="${s.id}">Edit</button><button class="icon danger" data-sd="${s.id}" title="Delete"><span class="i"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span></button></td></tr>`).join("") + "</tbody></table>"
+    : '<p class="muted">No servers yet. Add your first Proxmox server below.</p>';
   const sel = $("#pve_server"), cur = sel.value;
-  sel.innerHTML = '<option value="">— kies een server —</option>' + SERVERS.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
+  sel.innerHTML = '<option value="">— choose a server —</option>' + SERVERS.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
   if (cur && SERVERS.some((s) => String(s.id) === cur)) sel.value = cur;
   $("#pve_none").hidden = SERVERS.length > 0;
 }
@@ -482,16 +482,16 @@ $("#srv_list").addEventListener("click", async (e) => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.dataset.sd) {
     const s = SERVERS.find((x) => String(x.id) === t.dataset.sd);
-    if (confirm(`Server '${s.name}' verwijderen?`)) { await fetch("/api/servers/" + s.id, { method: "DELETE" }); if (EDIT === s.id) srvReset(); await serversLoad(); }
+    if (confirm(`Delete server '${s.name}'?`)) { await fetch("/api/servers/" + s.id, { method: "DELETE" }); if (EDIT === s.id) srvReset(); await serversLoad(); }
   } else if (t.dataset.se) {
     const s = SERVERS.find((x) => String(x.id) === t.dataset.se);
-    EDIT = s.id; $("#srv_form_title").textContent = `Server bewerken: ${s.name}`;
-    $("#srv_name").value = s.name; $("#srv_url").value = s.url; $("#srv_tid").value = s.token_id; $("#srv_secret").value = ""; $("#srv_secret").placeholder = "ongewijzigd laten";
+    EDIT = s.id; $("#srv_form_title").textContent = `Edit server: ${s.name}`;
+    $("#srv_name").value = s.name; $("#srv_url").value = s.url; $("#srv_tid").value = s.token_id; $("#srv_secret").value = ""; $("#srv_secret").placeholder = "leave unchanged";
     $("#srv_tls").checked = s.verify_tls; $("#srv_cancel").hidden = false; $("#srv_name").scrollIntoView({ block: "center" });
   } else if (t.dataset.st) {
     const out = $("#srv_t" + t.dataset.st); out.className = "hint"; out.textContent = "…";
     const r = await post(`/api/servers/${t.dataset.st}/test`, {}), j = await json(r);
-    out.className = "hint " + (r.ok ? (j.warning ? "warn" : "ok") : "error"); out.textContent = r.ok ? `OK · PVE ${j.version}` + (j.warning ? " ⚠" : "") : "Fout: " + j.detail;
+    out.className = "hint " + (r.ok ? (j.warning ? "warn" : "ok") : "error"); out.textContent = r.ok ? `OK · PVE ${j.version}` + (j.warning ? " ⚠" : "") : "Error: " + j.detail;
   }
 });
 $("#srv_cancel").onclick = srvReset;
@@ -505,7 +505,7 @@ $("#srv_save").onclick = async () => {
 $("#srv_test").onclick = async () => {
   const b = srvBody(), out = $("#srv_res"); out.className = "hint"; out.textContent = "…";
   const r = EDIT && !b.token_secret ? await post(`/api/servers/${EDIT}/test`, {}) : await post("/api/pve/test", { url: b.url, token_id: b.token_id, token_secret: b.token_secret || "", verify_tls: b.verify_tls }), j = await json(r);
-  out.className = "hint " + (r.ok ? (j.warning ? "warn" : "ok") : "error"); out.textContent = r.ok ? `OK — Proxmox VE ${j.version}` + (j.warning ? " · ⚠ " + j.warning : "") : "Fout: " + j.detail;
+  out.className = "hint " + (r.ok ? (j.warning ? "warn" : "ok") : "error"); out.textContent = r.ok ? `OK — Proxmox VE ${j.version}` + (j.warning ? " · ⚠ " + j.warning : "") : "Error: " + j.detail;
 };
 
 // ---- init -------------------------------------------------------------------
@@ -513,7 +513,7 @@ $("#srv_test").onclick = async () => {
   const a = await (await fetch("/api/about")).json();
   STEPS = a.steps;
   $("#steps").innerHTML = a.steps.map((s) => `<li><b>${esc(s.title)}</b><span>${esc(s.desc)}</span></li>`).join("");
-  $("#orch").textContent = a.orchestrator_present ? "Orchestrator-templates gevonden: " + a.orchestrator : "⚠ Orchestrator-templates niet gevonden op " + a.orchestrator;
+  $("#orch").textContent = a.orchestrator_present ? "Orchestrator templates found: " + a.orchestrator : "⚠ Orchestrator templates not found at " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
   $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: false }]; draw(); markIpFields(); });
   draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
@@ -522,7 +522,7 @@ $("#srv_test").onclick = async () => {
 
 // ---- WAN-emulatie: one card per link (ISP-HUB / ISP-A / ISP-B), values go to the agent through the tool ----------
 const WAN_SEG = { hub: "ISP-HUB", a: "ISP-A", b: "ISP-B" };
-const WAN_F = [["delay_ms", "Latency", "ms", 0, 1000, 1], ["jitter_ms", "Jitter", "ms", 0, 200, 1], ["loss_pct", "Loss", "%", 0, 100, 0.1], ["rate_kbit", "Bandbreedte", "kbit/s (0 = onbeperkt)", 0, 1000000, 1000]];
+const WAN_F = [["delay_ms", "Latency", "ms", 0, 1000, 1], ["jitter_ms", "Jitter", "ms", 0, 200, 1], ["loss_pct", "Loss", "%", 0, 100, 0.1], ["rate_kbit", "Bandwidth", "kbit/s (0 = unlimited)", 0, 1000000, 1000]];
 function wanErr(msg) { $("#wanemu-err").innerHTML = msg ? `<div class="error">✕ ${esc(msg)}</div>` : ""; }   // no scroll: the page refreshes every 10 s
 // ---- FortiGates via wan-emu: GUI via port forward, SSH in the browser (xterm.js) ----------------------------------
 const XTERM = "https://cdn.jsdelivr.net/npm/xterm@5.3.0/", XFIT = "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/";
@@ -537,12 +537,12 @@ async function wanFwdLoad() {
 function loadOnce(tag, attrs) {
   return new Promise((ok, bad) => {
     if (document.querySelector(`${tag}[${tag === "script" ? "src" : "href"}="${attrs.src || attrs.href}"]`)) return ok();
-    const e = document.createElement(tag); Object.assign(e, attrs); e.onload = ok; e.onerror = () => bad(new Error("laden mislukt: " + (attrs.src || attrs.href)));
+    const e = document.createElement(tag); Object.assign(e, attrs); e.onload = ok; e.onerror = () => bad(new Error("failed to load: " + (attrs.src || attrs.href)));
     document.head.appendChild(e);
   });
 }
 function termOpen(name) {
-  TERM_NAME = name; $("#term_title").textContent = `SSH naar ${name}`;
+  TERM_NAME = name; $("#term_title").textContent = `SSH to ${name}`;
   $("#term_overlay").hidden = false; $("#term_form").hidden = false; $("#term_box").innerHTML = ""; $("#term_pw").focus();
 }
 let TERM_FIT = null, TERM_BUSY = false;
@@ -554,7 +554,7 @@ async function termStart() {
   try {
     await loadOnce("link", { rel: "stylesheet", href: XTERM + "css/xterm.css" });
     await loadOnce("script", { src: XTERM + "lib/xterm.js" }); await loadOnce("script", { src: XFIT + "lib/xterm-addon-fit.js" });
-  } catch (e) { TERM_BUSY = false; $("#term_box").innerHTML = `<div class="error">✕ ${esc(e.message)} (heeft de browser internet?)</div>`; return; }
+  } catch (e) { TERM_BUSY = false; $("#term_box").innerHTML = `<div class="error">✕ ${esc(e.message)} (does the browser have internet access?)</div>`; return; }
   const user = $("#term_user").value.trim() || "admin", pw = $("#term_pw").value;
   $("#term_pw").value = "";                                     // not kept in the page
   $("#term_form").hidden = true;
@@ -565,7 +565,7 @@ async function termStart() {
   const term = TERM, ws = TERM_WS = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/term/${encodeURIComponent(TERM_NAME)}`);
   ws.onopen = () => ws.send(JSON.stringify({ user, password: pw, cols: term.cols, rows: term.rows }));
   ws.onmessage = (e) => term.write(e.data);                     // bound to this session's terminal, not a later one
-  ws.onclose = () => { if (TERM === term) term.write("\r\n[verbinding gesloten]\r\n"); };
+  ws.onclose = () => { if (TERM === term) term.write("\r\n[connection closed]\r\n"); };
   term.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ data: d })));
   term.onResize(({ cols, rows }) => ws.readyState === 1 && ws.send(JSON.stringify({ resize: [cols, rows] })));
   term.focus();
@@ -584,15 +584,15 @@ async function wanLoad() {
   const r = await fetch("/api/wanemu/links"), j = await r.json().catch(() => ({}));
   if (!r.ok) { wanErr(j.detail || `HTTP ${r.status}`); $("#wanemu-links").innerHTML = ""; return; }
   wanErr(""); WAN = j; $("#wanemu-addr").textContent = `agent ${j.addr}`;
-  $("#wanemu-presets").innerHTML = Object.entries(j.presets).map(([k, l]) => `<button data-wp="${k}">${esc(l)}</button>`).join("") + `<button data-wreset="1">Alles neutraal</button>`;
-  $("#wanemu-links").innerHTML = Object.entries(WAN_SEG).map(([s, n]) => `<div class="wan-col"><h3>${n}</h3>${j.links.filter((l) => l.seg === s).map(wanCard).join("") || '<div class="hint">geen links</div>'}</div>`).join("");
+  $("#wanemu-presets").innerHTML = Object.entries(j.presets).map(([k, l]) => `<button data-wp="${k}">${esc(l)}</button>`).join("") + `<button data-wreset="1">All neutral</button>`;
+  $("#wanemu-links").innerHTML = Object.entries(WAN_SEG).map(([s, n]) => `<div class="wan-col"><h3>${n}</h3>${j.links.filter((l) => l.seg === s).map(wanCard).join("") || '<div class="hint">no links</div>'}</div>`).join("");
 }
 function wanCard(l) {
   const st = l.state, rtt = 2 * st.delay_ms;
   return `<div class="card wan-card${st.down ? " down" : ""}" data-wl="${esc(l.id)}"><b>${esc(l.name)}</b> <span class="mono">${esc(l.ip)}</span> <small>${esc(l.id.split("-").pop())}</small>` +
     WAN_F.map(([k, lbl, unit, lo, hi, step]) => `<div class="wan-f"><label>${lbl} <output>${st[k]}</output> ${unit}</label><input type="range" data-wf="${k}" min="${lo}" max="${hi}" step="${step}" value="${st[k]}"></div>`).join("") +
     `<div class="wan-f"><label><input type="checkbox" data-wf="down" ${st.down ? "checked" : ""}> link down</label></div>` +
-    `<div class="btnrow"><button class="primary" data-wa="1">Toepassen</button><select data-wps><option value="">preset…</option>${Object.entries(WAN.presets).filter(([k]) => !/storing|weg/.test(k)).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select><span class="hint">RTT +${rtt} ms</span></div></div>`;
+    `<div class="btnrow"><button class="primary" data-wa="1">Apply</button><span class="hint">RTT +${rtt} ms</span></div></div>`;
 }
 async function wanApply(card) {
   const v = {};
@@ -600,7 +600,9 @@ async function wanApply(card) {
   const r = await fetch("/api/wanemu/links/" + encodeURIComponent(card.dataset.wl), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(v) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
-  card.classList.remove("dirty"); await wanLoad();
+  wanErr(""); card.classList.remove("dirty"); await wanLoad();
+  const nc = document.querySelector(`#v_wanemu [data-wl="${CSS.escape(card.dataset.wl)}"]`);   // re-rendered card
+  if (nc) { nc.classList.add("wan-ok"); setTimeout(() => nc.classList.remove("wan-ok"), 1500); }
 }
 async function wanPreset(name, link) {
   const r = await fetch(`/api/wanemu/preset/${name}` + (link ? `?link=${encodeURIComponent(link)}` : ""), { method: "POST" });
@@ -614,13 +616,14 @@ $("#v_wanemu").addEventListener("input", (e) => {
   if (i.type === "range") i.previousElementSibling.querySelector("output").textContent = i.value;
 });
 $("#v_wanemu").addEventListener("change", (e) => {
-  const s = e.target.closest("[data-wps]"); if (s && s.value) wanPreset(s.value, s.closest("[data-wl]").dataset.wl);
+  const f = e.target.closest("[data-wf]");                     // slider released / "link down" toggled: apply at once
+  if (f) wanApply(f.closest("[data-wl]"));
 });
 $("#v_wanemu").addEventListener("click", async (e) => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.wa) return wanApply(b.closest("[data-wl]"));
   if (b.dataset.wp) return wanPreset(b.dataset.wp);
-  if (b.dataset.wreset && confirm("Alle links terug naar neutraal (geen vertraging, geen verlies, alles up)?")) {
+  if (b.dataset.wreset && confirm("Reset all links to neutral (no delay, no loss, everything up)?")) {
     const r = await fetch("/api/wanemu/reset", { method: "POST" }), j = await r.json().catch(() => ({}));
     if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
     await wanLoad();
@@ -649,14 +652,14 @@ function flexFields() {               // sync: after draw() and on a scope chang
 }
 $("#btn_flexcheck").onclick = async () => {
   const sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";
-  $("#flex_check").hidden = false; $("#flex_check").innerHTML = '<div class="hint">licenties opzoeken bij FortiFlex&hellip;</div>';
+  $("#flex_check").hidden = false; $("#flex_check").innerHTML = '<div class="hint">looking up licences at FortiFlex&hellip;</div>';
   const r = await post("/api/fortiflex/check", { topology: collect(), fmg: fmgCfg(), dry_run: true, scope: sc, bootstrap: { fmg: mf, fgt: mg } });
   const j = await json(r);
   if (!r.ok) { $("#flex_check").innerHTML = `<div class="error">✕ ${esc(errList(j).join(" · "))}</div>`; return; }
-  $("#flex_check").innerHTML = j.devices.length ? flexPlanTable(j.devices) : '<div class="hint">Bij deze keuze is geen FortiFlex-licentie nodig.</div>';
+  $("#flex_check").innerHTML = j.devices.length ? flexPlanTable(j.devices) : '<div class="hint">This choice needs no FortiFlex licence.</div>';
 };
 function flexPlanTable(devs) {
-  return `<table class="tbl"><thead><tr><th>Device</th><th>Serienummer</th><th>Actie</th></tr></thead><tbody>` +
+  return `<table class="tbl"><thead><tr><th>Device</th><th>Serial number</th><th>Action</th></tr></thead><tbody>` +
     devs.map((d) => `<tr><td>${esc(d.name)}</td><td class="mono">${esc(d.serial)}</td><td>${d.action === "create" ? "<b>" + esc(d.text) + "</b>" : esc(d.text)}</td></tr>`).join("") + "</tbody></table>";
 }
 function deployStatus(text, plan) {      // the deploy request can take a while (FortiFlex): say what is happening
@@ -668,7 +671,7 @@ function deployStatus(text, plan) {      // the deploy request can take a while 
 async function ffLoad() {
   ffErr("");
   FLEX = await (await fetch("/api/fortiflex")).json();
-  $("#ff_user").value = FLEX.user; $("#ff_pw").value = ""; $("#ff_pw").placeholder = FLEX.has_password ? "(opgeslagen; leeg laten = behouden)" : "";
+  $("#ff_user").value = FLEX.user; $("#ff_pw").value = ""; $("#ff_pw").placeholder = FLEX.has_password ? "(saved; leave empty = keep)" : "";
   $("#ff_enabled").checked = FLEX.enabled; $("#ff_folder").value = FLEX.folder || "";
   $("#ff_program").innerHTML = FLEX.program ? `<option>${esc(FLEX.program)}</option>` : "";
   if (FLEX.user && FLEX.has_password) { await ffPrograms(); await ffList(); }
@@ -676,14 +679,14 @@ async function ffLoad() {
 async function ffPrograms(creds) {
   const r = await post("/api/fortiflex/test", creds || {}), j = await json(r);
   if (!r.ok) { $("#ff_res").textContent = ""; return ffErr(errList(j).join(" · ")); }
-  ffErr(""); $("#ff_res").textContent = `✓ ingelogd, ${j.programs.length} programma('s)`;
+  ffErr(""); $("#ff_res").textContent = `✓ logged in, ${j.programs.length} program(s)`;
   setSel("#ff_program", j.programs.map((p) => p.serialNumber), FLEX.program || (j.programs[0] || {}).serialNumber);
   await ffConfigs(); await ffFolders();
 }
 async function ffFolders() {           // Asset Management folders as suggestions; typing a path stays possible
   const prog = $("#ff_program").value; if (!prog) return;
   const r = await post("/api/fortiflex/folders", { program: prog, user: $("#ff_user").value.trim(), password: $("#ff_pw").value }), j = await json(r);
-  if (!r.ok) { $("#ff_folders").innerHTML = ""; $("#ff_res").textContent += " · asset folders niet leesbaar: " + errList(j).join(" "); return; }
+  if (!r.ok) { $("#ff_folders").innerHTML = ""; $("#ff_res").textContent += " · asset folders not readable: " + errList(j).join(" "); return; }
   $("#ff_folders").innerHTML = j.folders.map((f) => `<option value="${esc(f.path)}">`).join("");
 }
 let FF_CONFIGS = [];
@@ -692,30 +695,30 @@ async function ffConfigs() {
   const r = await post("/api/fortiflex/configs", { program: prog, user: $("#ff_user").value.trim(), password: $("#ff_pw").value }), j = await json(r);
   if (!r.ok) return ffErr(errList(j).join(" · "));
   FF_CONFIGS = j;
-  const opts = (want, cur) => '<option value="">(geen)</option>' + j.filter((c) => c.product.includes(want)).map((c) => `<option value="${c.id}"${c.id === cur ? " selected" : ""}>${esc(c.name)} (${esc(c.status || "")})</option>`).join("");
+  const opts = (want, cur) => '<option value="">(none)</option>' + j.filter((c) => c.product.includes(want)).map((c) => `<option value="${c.id}"${c.id === cur ? " selected" : ""}>${esc(c.name)} (${esc(c.status || "")})</option>`).join("");
   $("#ff_fmg").innerHTML = opts("FortiManager", FLEX.fmg_config); $("#ff_fgt").innerHTML = opts("FortiGate", FLEX.fgt_config);
   ffParams();
 }
 function ffParams() {
-  const show = (id, lbl) => { const c = FF_CONFIGS.find((x) => String(x.id) === $(id).value); return c ? `${lbl}: ` + (Object.entries(c.parameters).map(([k, v]) => `${k} ${v}`).join(", ") || "geen parameters") : ""; };
+  const show = (id, lbl) => { const c = FF_CONFIGS.find((x) => String(x.id) === $(id).value); return c ? `${lbl}: ` + (Object.entries(c.parameters).map(([k, v]) => `${k} ${v}`).join(", ") || "no parameters") : ""; };
   $("#ff_params").textContent = [show("#ff_fmg", "FortiManager"), show("#ff_fgt", "FortiGates")].filter(Boolean).join(" · ");
 }
 async function ffSave() {
   const n = (v) => (v ? +v : null);
   const body = { user: $("#ff_user").value.trim(), password: $("#ff_pw").value, enabled: $("#ff_enabled").checked, program: $("#ff_program").value || "", fmg_config: n($("#ff_fmg").value), fgt_config: n($("#ff_fgt").value), folder: $("#ff_folder").value.trim() };
-  if (body.enabled && !body.fgt_config && !body.fmg_config) return ffErr("Kies minstens één configuratie voordat je FortiFlex aanzet");
+  if (body.enabled && !body.fgt_config && !body.fmg_config) return ffErr("Choose at least one configuration before turning FortiFlex on");
   const r = await fetch("/api/fortiflex", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const j = await json(r);
   if (!r.ok) return ffErr(errList(j).join(" · "));
-  FLEX = j; $("#ff_pw").value = ""; $("#ff_pw").placeholder = j.has_password ? "(opgeslagen; leeg laten = behouden)" : "";
-  ffErr(""); $("#ff_res").textContent = "✓ opgeslagen"; await ffList();
+  FLEX = j; $("#ff_pw").value = ""; $("#ff_pw").placeholder = j.has_password ? "(saved; leave empty = keep)" : "";
+  ffErr(""); $("#ff_res").textContent = "✓ saved"; await ffList();
 }
 async function ffList() {
   const r = await fetch("/api/fortiflex/entitlements"), j = await json(r);
   if (!r.ok) { $("#ff_list").innerHTML = ""; return ffErr(errList(j).join(" · ")); }
-  $("#ff_list").innerHTML = j.entitlements.length ? `<table class="tbl"><thead><tr><th>Omschrijving</th><th>Serienummer</th><th>Status</th><th>Token</th><th>Einddatum</th><th></th></tr></thead><tbody>` +
+  $("#ff_list").innerHTML = j.entitlements.length ? `<table class="tbl"><thead><tr><th>Description</th><th>Serial number</th><th>Status</th><th>Token</th><th>End date</th><th></th></tr></thead><tbody>` +
     j.entitlements.map((e) => `<tr><td>${esc(e.description)}</td><td class="mono">${esc(e.serialNumber)}</td><td>${esc(e.status)}</td><td>${esc(e.tokenStatus || "")}</td><td>${esc((e.endDate || "").slice(0, 10))}</td><td>${e.status === "STOPPED" || e.status === "EXPIRED" ? "" : `<button data-ffstop="${esc(e.serialNumber)}">Stop</button>`}</td></tr>`).join("") + "</tbody></table>"
-    : '<div class="hint">Nog geen licenties van deze tool in de gekozen configuraties.</div>';
+    : '<div class="hint">No licences of this tool in the chosen configurations yet.</div>';
 }
 $("#ff_test").onclick = () => ffPrograms({ user: $("#ff_user").value.trim(), password: $("#ff_pw").value });
 $("#ff_program").onchange = async () => { await ffConfigs(); await ffFolders(); };
@@ -723,8 +726,57 @@ $("#ff_fmg").onchange = ffParams; $("#ff_fgt").onchange = ffParams;
 $("#ff_save").onclick = ffSave;
 $("#ff_list").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-ffstop]"); if (!b) return;
-  if (!confirm(`Licentie ${b.dataset.ffstop} stoppen? De FortiGate/FortiManager met dit serienummer verliest zijn licentie.`)) return;
+  if (!confirm(`Stop licence ${b.dataset.ffstop}? The FortiGate/FortiManager with this serial number loses its licence.`)) return;
   const r = await fetch("/api/fortiflex/stop/" + encodeURIComponent(b.dataset.ffstop), { method: "POST" }), j = await json(r);
   if (!r.ok) return ffErr(errList(j).join(" · "));
   await ffList();
 });
+
+
+// ---- topology picture: what this deployment builds (from the form; parts outside the chosen scope are dimmed) -----
+function topoSvg(t, sc) {
+  const w = t.wanemu, seg = w.segments, fgts = [...t.hubs.map((d) => [d, true]), ...t.edges.map((d) => [d, false])];
+  const L = 150, COL = 180, W = Math.max(900, L + fgts.length * COL + 20);
+  const oct = (subnet, n) => subnet.split("/")[0].split(".").slice(0, 3).join(".") + "." + n;
+  const fgtOn = ["all", "fgt"].includes(sc), modelOnly = ["dev", "tpl"].includes(sc), fmgNew = ["all", "fmg"].includes(sc);
+  const dim = (on) => (on ? "" : ' opacity="0.35"');
+  const box = (x, y, bw, bh, title, lines, cls, on = true) =>
+    `<g${dim(on)}><rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="7" class="tp-box ${cls || ""}"/>` +
+    `<text x="${x + 8}" y="${y + 17}" class="tp-title">${esc(title)}</text>` +
+    lines.map((l, i) => `<text x="${x + 8}" y="${y + 33 + i * 14}" class="tp-txt">${esc(l)}</text>`).join("") + "</g>";
+  const line = (x1, y1, x2, y2, on = true, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="tp-line"${dash ? ' stroke-dasharray="4 3"' : ""}${dim(on)}/>`;
+  const bar = (y, name, vlan, subnet, on) => `<g${dim(on)}><line x1="${L}" y1="${y}" x2="${W - 10}" y2="${y}" class="tp-bar"/>` +
+    `<text x="10" y="${y - 3}" class="tp-title">${esc(name)}</text><text x="10" y="${y + 11}" class="tp-txt">VLAN ${vlan} · ${esc(subnet)}</text></g>`;
+  const yLab = 92, yHub = 170, yA = 205, yB = 240, yF = 290, yLan = 395, yCli = 470;
+  let o = "";
+  o += bar(yLab, "Lab / uplink", w.uplink.vlan, w.uplink.ip.replace(/\.\d+\/(\d+)$/, ".0/$1"), true);
+  o += box(L, 14, 200, 56, "FortiManager", [`${(t.fmgr.ip || "").split("/")[0] || "(IP)"}`, fmgNew ? "new VM (Day-0)" : "existing"], "", true) + line(L + 100, 70, L + 100, yLab);
+  o += box(L + 230, 14, 230, 56, "wan-emu (LXC)", [`${w.uplink.ip.split("/")[0]} · NAT, DHCP, tc`, "forwards :" + w.fwd_https_base + "+ / :" + w.fwd_ssh_base + "+"], "tp-emu", fgtOn) + line(L + 345, 70, L + 345, yLab, fgtOn);
+  o += line(L + 345, yLab, L + 345, yB, fgtOn);
+  o += bar(yHub, seg.hub.name, seg.hub.vlan, seg.hub.subnet, fgtOn) + bar(yA, seg.a.name, seg.a.vlan, seg.a.subnet, fgtOn) + bar(yB, seg.b.name, seg.b.vlan, seg.b.subnet, fgtOn);
+  fgts.forEach(([d, hub], n) => {
+    const x = L + 10 + n * COL, cx = x + 80, ei = n - t.hubs.length;
+    const wan1 = hub ? (d.wan1_ip || "").split("/")[0] : oct(seg.a.subnet, seg.a.res_start + ei);
+    const wan2 = !hub && d.wan2_intf ? oct(seg.b.subnet, seg.b.res_start + ei) : null;
+    const lan = (d.lans || [])[0] || {}, vlan = w.lan_vlan_base + 1 + n;
+    o += line(cx - 20, yF, cx - 20, hub ? yHub : yA, fgtOn);
+    if (wan2) o += line(cx + 20, yF, cx + 20, yB, fgtOn);
+    o += box(x, yF, 160, 72, `${d.name || "?"} · ${hub ? "hub" : "spoke"}`, [`WAN1 ${wan1}`, wan2 ? `WAN2 ${wan2}` : hub ? "gw " + (d.wan1_gw || "") : "no WAN2", modelOnly ? "model device" : `Lo ${d.loopback || ""}`], hub ? "tp-hub" : "tp-spoke", fgtOn || modelOnly);
+    if (lan.ip) {
+      o += line(cx, yF + 72, cx, yLan, fgtOn || modelOnly);
+      o += box(x, yLan, 160, 50, `LAN ${lan.intf || ""}`, [lan.ip, `VLAN ${vlan}`], "tp-lan", fgtOn || modelOnly);
+      if (!hub) {
+        const ip = lan.ip.split("/")[0].split(".").slice(0, 3).join(".") + ".10";
+        o += line(cx, yLan + 50, cx, yCli, fgtOn) + box(x, yCli, 160, 46, `client-${d.name}`, [`${ip} (LXC)`], "tp-cli", fgtOn);
+      }
+    }
+  });
+  o += `<text x="${L}" y="${yCli + 70}" class="tp-txt">IPsec overlay: every spoke WAN → WAN1 of every hub · BGP on loopbacks · ${t.region.multi_vrf === false ? "single VRF (VRF 0)" : "multi-VRF"}</text>`;
+  return `<svg viewBox="0 0 ${W} ${yCli + 84}" width="100%" role="img" aria-label="Topology" xmlns="http://www.w3.org/2000/svg">${o}</svg>`;
+}
+let TOPO_T = null;
+function topoDraw() {
+  clearTimeout(TOPO_T);
+  TOPO_T = setTimeout(() => { try { $("#topo").innerHTML = topoSvg(collect(), scope()); } catch (e) { $("#topo").innerHTML = ""; } }, 150);
+}
+$("#v_deploy").addEventListener("input", (e) => { if (!e.target.closest("#topo")) topoDraw(); });

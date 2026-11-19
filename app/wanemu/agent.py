@@ -26,24 +26,24 @@ FULL = "10gbit"          # rate of an unlimited link / of the default class
 def check(values):
     """Validate (part of) a link state; returns the normalised values. Raises ValueError with a readable message."""
     if not isinstance(values, dict):
-        raise ValueError("verwacht een JSON-object")
+        raise ValueError("expected a JSON object")
     out = {}
     for k, v in values.items():
         if k == "down":
             if not isinstance(v, bool):
-                raise ValueError("down moet true of false zijn")
+                raise ValueError("down must be true or false")
             out[k] = v
         elif k in LIMITS:
             lo, hi, typ = LIMITS[k]
             try:
                 x = typ(v)
             except (TypeError, ValueError):
-                raise ValueError(f"{k} moet een getal zijn") from None
+                raise ValueError(f"{k} must be a number") from None
             if isinstance(v, bool) or not lo <= x <= hi:
-                raise ValueError(f"{k} moet tussen {lo} en {hi} liggen")
+                raise ValueError(f"{k} must be between {lo} and {hi}")
             out[k] = x
         else:
-            raise ValueError(f"onbekend veld {k}")
+            raise ValueError(f"unknown field {k}")
     return out
 
 
@@ -191,7 +191,7 @@ class App:
 
             def _auth(self):
                 if self.headers.get("Authorization") != f"Bearer {app.token}":
-                    self._send(401, {"error": "token ontbreekt of is onjuist"})
+                    self._send(401, {"error": "token missing or wrong"})
                     return False
                 return True
 
@@ -200,14 +200,14 @@ class App:
                     return
                 if self.path == "/links":
                     return self._send(200, {"links": app.view()})
-                self._send(404, {"error": "onbekend pad"})
+                self._send(404, {"error": "unknown path"})
 
             def do_PUT(self):
                 if not self._auth():
                     return
                 lid = self.path[len("/links/"):] if self.path.startswith("/links/") else None
                 if lid not in app.ids:
-                    return self._send(404, {"error": f"onbekende link {lid}"})
+                    return self._send(404, {"error": f"unknown link {lid}"})
                 try:
                     n = int(self.headers.get("Content-Length") or 0)
                     body = json.loads(self.rfile.read(n) or b"{}")
@@ -221,7 +221,7 @@ class App:
                 if not self._auth():
                     return
                 if self.path != "/reset":
-                    return self._send(404, {"error": "onbekend pad"})
+                    return self._send(404, {"error": "unknown path"})
                 try:
                     app.reset()
                     self._send(200, {"links": app.view()})

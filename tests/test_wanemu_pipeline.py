@@ -50,7 +50,7 @@ print("OK  bestaande CT: hergebruikt, nieuwe netwerkconfig toegepast, opnieuw in
 # 3. no internet from the segments: warning, no failure
 ev.clear()
 r3 = setup.deploy_wanemu(pve, t, SEC, emit, connector=connector(FakeShell(installed=True, fail=("ping",))), waiter=waiter)
-assert r3["internet"] is False and any(st == "warn" and "geen internet vanuit ISP-A" in m for _, st, m in ev)
+assert r3["internet"] is False and any(st == "warn" and "no internet from ISP-A" in m for _, st, m in ev)
 print("OK  geen internet vanuit ISP-A: waarschuwing, uitrol gaat door")
 
 # 4. netem/ifb missing on the host: clear error; a CT that existed is kept
@@ -98,7 +98,7 @@ except setup.WanEmuError as e:
 ev.clear()                                                                                    # VMID gewijzigd bij hergebruik
 t3 = model.merged({"pve": {"node": "pve1"}, "wanemu": {"vmid": 555}})
 setup.deploy_wanemu(pve, t3, SEC, emit, connector=connector(FakeShell(installed=True)), waiter=waiter)
-assert any("CT-id 555" in m and "verwijder" in m for _, _, m in ev), ev
+assert any("CT id 555" in m and "delete" in m for _, _, m in ev), ev
 # step status: no internet must stay a warning (not overwritten by ok)
 from app import fmg as fmgmod  # noqa: E402
 ev.clear()

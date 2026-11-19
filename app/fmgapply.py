@@ -46,9 +46,9 @@ def plan_calls(topo, plan, devices=True):
         body = {"name": v}
         if devices:
             body["dynamic_mapping"] = [{"_scope": dev_scope([d]), "value": str(val)} for d, val in sorted(vals.items())]
-        add("Metadata-variabelen", "set", f"{base}/obj/fmg/variable/{v}", body)
+        add("Metadata variables", "set", f"{base}/obj/fmg/variable/{v}", body)
     # update (not set): keep FortiManager's own description of this predefined variable; soft: older FMGs lack it
-    add("Metadata-variabelen", "update", f"{base}/obj/fmg/variable/vm_interface_number",
+    add("Metadata variables", "update", f"{base}/obj/fmg/variable/vm_interface_number",
         {"name": "vm_interface_number", "value": str(VM_INTERFACE_NUMBER)}, soft=True)
 
     # 3. system template (DNS, admin)
@@ -83,14 +83,14 @@ def plan_calls(topo, plan, devices=True):
     # 5. interfaces, addresses, pools
     ifs = sorted({i for r in roles for i in r["dyn_ifaces"]})
     for i in ifs:
-        add("Interfaces en adressen", "set", f"{base}/obj/dynamic/interface/{i}",
+        add("Interfaces and addresses", "set", f"{base}/obj/dynamic/interface/{i}",
             {"name": i, "description": i, "single-intf": 1, "default-mapping": 1, "defmap-intf": i, "color": 2})
     seen = set()
     for r in roles:
         for a in r["addresses"]:
             if a["name"] not in seen:
                 seen.add(a["name"])
-                add("Interfaces en adressen", "set", f"{base}/obj/firewall/address/{a['name']}", a)
+                add("Interfaces and addresses", "set", f"{base}/obj/firewall/address/{a['name']}", a)
     pools = {}
     for r in roles:
         for dn, rows in r["ippool_map"].items():
@@ -100,7 +100,7 @@ def plan_calls(topo, plan, devices=True):
         body = {"name": name, "type": "overload", "startip": lst[0][1]["startip"], "endip": lst[0][1]["endip"]}
         if devices:
             body["dynamic_mapping"] = [{"_scope": scope([dn]), "startip": v["startip"], "endip": v["endip"]} for dn, v in lst]
-        add("Interfaces en adressen", "set", f"{base}/obj/firewall/ippool/{name}", body)
+        add("Interfaces and addresses", "set", f"{base}/obj/firewall/ippool/{name}", body)
 
     # 6. policy packages
     add("Policy packages", "set", f"/pm/pkg/adom/{adom}",
@@ -111,10 +111,10 @@ def plan_calls(topo, plan, devices=True):
     # 7. CLI templates + CLI template groups
     for r in roles:
         for name, text, vs in r["cli"]:
-            add("CLI-templates", "set", f"{base}/obj/cli/template/{name}",
+            add("CLI templates", "set", f"{base}/obj/cli/template/{name}",
                 {"name": name, "description": f"SD-WAN multi-VRF {r['name']} (fgt-sdwan-provision)", "position": "post-vdom-copy",
                  "provision": "disable", "script": text + "\n", "type": "cli", "variables": vs})
-        add("CLI-templates", "set", f"{base}/obj/cli/template-group/{r['name']}",
+        add("CLI templates", "set", f"{base}/obj/cli/template-group/{r['name']}",
             {"name": r["name"], "member": [n for n, _, _ in r["cli"]]})
 
     # 8. provisioning template groups, scoped to the device group
@@ -131,8 +131,8 @@ def plan_calls(topo, plan, devices=True):
         add("Blueprints", "set", f"{base}/obj/fmg/device/blueprint/{r['name']}",
             {"name": r["name"], "dev-group": group(r), "prov-type": "template-group", "template-group": r["name"],
              "pkg": r["name"], "platform": BLUEPRINT_PLATFORM, "vm-log-disk": 1})
-    order = ["Device groups", "Metadata-variabelen", "System template", "Interfaces en adressen", "SD-WAN templates",
-             "Static-route templates", "Policy packages", "CLI-templates", "Template groups", "Blueprints"]
+    order = ["Device groups", "Metadata variables", "System template", "Interfaces and addresses", "SD-WAN templates",
+             "Static-route templates", "Policy packages", "CLI templates", "Template groups", "Blueprints"]
     return sorted(calls, key=lambda c: order.index(c["stage"]))      # stable: keeps order within a stage
 
 
@@ -158,7 +158,7 @@ def apply_plan(fmg, topo, plan, emit, step="templates", devices=True):
                     raise FmgError(f"{st}: {e}")
             n += 1
         done += n
-        emit(step, "running", f"{st}: {n} aanroep(en){' [dry-run]' if fmg.dry else ''}")
+        emit(step, "running", f"{st}: {n} call(s){' [dry-run]' if fmg.dry else ''}")
     for w in plan["warnings"]:
         emit(step, "warn", w)
     return done

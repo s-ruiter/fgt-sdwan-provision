@@ -24,7 +24,7 @@ def check_folder(path):
         return ""
     parts = p.split("/")
     if parts[0] != "My Assets" or any(not x.strip() for x in parts) or len(p) > 255:
-        raise ValueError("Asset folder moet een pad onder 'My Assets' zijn, bv. My Assets/Lab/SD-WAN (of leeg)")
+        raise ValueError("Asset folder must be a path under 'My Assets', e.g. My Assets/Lab/SD-WAN (or empty)")
     return "/".join(x.strip() for x in parts)
 
 
@@ -43,15 +43,15 @@ class Client:
             r = requests.post(self.auth_url, json={"username": self.user, "password": self.password,
                                                    "client_id": client_id, "grant_type": "password"}, timeout=self.timeout)
         except requests.RequestException as e:
-            raise FlexError(f"FortiFlex: inloggen mislukt, geen verbinding met {self.auth_url}: {type(e).__name__}") from None
+            raise FlexError(f"FortiFlex: login failed, no connection to {self.auth_url}: {type(e).__name__}") from None
         if r.status_code != 200 or "access_token" not in (r.json() if r.content else {}):
             try:
                 why = r.json().get("error_description") or r.json().get("error") or ""
             except ValueError:
                 why = ""
             what = "FortiFlex" if client_id == "flexvm" else "Asset Management"
-            raise FlexError(f"{what}: inloggen geweigerd (HTTP {r.status_code}) {why}".strip()
-                            + " - controleer API-gebruiker, wachtwoord en de rechten van de API-gebruiker")
+            raise FlexError(f"{what}: login refused (HTTP {r.status_code}) {why}".strip()
+                            + " - check the API user, the password and the API user's permissions")
         self._tokens[client_id] = r.json()["access_token"]
 
     def call(self, path, body=None, base=None, client_id="flexvm"):
@@ -61,7 +61,7 @@ class Client:
             r = requests.post((base or self.base) + path, json=body or {}, timeout=self.timeout,
                               headers={"Authorization": f"Bearer {self._tokens[client_id]}"})
         except requests.RequestException as e:
-            raise FlexError(f"FortiFlex {path}: geen verbinding ({type(e).__name__})") from None
+            raise FlexError(f"FortiFlex {path}: no connection ({type(e).__name__})") from None
         try:
             data = r.json()
         except ValueError:
@@ -69,7 +69,7 @@ class Client:
         if r.status_code != 200 or data.get("status") != 0:
             msg = data.get("error") or data.get("message") or f"HTTP {r.status_code}"
             if r.status_code in (401, 403):
-                msg += " (heeft de API-gebruiker rechten op FortiFlex? Aanmaken vraagt ReadWrite)"
+                msg += " (does the API user have FortiFlex permissions? Creating needs ReadWrite)"
             raise FlexError(f"FortiFlex {path}: {msg}")
         return data
 
@@ -140,8 +140,8 @@ def plan(devices, ents_by_config, adom):
     return rows
 
 
-ACTION_TEXT = {"use": "bestaande licentie, token ongebruikt", "regen": "bestaande licentie, nieuw token",
-               "reactivate": "gestopte licentie, opnieuw activeren + nieuw token", "create": "nieuwe licentie (kost punten)"}
+ACTION_TEXT = {"use": "existing licence, token unused", "regen": "existing licence, new token",
+               "reactivate": "stopped licence, reactivate + new token", "create": "new licence (costs points)"}
 
 
 def resolve(client, rows, dry, folder=""):
@@ -160,20 +160,20 @@ def resolve(client, rows, dry, folder=""):
             if act == "create":
                 e = client.create_vm(r["config_id"], r["description"], folder)
                 sn, tok = e["serialNumber"], e.get("token")
-                created.append(f"{r['name']} ({sn}) aangemaakt")
+                created.append(f"{r['name']} ({sn}) created")
             else:
                 if r.get("rename"):
                     client.update(sn, r["config_id"], r["description"])
                 if act == "reactivate":
                     client.reactivate(sn)
-                    created.append(f"{r['name']} ({sn}) heractiveerd")
+                    created.append(f"{r['name']} ({sn}) reactivated")
                 if act in ("reactivate", "regen"):
                     tok = client.regen_token(sn).get("token")
-                    created.append(f"{r['name']} ({sn}) nieuw token")
+                    created.append(f"{r['name']} ({sn}) new token")
         except FlexError as e:
-            extra = f" (in deze uitrol al gedaan: {'; '.join(created)})" if created else ""
+            extra = f" (already done in this deployment: {'; '.join(created)})" if created else ""
             raise FlexError(f"{r['name']}: {e}{extra}") from None
         if not tok:
-            raise FlexError(f"{r['name']}: FortiFlex gaf geen token voor {sn}")
+            raise FlexError(f"{r['name']}: FortiFlex returned no token for {sn}")
         out[r["name"]] = {"serial": sn, "token": tok, "action": act}
     return out

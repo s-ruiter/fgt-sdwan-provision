@@ -157,7 +157,7 @@ class Shell:
             if "--More--" in self.buf:
                 self.buf = self.buf.replace("--More--", "")
                 self.chan.send(" ")
-        raise BootstrapError(f"timeout; laatste output: {self.mask(self.buf[-200:])!r}")
+        raise BootstrapError(f"timeout; last output: {self.mask(self.buf[-200:])!r}")
 
     def send(self, line):
         try:
@@ -171,7 +171,7 @@ class Shell:
         if i == -1:
             return out
         if ERR.search(out.split("\n", 1)[-1]):
-            raise BootstrapError(f"opdracht mislukt: {shown or self.mask(line)} -> {self.mask(out.strip()[-160:])}")
+            raise BootstrapError(f"command failed: {shown or self.mask(line)} -> {self.mask(out.strip()[-160:])}")
         return out
 
     def close(self):
@@ -210,13 +210,13 @@ def login(connector, host, user, initial_pw, new_pw, mask, log, timing):
             return sh, pw
         if i in (1, 2, 3):
             if not new_pw:
-                raise BootstrapError(f"{host}: apparaat vraagt om een nieuw wachtwoord, maar er is geen nieuw wachtwoord opgegeven")
+                raise BootstrapError(f"{host}: the device asks for a new password, but no new password was given")
             if i in (1, 2):
                 sh.send(new_pw)
                 pw = new_pw
             continue
-        raise BootstrapError(f"{host}: verbinding gesloten tijdens inloggen")
-    raise BootstrapError(f"{host}: wachtwoordwissel liep niet door")
+        raise BootstrapError(f"{host}: connection closed during login")
+    raise BootstrapError(f"{host}: the password change did not go through")
 
 
 def wait_tcp(host, port, up, timeout):
@@ -237,7 +237,7 @@ def wait_tcp(host, port, up, timeout):
 def apply_license(sh, token, mask, log, timing):
     """Send `execute vm-license <token>`; the device reboots on success. Raises on rejection."""
     sh.send(license_line(token))
-    log("info", "execute vm-license ******** verstuurd")
+    log("info", "execute vm-license ******** sent")
     seen = ""
     for _ in range(3):
         i, out = sh.expect([r"\(y/n\)", PROMPT], timing.cmd * 2)
@@ -248,7 +248,7 @@ def apply_license(sh, token, mask, log, timing):
         break
     low = seen.lower()
     if re.search(r"fail|invalid|error|expired|not (found|valid)|unable", low) and "succe" not in low:
-        raise BootstrapError("licentie geweigerd: " + mask(seen.strip()[-200:]))
+        raise BootstrapError("licence refused: " + mask(seen.strip()[-200:]))
     return seen
 
 
@@ -270,14 +270,14 @@ def bootstrap_device(kind, name, lines, initial_ip, target_ip, token, creds, log
     connector = connector or (lambda h, u, p: ssh_connect(h, u, p, port=ssh_port, mask=mask, log=log))
     user = creds.get("user") or "admin"
 
-    log("info", f"{name}: verbinden met {initial_ip}")
+    log("info", f"{name}: connecting to {initial_ip}")
     sh, pw = login(connector, initial_ip, user, creds.get("initial_pw", ""), creds.get("new_pw", ""), mask, log, timing)
     try:
         if kind == "fgt":
             sh.run("config system console", timing.cmd)
             sh.run("set output standard", timing.cmd)
             sh.run("end", timing.cmd)
-        log("info", f"{name}: netwerkconfig ({len(lines)} regels)")
+        log("info", f"{name}: network config ({len(lines)} lines)")
         for l in lines[:-1]:
             sh.run(l, timing.cmd)
         # last line closes the interface block and moves the IP; the session may drop here
@@ -290,28 +290,28 @@ def bootstrap_device(kind, name, lines, initial_ip, target_ip, token, creds, log
 
     reach = initial_ip
     if target_ip != initial_ip:
-        log("info", f"{name}: wachten op {target_ip}")
+        log("info", f"{name}: waiting for {target_ip}")
         if not waiter(target_ip, ssh_port, True, timing.link_up):
-            raise BootstrapError(f"{name}: {target_ip} niet bereikbaar vanaf de deploy-container "
-                                 f"(routing/VLAN naar het WAN-netwerk?)")
+            raise BootstrapError(f"{name}: {target_ip} not reachable from the deploy container "
+                                 f"(routing/VLAN to the WAN network?)")
         reach = target_ip
     sh, pw = login(connector, reach, user, pw, creds.get("new_pw", ""), mask, log, timing)
     try:
-        log("info", f"{name}: FortiFlex-licentie toepassen")
+        log("info", f"{name}: applying the FortiFlex licence")
         seen = apply_license(sh, token, mask, log, timing)
     finally:
         sh.close()
-    log("info", f"{name}: licentie geaccepteerd, apparaat herstart ({mask(seen.strip().splitlines()[-1] if seen.strip() else '')})")
+    log("info", f"{name}: licence accepted, the device reboots ({mask(seen.strip().splitlines()[-1] if seen.strip() else '')})")
 
     waiter(reach, ssh_port, False, timing.reboot_down)
     if not waiter(reach, ssh_port, True, timing.reboot_up):
-        raise BootstrapError(f"{name}: apparaat komt niet terug op {reach} na de licentie-reboot")
+        raise BootstrapError(f"{name}: the device does not come back on {reach} after the licence reboot")
     sh, pw = login(connector, reach, user, pw, creds.get("new_pw", ""), mask, log, timing)
     try:
         status = parse_status(sh.run("get system status", timing.cmd))
     finally:
         sh.close()
     if kind == "fgt" and expect_serial and status.get("serial") and status["serial"].upper() != expect_serial.upper():
-        raise BootstrapError(f"{name}: serienummer {status['serial']} wijkt af van opgegeven {expect_serial}")
-    log("ok", f"{name}: klaar - {status.get('serial', '?')} licentie={status.get('license', '?')}")
+        raise BootstrapError(f"{name}: serial number {status['serial']} differs from the given {expect_serial}")
+    log("ok", f"{name}: done - {status.get('serial', '?')} licence={status.get('license', '?')}")
     return status
