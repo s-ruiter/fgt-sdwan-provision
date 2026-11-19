@@ -85,17 +85,19 @@ De tool stopt nooit zelf een licentie; dat kan per licentie op de pagina FortiFl
 ## WAN-emulatie
 
 Bij FortiGate-VM's (methode `day0`) zitten de FortiGates niet in het lab-netwerk maar achter een gesimuleerde provider,
-altijd. De standaardwaarden (aan te passen onder *Proxmox & images*):
+altijd. De standaardwaarden (aan te passen onder *Proxmox & images*); de uplink heeft géén standaard en vul je zelf in
+(adres van `wan-emu` in jouw lab-netwerk; VLAN leeg = untagged). Hieronder een voorbeeld-uplink:
 
 | Segment | VLAN | Subnet | Gateway (container) | Wie |
 |---|---|---|---|---|
-| uplink | 106 | 10.10.106.0/24 | 10.10.106.1 | `wan-emu` zelf: 10.10.106.250 |
+| uplink (voorbeeld) | 106 | 10.10.106.0/24 | 10.10.106.1 | `wan-emu` zelf: 10.10.106.250 |
 | ISP-HUB | 3200 | 100.127.200.0/24 | 100.127.200.1 | hubs, vast (.11, .12) |
 | ISP-A | 3201 | 100.127.201.0/24 | 100.127.201.1 | port1 van de spokes, DHCP: spoke n = .11+n |
 | ISP-B | 3202 | 100.127.202.0/24 | 100.127.202.1 | port2 van de spokes, DHCP: spoke n = .11+n |
 
 - De wan-poorten van de FortiGate-VM's krijgen automatisch het VLAN van hun segment en een vast MAC-adres (voor de
-  DHCP-reservering); de poortentabel geldt alleen nog voor de LAN-poorten.
+  DHCP-reservering), de LAN1/LAN2-poorten een eigen VLAN per FortiGate. De poortentabel toont per poort wat de tool
+  zelf zet (kolom *Set by the tool*, dan vergrendeld); alleen de overige poorten volgen de tabel.
 - Tussen de segmenten geen NAT; naar het lab (eth0) masquerade, dus op de lab-gateway hoeft niets te veranderen.
   FortiManager ziet alle FortiGates vanaf 10.10.106.250.
 - **Op de PVE-host** moeten `sch_netem` en `ifb` geladen zijn (`modprobe sch_netem ifb`, blijvend via

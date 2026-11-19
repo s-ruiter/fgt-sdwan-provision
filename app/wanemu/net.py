@@ -94,7 +94,11 @@ def fmg_routes(t):
         fip = ipaddress.ip_interface(str(t["fmgr"].get("ip", "")).strip()).ip
     except ValueError:
         return []
-    if fip not in _uplink_net(t):
+    try:
+        up = _uplink_net(t)
+    except ValueError:                              # uplink not filled in (yet): e.g. a FortiManager-only run
+        return []
+    if fip not in up:
         return []
     gw = _ip(t["wanemu"]["uplink"]["ip"])
     out = []
@@ -133,7 +137,8 @@ def ct_params(t, vmid, ssh_pubkey):
          # DNS of the topology: without it the CT inherits the PVE host's resolvers, which the uplink VLAN may not reach
          "nameserver": " ".join(x for x in (t.get("dns_primary"), t.get("dns_secondary")) if x),
          "ssh-public-keys": ssh_pubkey,
-         "net0": f"name=eth0,bridge={w['bridge']},tag={up['vlan']},ip={up['ip']},gw={up['gw']}"}
+         "net0": f"name=eth0,bridge={w['bridge']}" + (f",tag={up['vlan']}" if up.get("vlan") else "")
+                 + f",ip={up['ip']},gw={up['gw']}"}
     for i, s in enumerate(SEGS, start=1):
         g = seg[s]
         prefix = ipaddress.ip_network(g["subnet"], strict=False).prefixlen

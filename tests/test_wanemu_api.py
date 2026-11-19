@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import HTTPException  # noqa: E402
 
 from app import db, main, model  # noqa: E402
+import labuplink  # noqa: E402,F401  (fills in the lab uplink: it has no default)
 from app.wanemu import agent, client, net  # noqa: E402
 
 t = model.merged({})

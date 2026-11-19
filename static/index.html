@@ -91,7 +91,7 @@
           <div class="f"><label>RAM (MB)</label><input id="fgt_mem" type="number"></div>
         </div>
         <div class="hint">vCPU must match the FortiFlex entitlement.</div>
-        <h4>Ports <small>&rarr; bridge/VLAN for other ports (WAN ports always go to the WAN emulator, LAN ports to their own VLAN; empty = default bridge)</small></h4>
+        <h4>Ports <small>&rarr; bridge/VLAN per FortiGate port. WAN and LAN ports are set by the tool (WAN emulator segments, a LAN VLAN per FortiGate); the rest uses what you set here (empty = default bridge, untagged)</small></h4>
         <table id="ports" class="tbl"></table>
         <div class="hint">No image yet? Upload the <code>.out.kvm.zip</code> from FortiCloud on the <a href="#/images" style="color:var(--accent)">Images</a> page.</div>
         </div>
@@ -103,8 +103,8 @@
           <div class="f"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
           <div class="f"><label>Storage (rootfs)</label><input id="wan-storage"></div>
           <div class="f"><label>Bridge</label><select id="wan-bridge"></select></div>
-          <div class="f"><label>Uplink VLAN</label><input id="wan-uplink-vlan" type="number"></div>
-          <div class="f"><label>Uplink IP/prefix</label><input id="wan-uplink-ip" class="mono"></div>
+          <div class="f"><label>Uplink VLAN</label><input id="wan-uplink-vlan" type="number" placeholder="empty = untagged"></div>
+          <div class="f"><label>Uplink IP/prefix</label><input id="wan-uplink-ip" class="mono" placeholder="your lab network, e.g. 192.168.1.250/24"></div>
           <div class="f"><label>Uplink gateway</label><input id="wan-uplink-gw" class="mono"></div>
         </div>
         <table class="tbl" id="wan-segs"><thead><tr><th>Segment</th><th>VLAN</th><th>Subnet</th><th>Gateway (= container)</th><th>Reservations from</th></tr></thead><tbody>

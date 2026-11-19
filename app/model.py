@@ -60,7 +60,7 @@ DEFAULTS = {
         "fwd_https_base": 10443, "fwd_ssh_base": 10022,
         # LAN VLANs: LAN1 of FortiGate n on lan_vlan_base+1+n, LAN2 on lan2_vlan_base+1+n
         "lan_vlan_base": 3300, "lan2_vlan_base": 3400,
-        "uplink": {"vlan": 106, "ip": "10.10.106.250/24", "gw": "10.10.106.1"},
+        "uplink": {"vlan": None, "ip": "", "gw": ""},   # lab-specific: filled in by the user (VLAN empty = untagged)
         "segments": {
             "hub": {"name": "ISP-HUB", "vlan": 3200, "subnet": "100.127.200.0/24", "gw": "100.127.200.1"},
             "a": {"name": "ISP-A", "vlan": 3201, "subnet": "100.127.201.0/24", "gw": "100.127.201.1",
@@ -404,7 +404,7 @@ def validate_wanemu(t):
             err.append("WAN emulation uplink: gateway missing or not in the subnet of the uplink IP")
         nets["uplink"] = ui.network
     except ValueError:
-        err.append("WAN emulation uplink: IP as a.b.c.d/nn is required")
+        err.append("WAN emulation uplink: IP as a.b.c.d/nn is required (the address of wan-emu in your lab network)")
     names = list(nets)
     for i, a in enumerate(names):
         for b in names[i + 1:]:
@@ -420,7 +420,7 @@ def validate_wanemu(t):
     if isinstance(w.get("lan_vlan_base"), int) and isinstance(w.get("lan2_vlan_base"), int) and \
             abs(w["lan_vlan_base"] - w["lan2_vlan_base"]) < n_fgt:
         err.append("WAN emulation: the LAN VLANs for LAN1 and LAN2 overlap")
-    vlans = [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]
+    vlans = ([up["vlan"]] if up.get("vlan") not in (None, "") else []) + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]
     if any(not isinstance(v, int) or not 1 <= v <= 4094 for v in vlans) or len(set(vlans)) != len(vlans):
         err.append("WAN emulation: VLANs must be unique and 1-4094")
     ranges = []

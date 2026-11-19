@@ -14,6 +14,7 @@ import email
 import requests
 
 from app import cloudinit, model
+import labuplink  # noqa: E402,F401  (fills in the lab uplink: it has no default)
 from app.fmg import Fmg, FmgError, pipeline
 from app import fmgtemplates
 from tests import fake_proxmox, mock_fmg

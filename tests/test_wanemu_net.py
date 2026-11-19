@@ -7,7 +7,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import model  # noqa: E402
 from app.wanemu import net  # noqa: E402
 
-t = model.merged({})
+LAB = {"vlan": 106, "ip": "10.10.106.250/24", "gw": "10.10.106.1"}       # the user's lab uplink (no default)
+t = model.merged({"wanemu": {"uplink": LAB}})
 m = net.mac_for("site1-1", 1)
 assert m == net.mac_for("site1-1", 1) and m != net.mac_for("site1-1", 2) and m.startswith("02:")
 assert re.fullmatch(r"02(:[0-9a-f]{2}){5}", m)
@@ -37,9 +38,9 @@ print("OK  netwerkfuncties: MAC stabiel, reserveringen .11+n, 7 links, dnsmasq p
 
 # validation
 assert model.validate_wanemu(t) == [], model.validate_wanemu(t)
-bad = model.merged({}); bad["hubs"][0]["wan1_ip"] = "10.10.106.101/24"
+bad = model.merged({"wanemu": {"uplink": LAB}}); bad["hubs"][0]["wan1_ip"] = "10.10.106.101/24"
 assert any("ISP-HUB" in e for e in model.validate_wanemu(bad))
-bad = model.merged({}); bad["hubs"][0]["wan1_gw"] = "100.127.200.5"
+bad = model.merged({"wanemu": {"uplink": LAB}}); bad["hubs"][0]["wan1_gw"] = "100.127.200.5"
 assert any("gateway" in e and "ISP-HUB" in e for e in model.validate_wanemu(bad))
 bad = model.merged({"wanemu": {"segments": {"b": {"vlan": 3201}}}})
 assert bad["wanemu"]["segments"]["b"]["subnet"] == "100.127.202.0/24"               # deep merge, rest blijft
@@ -48,9 +49,9 @@ bad = model.merged({"wanemu": {"segments": {"b": {"subnet": "100.127.201.0/25", 
 assert any("overlap" in e for e in model.validate_wanemu(bad))
 bad = model.merged({"wanemu": {"uplink": {"gw": "10.10.107.1"}}})
 assert any("uplink" in e.lower() for e in model.validate_wanemu(bad))
-bad = model.merged({}); bad["edges"] = bad["edges"] * 30
+bad = model.merged({"wanemu": {"uplink": LAB}}); bad["edges"] = bad["edges"] * 30
 assert any("spokes" in e for e in model.validate_wanemu(bad))
-pv = dict(model.merged({})); pv["pve"].update(url="https://pve:8006", token_id="a@pam!b", node="n", disk_storage="d",
+pv = dict(model.merged({"wanemu": {"uplink": LAB}})); pv["pve"].update(url="https://pve:8006", token_id="a@pam!b", node="n", disk_storage="d",
                                               import_storage="i", iso_storage="s")
 pv["hubs"][0]["wan1_ip"] = "10.1.1.1/24"; pv["hubs"][0]["wan1_gw"] = "10.1.1.2"
 assert any("ISP-HUB" in e for e in model.validate_pve(pv))                          # Day-0 checkt de WAN-emulator
@@ -58,7 +59,7 @@ print("OK  validatie: hub in ISP-HUB, gateway, VLAN's uniek, geen overlap, uplin
 
 # FortiGate NICs: wan ports on the ISP VLANs with a fixed MAC, other ports follow the per-port table
 from app import provision_vms as pv  # noqa: E402
-t = model.merged({}); cfg, w = t["pve"], t["wanemu"]
+t = model.merged({"wanemu": {"uplink": LAB}}); cfg, w = t["pve"], t["wanemu"]
 h = pv.fgt_nics(t["hubs"][0], cfg, w, True)
 assert (h[0]["vlan"], h[0]["mac"]) == (3200, net.mac_for("site1-H1", 1)) and h[1]["vlan"] is None and not h[1].get("mac")
 e = pv.fgt_nics(t["edges"][0], cfg, w, False)
@@ -72,19 +73,19 @@ t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
 specs = pv.build_specs(t, "pw", "pw", {d["name"]: "T" * 20 for d in t["hubs"] + t["edges"]}, "", "fgt")
 assert specs[0]["nics"][0]["vlan"] == 3200 and specs[2]["nics"][1]["vlan"] == 3202
 print("OK  FortiGate-NIC's: hub port1 -> ISP-HUB, spoke port1/port2 -> ISP-A/ISP-B met vaste MAC; LAN-poorten ongewijzigd")
-assert net.ct_params(model.merged({}), 130, "k")["features"] == "nesting=1"     # Debian 13 / systemd 257 in a CT
+assert net.ct_params(model.merged({"wanemu": {"uplink": LAB}}), 130, "k")["features"] == "nesting=1"     # Debian 13 / systemd 257 in a CT
 print("OK  LXC: nesting=1 (anders falen /tmp, /run/lock en mqueue onder systemd 257)")
-p = net.ct_params(model.merged({}), 130, "k")
+p = net.ct_params(model.merged({"wanemu": {"uplink": LAB}}), 130, "k")
 assert p["nameserver"] == "1.1.1.1 8.8.8.8"   # not the PVE host's DNS (unreachable from the uplink VLAN)
 print("OK  LXC: DNS uit de topologie (1.1.1.1 8.8.8.8), niet die van de PVE-host")
 
 # FortiManager sees the real FortiGate addresses: no NAT towards the uplink subnet, routes on the FMG via wan-emu
-t = model.merged({}); t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
+t = model.merged({"wanemu": {"uplink": LAB}}); t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
 at = net.agent_topology(t)
 assert at["no_nat"] == ["10.10.106.0/24"], at
 assert net.fmg_routes(t) == [("100.127.200.0", "255.255.255.0", "10.10.106.250"), ("100.127.201.0", "255.255.255.0", "10.10.106.250"),
                              ("100.127.202.0", "255.255.255.0", "10.10.106.250")]
-t2 = model.merged({}); t2["fmgr"].update(ip="10.20.0.5/24", gateway="10.20.0.1")
+t2 = model.merged({"wanemu": {"uplink": LAB}}); t2["fmgr"].update(ip="10.20.0.5/24", gateway="10.20.0.1")
 assert net.fmg_routes(t2) == []                       # FMG not in the uplink subnet: the lab router must route
 from app import bootstrap as bs  # noqa: E402
 fl = bs.fmg_network_lines(t)
@@ -95,5 +96,18 @@ print("OK  FMG: geen NAT naar het lab-subnet, routes naar ISP-HUB/A/B via wan-em
 t = model.merged({"wanemu": {"template": "local:vztmpl/evil.tar.zst"}})
 assert t["wanemu"]["template"] == model.DEFAULTS["wanemu"]["template"]
 from app import csvio  # noqa: E402
-assert "wanemu.template" not in csvio.export_csv(model.merged({}), full=True)
+assert "wanemu.template" not in csvio.export_csv(model.merged({"wanemu": {"uplink": LAB}}), full=True)
 print("OK  CT-template vast (niet via API of CSV te kiezen)")
+
+# no lab-specific uplink in the defaults: it must be filled in; an empty VLAN = untagged
+d = model.merged({})
+assert d["wanemu"]["uplink"] == {"vlan": None, "ip": "", "gw": ""}, d["wanemu"]["uplink"]
+assert any("uplink: IP" in e for e in model.validate_wanemu(d)), model.validate_wanemu(d)
+u = model.merged({"wanemu": {"uplink": {"vlan": None, "ip": "192.168.50.250/24", "gw": "192.168.50.1"}}})
+assert model.validate_wanemu(u) == [], model.validate_wanemu(u)
+assert net.ct_params(u, 130, "k")["net0"] == "name=eth0,bridge=vmbr0,ip=192.168.50.250/24,gw=192.168.50.1"
+u["wanemu"]["uplink"]["vlan"] = 3201
+assert any("unique" in e for e in model.validate_wanemu(u))
+d["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
+assert net.fmg_routes(d) == []                  # FortiManager-only run with the uplink not filled in: no crash
+print("OK  uplink zonder lab-default; lege VLAN = untagged")

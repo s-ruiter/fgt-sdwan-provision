@@ -8,6 +8,7 @@ from http.server import HTTPServer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import model
+import labuplink  # noqa: E402,F401  (fills in the lab uplink: it has no default)
 from app.bootstrap import Masker, Timing, ssh_connect
 from app.fmg import Fmg, pipeline
 from app import fmgtemplates
