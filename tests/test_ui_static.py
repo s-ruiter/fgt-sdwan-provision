@@ -164,3 +164,15 @@ assert "client_pw:" in js and "only-lan" not in html
 css = open(os.path.join(root, "static", "style.css")).read()
 assert '[data-scope="fmg"] .only-clients' in css and '[data-scope="tpl"] .only-clients' in css and '[data-scope="dev"] .only-clients' in css
 print("OK  UI: eigen wachtwoord voor de LAN-clients; Topology-kaart weg bij LAN clients only")
+
+# dark mode: toggle in the nav, remembered per browser, follows the system when not chosen, no flash on load
+css = open(os.path.join(root, "static", "style.css")).read()
+assert 'id="theme_btn"' in html and html.index('id="theme_btn"') < html.index("</header>")
+head = html[:html.index("</head>")]
+assert "localStorage" in head and "prefers-color-scheme: dark" in head and "data-theme" in head, "thema vóór het tekenen gezet"
+dark = css[css.index('[data-theme="dark"]'):]
+for v in ("--bg:", "--card:", "--text:", "--line:", "--topbar:"):
+    assert v in dark[:800], v
+assert ".topbar { background: var(--topbar)" in css
+assert re.search(r"function\s+themeSet\b", js) and "fgt-sdwan-theme" in js
+print("OK  UI: dark mode (knop in de navigatie, onthouden, volgt anders het systeem)")

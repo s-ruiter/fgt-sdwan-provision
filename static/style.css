@@ -7,10 +7,21 @@
   --text: #0f1012; --text-2: #44474e; --muted: #6a6e76;
   --accent: #da291c; --accent-d: #b21f14;
   --ok: #16a34a; --ok-text: #15803d; --bad: #da291c;
-  --term: #0f1012; --term-text: #c9cfdb;
+  --term: #0f1012; --term-text: #c9cfdb; --topbar: #0f1012;
+  color-scheme: light;
   --sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* dark theme: same tokens, darker values (set on <html> before the first paint, see index.html) */
+[data-theme="dark"] {
+  --bg: #0e0f11; --card: #17181b; --raised: #1f2125;
+  --line: #2a2c31; --line-strong: #3a3d43; --hover: rgb(255 255 255 / .06);
+  --text: #ececee; --text-2: #b6b9bf; --muted: #8d9199;
+  --accent: #e5392b; --accent-d: #c42c1f;
+  --ok: #22c55e; --ok-text: #4ade80; --bad: #f05a4f;
+  --term: #0a0b0d; --term-text: #c9cfdb; --topbar: #000;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/20px var(--sans); -webkit-font-smoothing: antialiased; }
@@ -18,7 +29,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/20px
 @media (max-width: 600px) { .wrap { padding: 0 16px; } nav { gap: 0; } nav a { padding: 0 6px; } .nav-inner { gap: 4px; } }
 
 /* navigatie */
-.topbar { background: var(--text); color: rgb(255 255 255 / .6); font-size: 11px; letter-spacing: .02em; }
+.topbar { background: var(--topbar); color: rgb(255 255 255 / .6); font-size: 11px; letter-spacing: .02em; }
 .topbar .wrap { padding-top: 6px; padding-bottom: 6px; text-align: right; }
 .nav { background: var(--card); border-bottom: 1px solid var(--line); }
 .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 56px; }
@@ -265,3 +276,10 @@ input.flex[readonly] { background: var(--line); color: var(--muted, #888); }
 [data-scope="lan"] .not-lan { display: none !important; }
 /* only-clients = the LAN client containers are created (all, fgt, lan) */
 [data-scope="fmg"] .only-clients, [data-scope="tpl"] .only-clients, [data-scope="dev"] .only-clients { display: none !important; }
+
+/* theme toggle in the nav (moon in light, sun in dark) */
+.theme-btn { width: 32px; height: 32px; padding: 0; margin-left: 6px; border-color: transparent; background: transparent; color: var(--muted); }
+.theme-btn:hover { color: var(--text); background: var(--hover); }
+.theme-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.theme-btn .sun, [data-theme="dark"] .theme-btn .moon { display: none; }
+[data-theme="dark"] .theme-btn .sun { display: block; }
