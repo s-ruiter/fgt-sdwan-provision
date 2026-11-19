@@ -62,6 +62,12 @@ def fortigates(t):
     return [(h, True) for h in t["hubs"]] + [(e, False) for e in t["edges"]]
 
 
+def lan_vlans(t):
+    """{device name: (LAN1 VLAN, LAN2 VLAN)}: FortiGate n gets lan_vlan_base+1+n and lan2_vlan_base+1+n."""
+    w = t["wanemu"]
+    return {d["name"]: (w["lan_vlan_base"] + 1 + n, w["lan2_vlan_base"] + 1 + n) for n, (d, _) in enumerate(fortigates(t))}
+
+
 def forwards(t):
     """Port forwards on wan-emu: FortiGate n -> its WAN1 address, HTTPS base+n -> 443, SSH base+n -> 22."""
     w = t["wanemu"]

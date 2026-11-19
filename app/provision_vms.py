@@ -28,19 +28,26 @@ def fgt_port_count(dev):
     return max([n for n in map(_port_no, used) if n] + [MIN_FGT_NICS])
 
 
-def fgt_nics(dev, cfg, wanemu, is_hub):
+def fgt_nics(dev, cfg, wanemu, is_hub, index=None):
     """One virtio NIC per port up to the highest portN the device uses, at least MIN_FGT_NICS. The wan ports go to the
     WAN emulator (hub wan1 -> ISP-HUB; branch wan1 -> ISP-A, wan2 -> ISP-B) with a fixed MAC (DHCP reservation); the
     other ports take bridge/VLAN from the per-port table."""
     from .wanemu.net import mac_for
     seg = wanemu["segments"]
     wans = {dev.get("wan1_intf"): "hub"} if is_hub else {dev.get("wan1_intf"): "a", dev.get("wan2_intf"): "b"}
+    lans = {}                                                       # LAN1/LAN2 on their own VLAN per FortiGate
+    if index is not None:
+        for k, l in enumerate((dev.get("lans") or [])[:2]):
+            if l.get("intf"):
+                lans[l["intf"]] = wanemu["lan_vlan_base" if k == 0 else "lan2_vlan_base"] + 1 + index
     top = fgt_port_count(dev)
     ports = cfg.get("ports", {})
     nics = []
     for i in range(1, top + 1):
         name = f"port{i}"
-        if name in wans:
+        if name in lans and name not in wans:
+            nics.append({"bridge": wanemu["bridge"], "vlan": lans[name]})
+        elif name in wans:
             nics.append({"bridge": wanemu["bridge"], "vlan": seg[wans[name]]["vlan"], "mac": mac_for(dev["name"], i)})
         else:
             p = ports.get(name) or {}
@@ -63,10 +70,10 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
     else:
         fg = cfg["fgt"]
         hubs = {h["name"] for h in topo["hubs"]}
-        for d in topo["hubs"] + topo["edges"]:
+        for n, d in enumerate(topo["hubs"] + topo["edges"]):
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
             specs.append({"name": d["name"], "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
-                          "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs), "extra_disks": [],
+                          "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n), "extra_disks": [],
                           "user_data": cloudinit.build_user_data(cli, tokens.get(d["name"]), cloudinit.license_mode("fgt", mode))})
     return specs
 

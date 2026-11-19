@@ -27,3 +27,20 @@ assert model.validate_wanemu(bad) == []
 bad = model.merged({"wanemu": {"fwd_https_base": 8088}})                       # 8088..8092 contains the agent port
 assert any("8090" in e for e in model.validate_wanemu(bad))
 print("OK  port forwarding: HTTPS 10443+n en SSH 10022+n per FortiGate (hubs, dan spokes), DNAT op eth0, bereiken gevalideerd")
+
+# LAN VLANs: LAN1 of FortiGate n on 3301+n, LAN2 on 3401+n; other ports keep the per-port table
+from app import provision_vms as pv  # noqa: E402
+t = model.merged({})
+cfg, w = t["pve"], t["wanemu"]
+cfg["ports"]["port4"] = {"bridge": "vmbr1", "vlan": 44}
+h1 = pv.fgt_nics(t["hubs"][0], cfg, w, True, 0)
+assert h1[4]["vlan"] == 3301 and h1[4]["bridge"] == "vmbr0" and h1[3] == {"bridge": "vmbr1", "vlan": 44}, h1
+s1 = pv.fgt_nics(t["edges"][0], cfg, w, False, 2)                   # site1-1 = FortiGate n=2
+assert (s1[4]["vlan"], s1[5]["vlan"]) == (3303, 3403), s1
+assert net.lan_vlans(t)["site1-3"] == (3305, 3405) and net.lan_vlans(t)["site1-H2"][0] == 3302
+specs = pv.build_specs(dict(t, fmgr=dict(t["fmgr"], ip="10.10.106.11/24", gateway="10.10.106.1")), "pw", "pw",
+                       {d["name"]: "T" * 20 for d in t["hubs"] + t["edges"]}, "", "fgt")
+assert [s["nics"][4]["vlan"] for s in specs] == [3301, 3302, 3303, 3304, 3305]
+bad = model.merged({"wanemu": {"lan_vlan_base": 3199}})              # 3200..3204 hits ISP-HUB/A/B
+assert any("LAN-VLAN" in e for e in model.validate_wanemu(bad)), model.validate_wanemu(bad)
+print("OK  LAN-VLAN's: LAN1 3301+n, LAN2 3401+n per FortiGate; andere poorten volgen de poortentabel; botsing gevalideerd")

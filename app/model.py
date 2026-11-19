@@ -376,6 +376,7 @@ def validate_wanemu(t):
     """WAN emulator: segments, uplink and the hub addresses that must live in ISP-HUB."""
     w, err = t.get("wanemu", {}), []
     seg, up = w.get("segments", {}), w.get("uplink", {})
+    n_fgt = len(t.get("hubs", [])) + len(t.get("edges", []))
     nets = {}
     for key in ("hub", "a", "b"):
         g = seg.get(key, {})
@@ -407,10 +408,19 @@ def validate_wanemu(t):
         for b in names[i + 1:]:
             if nets[a].overlaps(nets[b]):
                 err.append(f"WAN-emulatie: {a} en {b} overlappen")
+    for key in ("lan_vlan_base", "lan2_vlan_base"):            # LAN VLANs base+1 .. base+n must stay clear
+        b = w.get(key)
+        rng = range(b + 1, b + 1 + n_fgt) if isinstance(b, int) else range(0)
+        if not isinstance(b, int) or b < 1 or b + n_fgt > 4094:
+            err.append(f"WAN-emulatie: LAN-VLAN-basis {key} moet 1-{4094 - n_fgt} zijn")
+        elif any(v in rng for v in [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]):
+            err.append(f"WAN-emulatie: LAN-VLAN's {rng.start}-{rng.stop - 1} botsen met uplink- of ISP-VLAN's")
+    if isinstance(w.get("lan_vlan_base"), int) and isinstance(w.get("lan2_vlan_base"), int) and \
+            abs(w["lan_vlan_base"] - w["lan2_vlan_base"]) < n_fgt:
+        err.append("WAN-emulatie: LAN-VLAN's voor LAN1 en LAN2 overlappen")
     vlans = [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]
     if any(not isinstance(v, int) or not 1 <= v <= 4094 for v in vlans) or len(set(vlans)) != len(vlans):
         err.append("WAN-emulatie: VLAN's moeten uniek zijn en 1-4094")
-    n_fgt = len(t.get("hubs", [])) + len(t.get("edges", []))
     ranges = []
     for key, lbl in (("fwd_https_base", "HTTPS"), ("fwd_ssh_base", "SSH")):
         b = w.get(key)
