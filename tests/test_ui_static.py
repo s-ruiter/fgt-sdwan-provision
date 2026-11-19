@@ -63,3 +63,15 @@ assert 'list="ff_folders"' in html and 'id="ff_folders"' in html and "ffFolders"
 for u in ("/api/fortiflex/folders", "/api/fortiflex/test", "/api/fortiflex/configs", "/api/fortiflex/entitlements", "/api/fortiflex/stop/", "/api/fortiflex/check"):
     assert u in js, u
 print("OK  UI: pagina FortiFlex (credentials, testen, programma/configs, aan/uit, licenties + stop) en 'Licenties controleren'")
+
+# deploy with FortiFlex: the wait is explained (lookup first, per-device plan, elapsed seconds)
+assert 'id="deploy_status"' in html
+for f in ("deployStatus", "flexPlanTable"):
+    assert re.search(rf"function\s+{f}\b", js), f
+dep = js[js.index('$("#btn_deploy").onclick'):]
+dep = dep[:dep.index("\n};") + 3]
+assert "/api/fortiflex/check" in dep and "deployStatus(msg(), plan)" in dep, "uitrolknop toont het licentieplan"
+ds = js[js.index("function deployStatus"):]
+assert "flexPlanTable(plan)" in ds[:ds.index("\n}")], "deployStatus tekent het plan per device"
+assert dep.index("/api/fortiflex/check") < dep.index('post("/api/deploy"'), "eerst opzoeken (zichtbaar), dan de uitrol"
+print("OK  UI: uitrol met FortiFlex toont eerst het licentieplan per device en een teller tijdens het ophalen")

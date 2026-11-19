@@ -383,9 +383,23 @@ $("#btn_deploy").onclick = async () => {
   if (!dry && !confirm(ask)) return;
   const btn = $("#btn_deploy"); if (btn.disabled) return;
   btn.disabled = true;                                   // FortiFlex licenses are fetched in this request: no double click
-  const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } });
+  const body = { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } };
+  let plan = null;
+  if (!$("#btn_flexcheck").hidden) {                     // FortiFlex in this run: show what is looked up and why it takes a while
+    deployStatus("FortiFlex: licenties opzoeken voor de devices van deze uitrol…");
+    const c = await post("/api/fortiflex/check", { ...body, dry_run: true }), cj = await json(c);
+    if (!c.ok) { deployStatus(null); btn.disabled = false; return showErr(errList(cj)); }
+    plan = cj.devices;
+  }
+  const t0 = Date.now(), msg = () => (plan && plan.length
+    ? (dry ? "Dry-run: alleen opgezocht, er wordt niets aangemaakt of vernieuwd. " : `FortiFlex: per device de licentie ophalen (${plan.filter((d) => d.action !== "use").length} met een nieuw token of nieuwe licentie) en daarna alles controleren. `)
+      + `Uitrol starten… ${Math.round((Date.now() - t0) / 1000)} s` : `Uitrol starten… ${Math.round((Date.now() - t0) / 1000)} s`);
+  deployStatus(msg(), plan);
+  const tick = setInterval(() => deployStatus(msg(), plan), 1000);
+  const r = await post("/api/deploy", body);
+  clearInterval(tick);
   const j = await json(r);
-  btn.disabled = false;
+  btn.disabled = false; deployStatus(null);
   if (!r.ok) return showErr(errList(j));
   if (ES) ES.close();
   location.hash = "#/progress/" + j.job;                 // route() attaches to the job; a refresh keeps working
@@ -583,10 +597,18 @@ $("#btn_flexcheck").onclick = async () => {
   const r = await post("/api/fortiflex/check", { topology: collect(), fmg: fmgCfg(), dry_run: true, scope: sc, bootstrap: { fmg: mf, fgt: mg } });
   const j = await json(r);
   if (!r.ok) { $("#flex_check").innerHTML = `<div class="error">✕ ${esc(errList(j).join(" · "))}</div>`; return; }
-  $("#flex_check").innerHTML = j.devices.length ? `<table class="tbl"><thead><tr><th>Device</th><th>Serienummer</th><th>Actie</th></tr></thead><tbody>` +
-    j.devices.map((d) => `<tr><td>${esc(d.name)}</td><td class="mono">${esc(d.serial)}</td><td>${d.action === "create" ? "<b>" + esc(d.text) + "</b>" : esc(d.text)}</td></tr>`).join("") + "</tbody></table>"
-    : '<div class="hint">Bij deze keuze is geen FortiFlex-licentie nodig.</div>';
+  $("#flex_check").innerHTML = j.devices.length ? flexPlanTable(j.devices) : '<div class="hint">Bij deze keuze is geen FortiFlex-licentie nodig.</div>';
 };
+function flexPlanTable(devs) {
+  return `<table class="tbl"><thead><tr><th>Device</th><th>Serienummer</th><th>Actie</th></tr></thead><tbody>` +
+    devs.map((d) => `<tr><td>${esc(d.name)}</td><td class="mono">${esc(d.serial)}</td><td>${d.action === "create" ? "<b>" + esc(d.text) + "</b>" : esc(d.text)}</td></tr>`).join("") + "</tbody></table>";
+}
+function deployStatus(text, plan) {      // the deploy request can take a while (FortiFlex): say what is happening
+  const box = $("#deploy_status");
+  if (!text) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="hint"><span class="dot st-running"></span> ${esc(text)}</div>` + (plan && plan.length ? flexPlanTable(plan) : "");
+}
 async function ffLoad() {
   ffErr("");
   FLEX = await (await fetch("/api/fortiflex")).json();
