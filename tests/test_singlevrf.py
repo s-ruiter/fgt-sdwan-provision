@@ -49,3 +49,8 @@ for r in ps["roles"]:
     vrfs = set(re.findall(r"set vrf (\S+)", blob)) | set(re.findall(r'"vrf": ?"?(\w+)', blob))
     assert vrfs <= {"0"} and "vrf-select" not in blob, (r["name"], vrfs)
 print("OK  single-VRF: alles in VRF 0, geen vrf-select")
+
+# a new deployment defaults to single-VRF (everything in VRF 0); multi-VRF is an explicit choice
+from app import model as _m  # noqa: E402
+assert _m.DEFAULTS["region"]["multi_vrf"] is False and not _m._multi(_m.merged({}))
+print("OK  standaard: single-VRF")

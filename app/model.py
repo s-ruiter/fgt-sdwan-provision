@@ -72,7 +72,7 @@ DEFAULTS = {
         "name": "West",
         "bgp_as": 65001,
         "lo_summary": "10.200.1.0/24",
-        "multi_vrf": True,                   # False: classic single-VRF design (one LAN per device, no PE-VRF/leak)
+        "multi_vrf": False,                  # False: classic single-VRF design (one LAN per device, no PE-VRF/leak)
         "lan_summary": "10.0.0.0/8",         # single-VRF only (multi-VRF: per VRF)
         "vrfs": [
             {"id": 11, "lan_summary": "10.0.0.0/14", "dia": True},
