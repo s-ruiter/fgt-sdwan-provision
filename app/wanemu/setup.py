@@ -6,6 +6,7 @@ the container (same hostname + tag), applies the current network config and prov
 import io
 import ipaddress
 import json
+import re
 import shlex
 from pathlib import Path
 
@@ -121,6 +122,49 @@ def internet_check(sh, t):
     return sh.run(f"ping -c2 -W2 -I {shlex.quote(src)} 1.1.1.1")[0] == 0
 
 
+def _ver_key(name):
+    return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", name)]
+
+
+def ensure_template(pve, t, emit, step="pve_wan"):
+    """Make sure the CT template (fixed: debian-13-standard on its storage) exists, like `pveam download`. Uses the
+    configured file when present, else the newest debian-13-standard already on that storage, else downloads the newest
+    one from the Proxmox appliance index. Sets t['wanemu']['template'] to the volume used and returns it."""
+    from ..pve import PveError
+    node, vol = t["pve"]["node"], t["wanemu"]["template"]
+    storage, fname = vol.split(":", 1)[0], vol.rsplit("/", 1)[-1]
+    family, arch = fname.split("_", 1)[0], fname.rsplit("_", 1)[-1]  # debian-13-standard, amd64.tar.zst
+    same = lambda n: n.startswith(family + "_") and n.endswith("_" + arch)   # not turnkey-*, not arm64
+    try:
+        have = [c.get("volid", "") for c in pve.list_content(node, storage, "vztmpl")]
+    except PveError as e:
+        raise WanEmuError(f"CT template: cannot list storage '{storage}' ({e}); it must have content type "
+                          "'Container template' (Datacenter > Storage)") from None
+    if vol in have:
+        t["wanemu"]["template"] = vol
+        return vol
+    local = sorted((v for v in have if same(v.rsplit("/", 1)[-1])), key=_ver_key)
+    if local:
+        t["wanemu"]["template"] = local[-1]
+        emit(step, "running", f"CT template {fname} not on '{storage}', using {local[-1].rsplit('/', 1)[-1]}")
+        return local[-1]
+    try:
+        avail = sorted((a["template"] for a in pve.appliances(node) if same(str(a.get("template", "")))), key=_ver_key)
+    except PveError:
+        avail = []
+    want = avail[-1] if avail else fname
+    emit(step, "running", f"CT template {want}: not on '{storage}', downloading it from Proxmox (pveam download)")
+    try:
+        pve.wait_task(node, pve.download_appliance(node, storage, want))
+    except PveError as e:
+        raise WanEmuError(f"CT template {want} is missing on '{storage}' and downloading it failed ({e}). Download it on "
+                          f"the PVE host: pveam update && pveam download {storage} {want} - or give the API token "
+                          "Datastore.AllocateTemplate on that storage") from None
+    vol = f"{storage}:vztmpl/{want}"
+    t["wanemu"]["template"] = vol
+    return vol
+
+
 def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=None, vmids=None):
     """Create or reuse + provision the container. Returns {'vmid', 'created', 'internet'}."""
     from ..bootstrap import wait_tcp
@@ -143,6 +187,7 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
     else:
         from ..provision_vms import pick_vmid
         vmid = int(w.get("vmid") or pick_vmid(pve, vmids, w["hostname"]))
+        ensure_template(pve, t, emit, step)
         emit(step, "running", f"{w['hostname']}: creating CT {vmid} ({w['template'].split('/')[-1]})")
         pve.wait_task(node, pve.create_ct(node, net.ct_params(t, vmid, public_key(secrets["ssh_key"]))))
     try:
@@ -182,6 +227,8 @@ def deploy_clients(pve, t, password, emit, step="clients", vmids=None):
     [{name, vmid, created, ip}]. No packages are installed: Proxmox cannot run commands in a CT."""
     node = t["pve"]["node"]
     have = {c.get("name"): int(c["vmid"]) for c in pve.find_cts(TAG_VM)}
+    if any(f"client-{e['name']}" not in have and (e.get("lans") or [{}])[0].get("ip") for e in t["edges"]):
+        ensure_template(pve, t, emit, step)                         # a new client needs the CT template
     out = []
     for e in t["edges"]:
         if not (e.get("lans") or [{}])[0].get("ip"):
