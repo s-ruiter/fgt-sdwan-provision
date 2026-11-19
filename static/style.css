@@ -247,3 +247,4 @@ input.flex[readonly] { background: var(--line); color: var(--muted, #888); }
 .term-box:empty { display: none; }
 .fgt-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .fgt-row b { min-width: 90px; }
+.wan-card.wan-ok { box-shadow: 0 0 0 2px var(--good, #2e7d32); transition: box-shadow .2s; }

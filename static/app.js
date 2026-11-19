@@ -600,7 +600,9 @@ async function wanApply(card) {
   const r = await fetch("/api/wanemu/links/" + encodeURIComponent(card.dataset.wl), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(v) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
-  card.classList.remove("dirty"); await wanLoad();
+  wanErr(""); card.classList.remove("dirty"); await wanLoad();
+  const nc = document.querySelector(`#v_wanemu [data-wl="${CSS.escape(card.dataset.wl)}"]`);   // re-rendered card
+  if (nc) { nc.classList.add("wan-ok"); setTimeout(() => nc.classList.remove("wan-ok"), 1500); }
 }
 async function wanPreset(name, link) {
   const r = await fetch(`/api/wanemu/preset/${name}` + (link ? `?link=${encodeURIComponent(link)}` : ""), { method: "POST" });
@@ -614,7 +616,9 @@ $("#v_wanemu").addEventListener("input", (e) => {
   if (i.type === "range") i.previousElementSibling.querySelector("output").textContent = i.value;
 });
 $("#v_wanemu").addEventListener("change", (e) => {
-  const s = e.target.closest("[data-wps]"); if (s && s.value) wanPreset(s.value, s.closest("[data-wl]").dataset.wl);
+  const s = e.target.closest("[data-wps]"); if (s && s.value) return wanPreset(s.value, s.closest("[data-wl]").dataset.wl);
+  const f = e.target.closest("[data-wf]");                     // slider released / "link down" toggled: apply at once
+  if (f) wanApply(f.closest("[data-wl]"));
 });
 $("#v_wanemu").addEventListener("click", async (e) => {
   const b = e.target.closest("button"); if (!b) return;

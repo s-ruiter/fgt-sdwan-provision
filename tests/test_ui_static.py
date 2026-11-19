@@ -86,3 +86,10 @@ assert "/api/wanemu/forwards" in js and "/api/term/" in js
 assert re.search(r"cdn\.jsdelivr\.net/npm/xterm@\d+\.\d+\.\d+/", js) and re.search(r"xterm-addon-fit@\d+\.\d+\.\d+/", js)
 assert "term_pw\").value = \"\"" in js.replace("'", '"'), "wachtwoordveld wordt na het verbinden leeggemaakt"
 print("OK  UI: FortiGates met 'GUI openen' en SSH in de browser (xterm.js vast versienummer), wachtwoord niet bewaard")
+
+# WAN-emulatie: releasing a slider / toggling "link down" applies at once (no hidden "Toepassen" step), with feedback
+ch = js[js.index('$("#v_wanemu").addEventListener("change"'):]
+ch = ch[:ch.index("\n});") + 4]
+assert "wanApply(" in ch and "[data-wf]" in ch, "loslaten van een schuifje past de link direct toe"
+assert "wan-ok" in js and ".wan-ok" in open(os.path.join(root, "static", "style.css")).read()
+print("OK  UI: WAN-emulatie past een schuifje/link down direct toe bij loslaten, met bevestiging in de kaart")
