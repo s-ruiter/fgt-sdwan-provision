@@ -154,21 +154,11 @@
         </div>
       </div>
 
-      <div class="card">
-        <h2><span class="num">04</span>Preview &amp; deploy</h2>
-        <div class="btnrow">
-          <button id="btn_render">Generate templates</button>
-          <span class="only-vm"><select id="d0_dev" style="width:auto"></select> <button id="btn_d0">Day-0 preview</button></span>
-          <span class="only-vm"><button id="btn_flexcheck">Check licences</button></span>
-        </div>
-        <div id="flex_check" hidden></div>
-        <pre class="cfg" id="d0_out" hidden></pre>
-        <div id="preview" hidden><div class="tabs" id="tabs"></div><pre class="cfg" id="cfg"></pre></div>
-      </div>
       <div class="actions space">
-        <div class="inline"><input type="checkbox" id="dry" checked><label for="dry">Dry run (sends nothing to FortiManager, FortiGates or Proxmox; FortiFlex is only queried)</label></div>
+        <span class="only-vm"><button id="btn_flexcheck">Check licences</button></span>
         <button id="btn_deploy" class="primary">Deploy</button>
       </div>
+      <div id="flex_check" class="card" hidden></div>
       <div id="deploy_status" class="card" hidden></div>
     </section>
 
@@ -287,7 +277,7 @@
     </section>
 
   </main>
-  <footer><div class="wrap">FGT SD-WAN Provision · multi-VRF ADVPN via FortiManager</div></footer>
+  <footer><div class="wrap">FGT SD-WAN Provision · SD-WAN ADVPN via FortiManager</div></footer>
   <script src="app.js"></script>
 </body>
 </html>

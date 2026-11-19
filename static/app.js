@@ -159,15 +159,7 @@ function draw() {
   $("#vrfs").innerHTML = "<thead><tr><th>VRF id</th><th>LAN summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
-  d0Opts(); flexFields(); topoDraw();
-}
-// Day-0 preview: only the VMs the chosen deploy option creates
-function d0Opts() {
-  const s = scope(), cur = $("#d0_dev").value;
-  const l = [...(s === "all" || s === "fmg" ? ["fmg"] : []), ...(s === "all" || s === "fgt" ? [...T.hubs, ...T.edges].map((d) => d.name) : [])];
-  $("#d0_dev").innerHTML = l.map((n) => `<option>${esc(n)}</option>`).join("");
-  if (l.includes(cur)) $("#d0_dev").value = cur;
-  $("#d0_out").hidden = true;
+  flexFields(); topoDraw();
 }
 function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);
@@ -322,27 +314,6 @@ $("#csv_file").onchange = async (ev) => {
   $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (Object.keys(imp).length || j.fmg_token ? ` · FortiFlex tokens: ${Object.keys(imp).length + (j.fmg_token ? 1 : 0)}` : "") + ([...j.notes, ...extra].length ? ` (${[...j.notes, ...extra].join("; ")})` : "");
   if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Still to fill in / correct: " + j.todo.join(" · "); }
 };
-$("#btn_render").onclick = async () => {
-  showErr([]);
-  { const e = ipErrors(); if (e.length) return showErr(e); }
-  const r = await post("/api/render", { topology: collect() }), j = await json(r);
-  if (!r.ok) return showErr(errList(j));
-  $("#preview").hidden = false;
-  const names = Object.keys(j.configs);
-  $("#tabs").innerHTML = names.map((n) => `<button data-n="${esc(n)}">${esc(n)} (${j.lines[n]})</button>`).join("");
-  const sel = (n) => { $("#cfg").textContent = j.configs[n]; document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.n === n)); };
-  $("#tabs").onclick = (e) => e.target.dataset.n && sel(e.target.dataset.n);
-  sel(names[0]);
-};
-$("#btn_d0").onclick = async () => {
-  showErr([]);
-  { const e = ipErrors(); if (e.length) return showErr(e); }
-  const r = await post("/api/cloudinit/preview", { topology: collect(), device: $("#d0_dev").value }), j = await json(r);
-  if (!r.ok) return showErr(errList(j));
-  $("#d0_out").hidden = false;
-  $("#d0_out").textContent = `# ${j.layout} · licence mode: ${j.mode} · token/password masked\n` + j.user_data;
-};
-
 // ---- scope: all / only FortiManager / only FortiGates ------------------------
 const SCOPE_HINT = {
   all: "",
@@ -356,7 +327,7 @@ function scopeApply() {
   const s = scope();
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
-  if (T) { d0Opts(); flexFields(); topoDraw(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
+  if (T) { flexFields(); topoDraw(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
   try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
 }
 document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
@@ -375,7 +346,7 @@ function stepsDraw(states = {}) {
 $("#btn_deploy").onclick = async () => {
   showErr([]);
   { const e = ipErrors(); if (e.length) return showErr(e); }
-  const dry = $("#dry").checked, sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";   // Day-0 for what is deployed
+  const dry = false, sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";   // Day-0 for what is deployed
   const what = { all: "the FortiManager and FortiGate VMs", fmg: "the FortiManager VM", fgt: "the FortiGate VMs" }[sc];
   const ask = sc === "tpl" ? "This writes the ADOM and the templates to the existing FortiManager (set/update: earlier objects of this tool are overwritten). Continue?"
     : sc === "dev" ? "This writes the ADOM, the model devices and the templates to the existing FortiManager (set/update: earlier objects of this tool are overwritten) and then does a Quick install and a Re-install policy per device. Continue?"
@@ -383,7 +354,7 @@ $("#btn_deploy").onclick = async () => {
   if (!dry && !confirm(ask)) return;
   const btn = $("#btn_deploy"); if (btn.disabled) return;
   btn.disabled = true;                                   // FortiFlex licenses are fetched in this request: no double click
-  const body = { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } };
+  const body = { topology: collect(), fmg: fmgCfg(), dry_run: false, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } };
   let plan = null;
   if (!$("#btn_flexcheck").hidden) {                     // FortiFlex in this run: show what is looked up and why it takes a while
     deployStatus("FortiFlex: looking up licences for the devices of this deployment…");

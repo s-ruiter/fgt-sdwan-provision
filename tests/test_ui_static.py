@@ -116,3 +116,13 @@ try:                                                       # render it for real 
 except FileNotFoundError:
     pass
 print("OK  UI: topologieplaatje (FMG, wan-emu, ISP-HUB/A/B, hubs, spokes, LAN-VLAN's, clients), per scope gedimd")
+
+# no preview card and no dry-run switch: Deploy is always real; "Check licences" sits next to Deploy
+for gone in ('id="btn_render"', 'id="btn_d0"', 'id="d0_dev"', 'id="dry"', "Preview &amp; deploy"):
+    assert gone not in html, gone
+for gone in ("btn_render", "btn_d0", "d0Opts", '$("#dry")'):
+    assert gone not in js, gone
+act = html[html.index('id="btn_deploy"') - 400:html.index('id="btn_deploy"')]
+assert 'id="btn_flexcheck"' in act, "Check licences staat naast Deploy"
+assert "dry_run: false" in js[js.index('$("#btn_deploy").onclick'):][:2500]
+print("OK  UI: geen preview-blok en geen dry-run; Check licences naast Deploy")
