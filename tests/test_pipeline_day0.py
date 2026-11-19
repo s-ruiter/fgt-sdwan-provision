@@ -58,7 +58,7 @@ WANEMU_KEY = new_ssh_key()
 
 def boot(**kw):
     b = {"dry": False, "fmg": "day0", "fgt": "day0", "fmg_token": TOK_FMG, "fgt_tokens": TOKS, "fmg_new_pw": NEWPW,
-         "fgt_new_pw": NEWPW, "pve_secret": PVE_SECRET, "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
+         "fgt_new_pw": NEWPW, "client_pw": "Client-pw1", "pve_secret": PVE_SECRET, "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
          "waiter": lambda h, p, up, tmo: True, "poll": 0, "login_delay": 0, "online_timeout": 5,
          "fgt_boot_timeout": 5}
     b.setdefault("wanemu_secrets", {"ssh_key": WANEMU_KEY, "agent_token": "agenttoken1234567890"})
@@ -96,6 +96,8 @@ assert last["pve_wan"] == "ok" and order.index("templates") < order.index("pve_w
 hosts = sorted(c["params"]["hostname"] for c in fake_proxmox.STATE["cts"].values())
 assert hosts == ["client-site1-1", "client-site1-2", "client-site1-3", "wan-emu"], hosts
 assert last["clients"] == "ok" and order.index("install") < order.index("clients"), order
+assert all(c["params"].get("password") == "Client-pw1" for c in fake_proxmox.STATE["cts"].values()
+           if c["params"]["hostname"].startswith("client-")), "LAN clients get their own root password"
 assert all("agenttoken" not in m and "PRIVATE KEY" not in m for _, _, m in events)
 print("OK  WAN-emulator: stap pve_wan na de templates en vóór de FortiGate-VM's, CT draait, geen secrets in events")
 assert all(v == "ok" for v in last.values()), last

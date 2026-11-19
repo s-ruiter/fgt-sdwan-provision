@@ -92,6 +92,7 @@ class Secrets(BaseModel):
     fmg_initial_pw: str = ""                   # factory password (blank)
     fgt_initial_pw: str = ""
     fgt_new_pw: str = ""                       # admin password to set on the forced first-login change
+    client_pw: str = ""                        # root password of the LAN client containers
     admin_user: str = "admin"
     pve_token_secret: str = ""                 # Proxmox API token secret (day-0 only)
 
@@ -168,8 +169,8 @@ def _check_bootstrap(topo, r):
             errs += model.validate_pve(topo)
             if not s.pve_token_secret:
                 errs.append("Proxmox: token secret is missing")
-        if len(s.fgt_new_pw or "") < 5:
-            errs.append("LAN clients: a root password of at least 5 characters is required (FortiGate admin password field)")
+        if len(s.client_pw or "") < 5:
+            errs.append("LAN client password: at least 5 characters (root password of the client containers)")
         if errs:
             raise HTTPException(422, detail=errs)
         return
@@ -203,6 +204,8 @@ def _check_bootstrap(topo, r):
                 errs.append(f"{d['name']}: FortiFlex token missing or invalid")
         if not s.fgt_new_pw:
             errs.append("FortiGates: admin password is required")
+    if mg == "day0" and r.scope in ("all", "fgt") and len(s.client_pw or "") < 5:   # the LAN clients come along
+        errs.append("LAN client password: at least 5 characters (root password of the client containers)")
     if mg == "ssh":
         ips = [d.get("initial_ip") or model.DEFAULT_INITIAL_IP for d in devs]
         dup = sorted({i for i in ips if ips.count(i) > 1})
@@ -855,7 +858,7 @@ def deploy(r: DeployReq):
     if sid:                                    # remember this server's choices for the next run
         db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"])
     s = r.secrets
-    mask = Masker(s.fmg_token, s.fmg_initial_pw, s.fgt_initial_pw, s.fgt_new_pw, r.fmg.password, r.fmg.api_token,
+    mask = Masker(s.fmg_token, s.fmg_initial_pw, s.fgt_initial_pw, s.fgt_new_pw, s.client_pw, r.fmg.password, r.fmg.api_token,
                   s.pve_token_secret, *s.fgt_tokens.values())
     img = {}
     for role in ("fmg", "fgt"):
@@ -866,7 +869,7 @@ def deploy(r: DeployReq):
             "fmg_token": s.fmg_token, "fgt_tokens": dict(s.fgt_tokens),
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
-            "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw}
+            "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw, "client_pw": s.client_pw}
     if boot["fgt"] == "day0" and r.scope not in ("fmg", "tpl", "dev") and not r.dry_run:
         boot["wanemu_secrets"] = _wanemu_secrets()
         w = topo["wanemu"]                     # where the WAN-emulatie page finds the agent of this deployment

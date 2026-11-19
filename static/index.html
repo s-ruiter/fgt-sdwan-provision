@@ -124,7 +124,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card not-lan" id="sec_devices">
         <h2><span class="num">03</span>Topology</h2>
         <div class="btnrow">
           <button id="btn_csv_dl" title="The devices as CSV (including FortiFlex tokens you entered), LAN columns per the chosen mode; no passwords">Download CSV (devices)</button>
@@ -143,7 +143,7 @@
         <div class="only-fgt">
         <h3>FortiGates: password &amp; licence</h3>
         <div class="fields">
-          <div class="f"><label><span class="not-lan">FortiGate admin and SSH password</span><span class="only-lan">Root password of the LAN clients</span></label><input id="fgt_newpw" type="password" autocomplete="off"></div>
+          <div class="f"><label>FortiGate admin and SSH password</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
         </div>
         <div class="hint">Enter the serial number and FortiFlex token per FortiGate below (or let FortiFlex fill them in). Hubs have one WAN (wan1, static IP + gateway); branches use wan1 and optionally wan2, always via DHCP. Every branch WAN gets a tunnel to wan1 of every hub. The tool creates the VMs with Day-0 (cloud-init) on Proxmox: IP, password, FMG link and token go into the config drive.</div>
         </div>
@@ -152,6 +152,14 @@
         <div class="btnrow" style="margin-top:18px">
           <button id="btn_csv_full" title="Settings (ADOM, VRFs, FortiManager, Proxmox) + all devices including FortiFlex tokens; no passwords">Export everything to CSV</button>
           <span class="hint">Settings + devices, importable for a next deployment. Contains the FortiFlex tokens you entered (treat the file as a secret); never passwords.</span>
+        </div>
+      </div>
+
+      <div class="card only-clients" id="sec_clients">
+        <h2><span class="num">04</span>LAN clients <small>(one container per spoke, on its LAN VLAN)</small></h2>
+        <div class="hint">Every spoke gets a container <code>client-&lt;spoke&gt;</code> with .10 in its LAN and the spoke as gateway, to test traffic. Operate them from the Proxmox console as root with this password. It is not stored.</div>
+        <div class="fields">
+          <div class="f"><label>LAN client root password</label><input id="client_pw" type="password" autocomplete="new-password"></div>
         </div>
       </div>
 

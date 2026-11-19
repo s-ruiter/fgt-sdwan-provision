@@ -155,3 +155,12 @@ for f in ("clLoad", "clShow", "clRun"):
     assert re.search(rf"(async\s+)?function\s+{f}\b", js), f
 assert "/api/cleanup/plan" in js and '"/api/cleanup"' in js and '"DELETE"' in js
 print("OK  UI: pagina Cleanup (overzicht eerst, verwijderen alleen na het typen van DELETE)")
+
+# own LAN client password (card visible with clients); 03 Topology hidden for "LAN clients only"
+assert 'id="client_pw"' in html and 'type="password"' in html[html.index('id="client_pw"') - 120:html.index('id="client_pw"') + 60]
+assert re.search(r'<div class="card[^"]*\bonly-clients\b[^"]*" id="sec_clients"', html), "kaart LAN clients"
+assert re.search(r'<div class="card[^"]*\bnot-lan\b[^"]*" id="sec_devices"', html), "03 Topology weg bij LAN clients only"
+assert "client_pw:" in js and "only-lan" not in html
+css = open(os.path.join(root, "static", "style.css")).read()
+assert '[data-scope="fmg"] .only-clients' in css and '[data-scope="tpl"] .only-clients' in css and '[data-scope="dev"] .only-clients' in css
+print("OK  UI: eigen wachtwoord voor de LAN-clients; Topology-kaart weg bij LAN clients only")

@@ -688,11 +688,11 @@ def _clients(topo, boot, emit, step="clients"):
         return
     pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
     try:
-        out = setup.deploy_clients(pve, topo, boot.get("fgt_new_pw") or "", emit, step)
+        out = setup.deploy_clients(pve, topo, boot.get("client_pw") or "", emit, step)
     except Exception as e:                                    # a client is a convenience: never fail the deployment
         emit(step, "warn", f"LAN clients not (fully) created: {e}")
         return
-    emit(step, "ok", f"{len(out)} LAN client(s); operate them from the Proxmox console (root, FortiGate admin password)")
+    emit(step, "ok", f"{len(out)} LAN client(s); operate them from the Proxmox console (root, LAN client password)")
 
 
 def _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt):

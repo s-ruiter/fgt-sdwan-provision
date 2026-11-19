@@ -43,7 +43,7 @@ WANEMU_KEY = new_ssh_key()
 
 def boot(**kw):
     b = {"dry": False, "fmg": "day0", "fgt": "day0", "fmg_token": "FMGTOKEN0123456789", "fgt_tokens": TOKS,
-         "fmg_new_pw": PW, "fgt_new_pw": PW, "pve_secret": "pve-secret", "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
+         "fmg_new_pw": PW, "fgt_new_pw": PW, "client_pw": "Client-pw1", "pve_secret": "pve-secret", "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
          "waiter": lambda h, p, up, tmo: True, "poll": 0, "login_delay": 0, "online_timeout": 5, "fgt_boot_timeout": 5}
     b.setdefault("wanemu_secrets", {"ssh_key": WANEMU_KEY, "agent_token": "agenttoken1234567890"})
     b.setdefault("wanemu_connector", fake_wanemu.connector(fake_wanemu.FakeShell(installed=True)))
@@ -299,14 +299,20 @@ r.fmg.password = None
 main._apply_scope(r)
 assert any("FortiManager: admin password" in x for x in errors(r))                          # API login always needed
 # LAN clients only: Proxmox + a root password; no FortiManager, no tokens, no images
-r = req("lan", pve_token_secret="x", fgt_new_pw=PW)
+r = req("lan", pve_token_secret="x", client_pw="Client-pw1")
 r.fmg.password = None
 main._apply_scope(r)
 assert (r.bootstrap.fmg, r.bootstrap.fgt) == ("none", "none")
 e = errors(r)
 assert not any("FortiManager" in x or "FortiFlex" in x or "image" in x for x in e), e
-r = req("lan", pve_token_secret="x")
+r = req("lan", pve_token_secret="x", fgt_new_pw=PW)                                         # FortiGate password is not it
 main._apply_scope(r)
-assert any("LAN clients" in x and "password" in x for x in errors(r)), errors(r)             # client root password
+assert any("LAN client" in x and "password" in x for x in errors(r)), errors(r)              # own client root password
+r = req("fgt", fgt_tokens=TOKS, fgt_new_pw=PW, pve_token_secret="x")                          # FortiGate VMs come with clients
+main._apply_scope(r)
+assert any("LAN client" in x and "password" in x for x in errors(r)), errors(r)
+r = req("tpl")
+main._apply_scope(r)
+assert not any("LAN client" in x for x in errors(r))
 print("OK  API: keuze zet de methode van het andere product op 'none'; alleen de benodigde tokens/images/wachtwoorden verplicht")
 print("alle scope-tests geslaagd")

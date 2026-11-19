@@ -190,7 +190,7 @@ function collect() {
 function secrets() {
   const tok = {};
   document.querySelectorAll("[data-tok]").forEach((i) => { if (i.value.trim()) tok[i.dataset.tok] = i.value.trim(); });
-  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: "", fgt_initial_pw: "", fgt_new_pw: $("#fgt_newpw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
+  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: "", fgt_initial_pw: "", fgt_new_pw: $("#fgt_newpw").value, client_pw: $("#client_pw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
 }
 const fmgCfg = () => ({ host: null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
 
