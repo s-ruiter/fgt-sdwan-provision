@@ -41,6 +41,8 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(b)
 
     def do_POST(self):
+        if STATE.get("delay"):                                   # demo/UI checks: make the wait visible
+            __import__("time").sleep(STATE["delay"])
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
         path = self.path
         STATE["calls"].append((path, body))
