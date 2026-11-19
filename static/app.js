@@ -159,7 +159,7 @@ function draw() {
   $("#vrfs").innerHTML = "<thead><tr><th>VRF-id</th><th>LAN-summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
-  d0Opts(); flexFields();
+  d0Opts(); flexFields(); topoDraw();
 }
 // Day-0 preview: only the VMs the chosen deploy option creates
 function d0Opts() {
@@ -356,7 +356,7 @@ function scopeApply() {
   const s = scope();
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
-  if (T) { d0Opts(); flexFields(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
+  if (T) { d0Opts(); flexFields(); topoDraw(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
   try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
 }
 document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
@@ -731,3 +731,52 @@ $("#ff_list").addEventListener("click", async (e) => {
   if (!r.ok) return ffErr(errList(j).join(" · "));
   await ffList();
 });
+
+
+// ---- topology picture: what this deployment builds (from the form; parts outside the chosen scope are dimmed) -----
+function topoSvg(t, sc) {
+  const w = t.wanemu, seg = w.segments, fgts = [...t.hubs.map((d) => [d, true]), ...t.edges.map((d) => [d, false])];
+  const L = 150, COL = 180, W = Math.max(900, L + fgts.length * COL + 20);
+  const oct = (subnet, n) => subnet.split("/")[0].split(".").slice(0, 3).join(".") + "." + n;
+  const fgtOn = ["all", "fgt"].includes(sc), modelOnly = ["dev", "tpl"].includes(sc), fmgNew = ["all", "fmg"].includes(sc);
+  const dim = (on) => (on ? "" : ' opacity="0.35"');
+  const box = (x, y, bw, bh, title, lines, cls, on = true) =>
+    `<g${dim(on)}><rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="7" class="tp-box ${cls || ""}"/>` +
+    `<text x="${x + 8}" y="${y + 17}" class="tp-title">${esc(title)}</text>` +
+    lines.map((l, i) => `<text x="${x + 8}" y="${y + 33 + i * 14}" class="tp-txt">${esc(l)}</text>`).join("") + "</g>";
+  const line = (x1, y1, x2, y2, on = true, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="tp-line"${dash ? ' stroke-dasharray="4 3"' : ""}${dim(on)}/>`;
+  const bar = (y, name, vlan, subnet, on) => `<g${dim(on)}><line x1="${L}" y1="${y}" x2="${W - 10}" y2="${y}" class="tp-bar"/>` +
+    `<text x="10" y="${y - 3}" class="tp-title">${esc(name)}</text><text x="10" y="${y + 11}" class="tp-txt">VLAN ${vlan} · ${esc(subnet)}</text></g>`;
+  const yLab = 92, yHub = 170, yA = 205, yB = 240, yF = 290, yLan = 395, yCli = 470;
+  let o = "";
+  o += bar(yLab, "Lab / uplink", w.uplink.vlan, w.uplink.ip.replace(/\.\d+\/(\d+)$/, ".0/$1"), true);
+  o += box(L, 14, 200, 56, "FortiManager", [`${(t.fmgr.ip || "").split("/")[0] || "(IP)"}`, fmgNew ? "new VM (Day-0)" : "existing"], "", true) + line(L + 100, 70, L + 100, yLab);
+  o += box(L + 230, 14, 230, 56, "wan-emu (LXC)", [`${w.uplink.ip.split("/")[0]} · NAT, DHCP, tc`, "forwards :" + w.fwd_https_base + "+ / :" + w.fwd_ssh_base + "+"], "tp-emu", fgtOn) + line(L + 345, 70, L + 345, yLab, fgtOn);
+  o += line(L + 345, yLab, L + 345, yB, fgtOn);
+  o += bar(yHub, seg.hub.name, seg.hub.vlan, seg.hub.subnet, fgtOn) + bar(yA, seg.a.name, seg.a.vlan, seg.a.subnet, fgtOn) + bar(yB, seg.b.name, seg.b.vlan, seg.b.subnet, fgtOn);
+  fgts.forEach(([d, hub], n) => {
+    const x = L + 10 + n * COL, cx = x + 80, ei = n - t.hubs.length;
+    const wan1 = hub ? (d.wan1_ip || "").split("/")[0] : oct(seg.a.subnet, seg.a.res_start + ei);
+    const wan2 = !hub && d.wan2_intf ? oct(seg.b.subnet, seg.b.res_start + ei) : null;
+    const lan = (d.lans || [])[0] || {}, vlan = w.lan_vlan_base + 1 + n;
+    o += line(cx - 20, yF, cx - 20, hub ? yHub : yA, fgtOn);
+    if (wan2) o += line(cx + 20, yF, cx + 20, yB, fgtOn);
+    o += box(x, yF, 160, 72, `${d.name || "?"} · ${hub ? "hub" : "spoke"}`, [`WAN1 ${wan1}`, wan2 ? `WAN2 ${wan2}` : hub ? "gw " + (d.wan1_gw || "") : "no WAN2", modelOnly ? "model device" : `Lo ${d.loopback || ""}`], hub ? "tp-hub" : "tp-spoke", fgtOn || modelOnly);
+    if (lan.ip) {
+      o += line(cx, yF + 72, cx, yLan, fgtOn || modelOnly);
+      o += box(x, yLan, 160, 50, `LAN ${lan.intf || ""}`, [lan.ip, `VLAN ${vlan}`], "tp-lan", fgtOn || modelOnly);
+      if (!hub) {
+        const ip = lan.ip.split("/")[0].split(".").slice(0, 3).join(".") + ".10";
+        o += line(cx, yLan + 50, cx, yCli, fgtOn) + box(x, yCli, 160, 46, `client-${d.name}`, [`${ip} (LXC)`], "tp-cli", fgtOn);
+      }
+    }
+  });
+  o += `<text x="${L}" y="${yCli + 70}" class="tp-txt">IPsec overlay: every spoke WAN → WAN1 of every hub · BGP on loopbacks · ${t.region.multi_vrf === false ? "single VRF (VRF 0)" : "multi-VRF"}</text>`;
+  return `<svg viewBox="0 0 ${W} ${yCli + 84}" width="100%" role="img" aria-label="Topology" xmlns="http://www.w3.org/2000/svg">${o}</svg>`;
+}
+let TOPO_T = null;
+function topoDraw() {
+  clearTimeout(TOPO_T);
+  TOPO_T = setTimeout(() => { try { $("#topo").innerHTML = topoSvg(collect(), scope()); } catch (e) { $("#topo").innerHTML = ""; } }, 150);
+}
+$("#v_deploy").addEventListener("input", (e) => { if (!e.target.closest("#topo")) topoDraw(); });

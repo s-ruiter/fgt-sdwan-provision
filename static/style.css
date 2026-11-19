@@ -248,3 +248,14 @@ input.flex[readonly] { background: var(--line); color: var(--muted, #888); }
 .fgt-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .fgt-row b { min-width: 90px; }
 .wan-card.wan-ok { box-shadow: 0 0 0 2px var(--good, #2e7d32); transition: box-shadow .2s; }
+
+/* topology picture */
+.topo { overflow-x: auto; }
+.topo svg { min-width: 860px; display: block; }
+.tp-box { fill: var(--raised); stroke: var(--line-strong); }
+.tp-hub { stroke: var(--accent); } .tp-spoke { stroke: var(--text-2); } .tp-emu { stroke: var(--ok); }
+.tp-lan, .tp-cli { fill: var(--card); }
+.tp-title { font: 600 12px var(--sans); fill: var(--text); }
+.tp-txt { font: 11px var(--mono); fill: var(--text-2); }
+.tp-line { stroke: var(--muted); stroke-width: 1.4; }
+.tp-bar { stroke: var(--text-2); stroke-width: 3; }
