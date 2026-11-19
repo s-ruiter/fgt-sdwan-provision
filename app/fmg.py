@@ -195,7 +195,7 @@ def _pve_vms(topo, boot, which, step, emit, state):
     pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
     boot["pve_client"] = pve
     emit(step, "running", f"{len(specs)} VM(s) on Proxmox node {topo['pve']['node']}")
-    pv.deploy_vms(pve, topo["pve"], specs, boot["images"], emit, step, state)
+    pv.deploy_vms(pve, topo["pve"], specs, boot["images"], emit, step, state, vmids=boot.get("vmids"))
     emit(step, "ok", "VM(s) created and started")
 
 
@@ -249,7 +249,7 @@ def _wanemu(topo, boot, emit, step="pve_wan", fmg=None):
     emit(step, "running", f"WAN emulator {w['hostname']} on Proxmox node {topo['pve']['node']}")
     try:
         r = setup.deploy_wanemu(pve, topo, boot["wanemu_secrets"], emit, step, connector=boot.get("wanemu_connector"),
-                                waiter=boot.get("waiter"))
+                                waiter=boot.get("waiter"), vmids=boot.get("vmids"))
     except setup.WanEmuError as e:
         raise FmgError(str(e)) from e
     fmg = fmg or boot.get("fmg")
@@ -511,6 +511,8 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     why_fmg = why[scope] if scope in EXISTING_FMG else "skipped (not requested)"
     why_fgt = why[scope] if scope in NO_FGT else "skipped (not requested)"
     state = boot.setdefault("state", {})
+    _plan_vmids(topo, boot, scope, scope != "lan" and _method(boot.get("fmg")) == "day0" and scope not in EXISTING_FMG,
+                scope != "lan" and _method(boot.get("fgt")) == "day0" and scope not in NO_FGT)
     if scope == "lan":                         # LAN clients only: no FortiManager, no FortiGates, no WAN emulator
         for s in ("pve_fmg", "bootstrap_fmg", "preflight", "fmg_settings", "adom", "devices", "templates", "pve_wan",
                   "pve_fgt", "bootstrap_fgt", "install"):
@@ -674,6 +676,17 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         emit("clients", "skipped", why_fgt if m_fgt == "none" else "skipped (only with FortiGate VMs via Day-0)")
 
 
+def _plan_vmids(topo, boot, scope, fmg_vm, fgt_vm):
+    """One block of consecutive VM ids for everything this run creates (FMG, wan-emu, hubs, spokes, clients)."""
+    from . import provision_vms as pv
+    names = pv.deploy_names(topo, scope, fmg_vm, fgt_vm)
+    if boot.get("dry") or not names or "vmids" in boot:
+        return
+    pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
+    boot["pve_client"] = pve
+    boot["vmids"] = pv.plan_vmids(pve, names, topo["pve"].get("first_vmid"))
+
+
 def _clients(topo, boot, emit, step="clients"):
     """One LAN client CT per branch, on its LAN1 VLAN (after the install: the branch LAN exists now)."""
     from . import provision_vms as pv
@@ -688,7 +701,7 @@ def _clients(topo, boot, emit, step="clients"):
         return
     pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
     try:
-        out = setup.deploy_clients(pve, topo, boot.get("client_pw") or "", emit, step)
+        out = setup.deploy_clients(pve, topo, boot.get("client_pw") or "", emit, step, vmids=boot.get("vmids"))
     except Exception as e:                                    # a client is a convenience: never fail the deployment
         emit(step, "warn", f"LAN clients not (fully) created: {e}")
         return

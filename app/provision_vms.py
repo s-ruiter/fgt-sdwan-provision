@@ -55,6 +55,44 @@ def fgt_nics(dev, cfg, wanemu, is_hub, index=None):
     return nics
 
 
+def deploy_names(t, scope, fmg_vm=None, fgt_vm=None):
+    """Names of everything a deployment creates on Proxmox, in the order of its id block: FortiManager, wan-emu,
+    hubs, spokes, LAN clients. fmg_vm / fgt_vm default to what the scope deploys (the pipeline passes the methods)."""
+    fmg_vm = scope in ("all", "fmg") if fmg_vm is None else fmg_vm
+    fgt_vm = scope in ("all", "fgt") if fgt_vm is None else fgt_vm
+    out = [t["fmgr"].get("name") or "fmg"] if fmg_vm else []
+    if fgt_vm:
+        if not t["wanemu"].get("vmid"):                   # a fixed wan-emu id stays where it is
+            out.append(t["wanemu"]["hostname"])
+        out += [d["name"] for d in t["hubs"] + t["edges"]]
+    if fgt_vm or scope == "lan":
+        out += [f"client-{e['name']}" for e in t["edges"] if (e.get("lans") or [{}])[0].get("ip")]
+    return out
+
+
+def plan_vmids(pve, names, first=None):
+    """{name: vmid} for the names that do not exist yet (tool VM/CT with that name: reused, keeps its id): the first
+    free block of consecutive ids from `first` (or 100), in the order given."""
+    have = {r.get("name") for r in pve.find_vms(TAG) + pve.find_cts(TAG)}
+    new = [n for n in names if n not in have]
+    if not new:
+        return {}
+    used, s = pve.used_vmids(), max(100, int(first or 100))
+    while True:
+        clash = [s + i for i in range(len(new)) if s + i in used]
+        if not clash:
+            return {n: s + i for i, n in enumerate(new)}
+        s = max(clash) + 1
+
+
+def pick_vmid(pve, vmids, name):
+    """The planned id for `name`, unless something took it in the meantime: then the next free one."""
+    v = (vmids or {}).get(name)
+    if v and v not in pve.used_vmids():
+        return v
+    return pve.next_vmid()
+
+
 def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
     """VM specs for `which` in ('fmg', 'fgt'); user_data (secret!) is computed here and never logged."""
     cfg, mode = topo["pve"], topo["pve"].get("license_mode", "cli")
@@ -105,7 +143,7 @@ def plan_lines(spec):
             + ", Day-0 ISO")
 
 
-def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True):
+def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True, vmids=None):
     """Upload image(s), build+upload a Day-0 ISO per VM, create VMs, start them. Idempotent by VM name.
     On failure everything this call created (VMs, uploaded volumes) is removed again."""
     node, job = cfg["node"], uuid.uuid4().hex[:8]
@@ -153,7 +191,7 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True):
                     pve.wait_task(node, pve.upload(node, cfg["iso_storage"], iso_path, iso_name, "iso"))
                 iso_volid = f"{cfg['iso_storage']}:iso/{iso_name}"
                 uploaded.append((cfg["iso_storage"], iso_volid))
-            vmid = pve.next_vmid()
+            vmid = pick_vmid(pve, vmids, s["name"])
             upid = pve.create_vm(node, vmid, s["name"], vm_params(s, cfg, import_vol[s["role"]], iso_volid))
             created.append(vmid)
             state[s["name"]] = {"vmid": vmid, "iso_volid": iso_volid}
