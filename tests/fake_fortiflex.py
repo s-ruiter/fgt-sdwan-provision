@@ -72,6 +72,7 @@ class H(BaseHTTPRequestHandler):
             e[sn] = {"serialNumber": sn, "configId": body["configId"], "description": body.get("description", ""),
                      "status": "PENDING", "tokenStatus": "NOTUSED", "token": f"NEW{STATE['seq']:04d}BBBBBBBBBBBBB",
                      "accountId": 1, "endDate": "2027-12-31 00:00:00"}
+            STATE.setdefault("folders", {})[sn] = body.get("folderPath")
             return self._send(200, dict(ok, entitlements=[_ent(sn)]))
         sn = body.get("serialNumber")
         if sn not in e:

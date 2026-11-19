@@ -433,13 +433,15 @@ class FlexSettings(FlexCreds):
     program: str = ""
     fmg_config: Optional[int] = None
     fgt_config: Optional[int] = None
+    folder: str = ""                            # Asset Management folder for new licenses ("" = FortiFlex default)
 
 
 def _flex_cfg():
     conn = db.connect(DATA_DIR)
     cfg = json.loads(db.get_secret(conn, "fortiflex_cfg") or "{}")
     return conn, {"user": db.get_secret(conn, "fortiflex_user") or "", "enabled": bool(cfg.get("enabled")),
-                  "program": cfg.get("program", ""), "fmg_config": cfg.get("fmg_config"), "fgt_config": cfg.get("fgt_config")}
+                  "program": cfg.get("program", ""), "fmg_config": cfg.get("fmg_config"), "fgt_config": cfg.get("fgt_config"),
+                  "folder": cfg.get("folder", "")}
 
 
 def _flex_client(user="", password=""):
@@ -467,12 +469,18 @@ def fortiflex_get():
 
 @app.put("/api/fortiflex")
 def fortiflex_put(f: FlexSettings):
+    from .fortiflex import check_folder
+    try:
+        folder = check_folder(f.folder)
+    except ValueError as e:
+        raise HTTPException(422, detail=[str(e)])
     conn = db.connect(DATA_DIR)
     db.put_secret(conn, "fortiflex_user", f.user.strip())
     if f.password:
         db.put_secret(conn, "fortiflex_password", f.password)
     db.put_secret(conn, "fortiflex_cfg", json.dumps({"enabled": f.enabled, "program": f.program.strip(),
-                                                     "fmg_config": f.fmg_config, "fgt_config": f.fgt_config}))
+                                                     "fmg_config": f.fmg_config, "fgt_config": f.fgt_config,
+                                                     "folder": folder}))
     return fortiflex_get()
 
 
@@ -572,7 +580,7 @@ def _licenses(topo, r, dry):
         if not rows:
             return []
         try:
-            res = resolve(cl, rows, dry=dry)
+            res = resolve(cl, rows, dry=dry, folder=_flex_cfg()[1]["folder"])
         except FlexError as e:
             raise HTTPException(422, detail=[str(e)])
     if dry:

@@ -19,6 +19,8 @@ zodat serienummers en tokens niet meer met de hand ingevuld hoeven te worden.
 - API-gebruiker + wachtwoord, opgeslagen in de tool-db (0600); het wachtwoord wordt nooit teruggegeven.
 - "Testen": inloggen en programma's tonen. Keuze programma, configuratie voor de FortiManager (producttype
   FortiManager VM) en voor de FortiGates (FortiGate VM), met hun parameters.
+- Asset folder voor nieuwe licenties (`folderPath` bij `/vm/create`): leeg of een pad onder `My Assets`. De API
+  kan folders niet opvragen, dus het is een tekstveld; bestaande licenties worden niet verplaatst.
 - Schakelaar "FortiFlex gebruiken bij de uitrol" (zonder: handmatige tokens/serienummers zoals nu).
 - Lijst van de licenties van de tool (omschrijving begint met `fgt-sdwan `) met status, tokenstatus, einddatum en een
   knop "Stop" (met bevestiging).

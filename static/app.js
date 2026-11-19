@@ -591,7 +591,7 @@ async function ffLoad() {
   ffErr("");
   FLEX = await (await fetch("/api/fortiflex")).json();
   $("#ff_user").value = FLEX.user; $("#ff_pw").value = ""; $("#ff_pw").placeholder = FLEX.has_password ? "(opgeslagen; leeg laten = behouden)" : "";
-  $("#ff_enabled").checked = FLEX.enabled;
+  $("#ff_enabled").checked = FLEX.enabled; $("#ff_folder").value = FLEX.folder || "";
   $("#ff_program").innerHTML = FLEX.program ? `<option>${esc(FLEX.program)}</option>` : "";
   if (FLEX.user && FLEX.has_password) { await ffPrograms(); await ffList(); }
 }
@@ -618,7 +618,7 @@ function ffParams() {
 }
 async function ffSave() {
   const n = (v) => (v ? +v : null);
-  const body = { user: $("#ff_user").value.trim(), password: $("#ff_pw").value, enabled: $("#ff_enabled").checked, program: $("#ff_program").value || "", fmg_config: n($("#ff_fmg").value), fgt_config: n($("#ff_fgt").value) };
+  const body = { user: $("#ff_user").value.trim(), password: $("#ff_pw").value, enabled: $("#ff_enabled").checked, program: $("#ff_program").value || "", fmg_config: n($("#ff_fmg").value), fgt_config: n($("#ff_fgt").value), folder: $("#ff_folder").value.trim() };
   if (body.enabled && !body.fgt_config && !body.fmg_config) return ffErr("Kies minstens één configuratie voordat je FortiFlex aanzet");
   const r = await fetch("/api/fortiflex", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const j = await json(r);

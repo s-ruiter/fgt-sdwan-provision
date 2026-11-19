@@ -52,7 +52,7 @@ print("OK  UI: pagina WAN-emulatie (kaart per link per segment, presets, foutmel
 
 # FortiFlex page + deploy page integration
 assert 'href="#/fortiflex" data-nav="fortiflex"' in html and 'id="v_fortiflex"' in html
-for i in ("ff_user", "ff_pw", "ff_test", "ff_res", "ff_program", "ff_fmg", "ff_fgt", "ff_params", "ff_enabled", "ff_save",
+for i in ("ff_folder", "ff_user", "ff_pw", "ff_test", "ff_res", "ff_program", "ff_fmg", "ff_fgt", "ff_params", "ff_enabled", "ff_save",
           "ff_list", "ff_err", "btn_flexcheck", "flex_check"):
     assert f'id="{i}"' in html, i
 assert 'type="password"' in html[html.index('id="ff_pw"') - 120:html.index('id="ff_pw"') + 40]

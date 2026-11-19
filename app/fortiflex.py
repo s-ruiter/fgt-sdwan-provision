@@ -16,6 +16,17 @@ class FlexError(Exception):
     pass
 
 
+def check_folder(path):
+    """Asset folder for new licenses: empty (FortiFlex default) or a path under 'My Assets'. Returns it normalised."""
+    p = (path or "").strip().strip("/").strip()
+    if not p:
+        return ""
+    parts = p.split("/")
+    if parts[0] != "My Assets" or any(not x.strip() for x in parts) or len(p) > 255:
+        raise ValueError("Asset folder moet een pad onder 'My Assets' zijn, bv. My Assets/Lab/SD-WAN (of leeg)")
+    return "/".join(x.strip() for x in parts)
+
+
 def desc(adom, name):
     return f"{PREFIX} {adom} {name}"
 
@@ -72,9 +83,11 @@ class Client:
     def _one(self, path, body):
         return self.call(path, body)["entitlements"][0]
 
-    def create_vm(self, config_id, description):
-        return self._one("/entitlements/vm/create", {"configId": int(config_id), "count": 1, "description": description,
-                                                     "endDate": None})
+    def create_vm(self, config_id, description, folder=""):
+        body = {"configId": int(config_id), "count": 1, "description": description, "endDate": None}
+        if folder:
+            body["folderPath"] = folder                         # Asset Management folder, e.g. "My Assets/Lab"
+        return self._one("/entitlements/vm/create", body)
 
     def regen_token(self, sn):
         return self._one("/entitlements/vm/token", {"serialNumber": sn})
@@ -116,7 +129,7 @@ ACTION_TEXT = {"use": "bestaande licentie, token ongebruikt", "regen": "bestaand
                "reactivate": "gestopte licentie, opnieuw activeren + nieuw token", "create": "nieuwe licentie (kost punten)"}
 
 
-def resolve(client, rows, dry):
+def resolve(client, rows, dry, folder=""):
     """Carry out the plan. dry=True: only report (placeholder serial for new ones, no tokens).
     Returns {name: {serial, token, action}}. A failure names the licenses already created in this run."""
     out, created, n = {}, [], 0
@@ -130,7 +143,7 @@ def resolve(client, rows, dry):
             continue
         try:
             if act == "create":
-                e = client.create_vm(r["config_id"], r["description"])
+                e = client.create_vm(r["config_id"], r["description"], folder)
                 sn, tok = e["serialNumber"], e.get("token")
                 created.append(f"{r['name']} ({sn}) aangemaakt")
             else:

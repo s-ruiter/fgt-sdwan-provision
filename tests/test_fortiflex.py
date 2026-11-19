@@ -75,3 +75,24 @@ except ff.FlexError as e:
     assert "not enough points" in m and "x" in m and "aangemaakt" in m and "site1-1" in m and "heractiveerd" in m, m
 srv.shutdown()
 print("OK  fout halverwege: melding van FortiFlex plus wat al aangemaakt is")
+
+# asset folder: only on create, as folderPath; empty = FortiFlex default
+srv = fake.start()
+URL = f"http://127.0.0.1:{srv.server_address[1]}"
+c = ff.Client(fake.USER, fake.PASSWORD, auth_url=URL + "/api/v1/oauth/token/", base=URL + "/ES/api/fortiflex/v2")
+fake.reset()
+rows = ff.plan([{"name": "n1", "serial": "", "config_id": 10}, {"name": "n2", "serial": "", "config_id": 10}],
+               {10: c.entitlements(10)}, "SDWAN")
+res = ff.resolve(c, rows[:1], dry=False, folder="My Assets/Lab/SD-WAN")
+assert fake.STATE["folders"][res["n1"]["serial"]] == "My Assets/Lab/SD-WAN"
+res = ff.resolve(c, rows[1:], dry=False)
+assert [b for p_, b in fake.STATE["calls"] if p_.endswith("/vm/create")][-1].get("folderPath") is None
+assert ff.check_folder("") == "" and ff.check_folder(" My Assets/Lab/ ") == "My Assets/Lab"
+for bad in ("Lab/SD-WAN", "My Assets//x", "My Assets/" + "x" * 300):
+    try:
+        ff.check_folder(bad)
+        raise SystemExit(f"accepteerde {bad}")
+    except ValueError:
+        pass
+srv.shutdown()
+print("OK  asset folder: folderPath alleen bij aanmaken, leeg = standaard; pad moet onder 'My Assets' liggen")

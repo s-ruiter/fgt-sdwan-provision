@@ -225,7 +225,9 @@
           <div class="f"><label>Programma</label><select id="ff_program"></select></div>
           <div class="f"><label>FortiManager</label><select id="ff_fmg"></select></div>
           <div class="f"><label>FortiGates (hubs en spokes)</label><select id="ff_fgt"></select></div>
+          <div class="f"><label>Asset folder voor nieuwe licenties</label><input id="ff_folder" placeholder="My Assets/Lab/SD-WAN" spellcheck="false"></div>
         </div>
+        <div class="hint">De folder moet al bestaan in FortiCloud Asset Management (de API kan folders niet opvragen); leeg = standaardlocatie. Geldt alleen voor nieuw aangemaakte licenties; bestaande blijven waar ze staan.</div>
         <div class="hint" id="ff_params"></div>
         <div class="inline"><input type="checkbox" id="ff_enabled"><label for="ff_enabled">FortiFlex gebruiken bij de uitrol: serienummers en tokens worden per device opgehaald (bestaande licentie hergebruiken, anders een nieuwe aanmaken &ndash; dat kost punten)</label></div>
         <div class="actions"><button id="ff_save" class="primary">Opslaan</button></div>
