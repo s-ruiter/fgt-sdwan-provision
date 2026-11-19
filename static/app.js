@@ -118,7 +118,7 @@ function pveFill(p) {
 }
 const WAN_SEGS = ["hub", "a", "b"];
 function wanFill(w) {
-  $("#wan-vmid").value = w.vmid ?? ""; $("#wan-template").value = w.template; $("#wan-storage").value = w.storage;
+  $("#wan-vmid").value = w.vmid ?? ""; $("#wan-storage").value = w.storage;
   setSel("#wan-bridge", PVE_OPT.bridges, w.bridge);
   $("#wan-uplink-vlan").value = w.uplink.vlan; $("#wan-uplink-ip").value = w.uplink.ip; $("#wan-uplink-gw").value = w.uplink.gw;
   WAN_SEGS.forEach((k) => {
@@ -129,7 +129,7 @@ function wanFill(w) {
 }
 function wanCollect() {
   const w = JSON.parse(JSON.stringify(T.wanemu)), n = (v) => (v === "" ? null : +v);
-  w.vmid = n($("#wan-vmid").value); w.template = $("#wan-template").value.trim(); w.storage = $("#wan-storage").value.trim();
+  w.vmid = n($("#wan-vmid").value); w.storage = $("#wan-storage").value.trim();
   w.bridge = $("#wan-bridge").value.trim();
   w.uplink = { vlan: n($("#wan-uplink-vlan").value), ip: $("#wan-uplink-ip").value.trim(), gw: $("#wan-uplink-gw").value.trim() };
   WAN_SEGS.forEach((k) => {

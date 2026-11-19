@@ -33,7 +33,7 @@ print("OK  UI statisch: app.js parseert, start-up-functies bestaan, alle $('#id'
 sec = html[html.index('id="wanemu-section"') - 200:]
 sec = sec[:sec.index("</div><!-- /wanemu -->")]
 assert 'class="only-fgt"' in sec[:300], "WAN-emulatie hoort bij de FortiGate-VM's (alleen bij Day-0 FortiGates)"
-for i in ("wan-vmid", "wan-template", "wan-storage", "wan-bridge", "wan-uplink-vlan", "wan-uplink-ip", "wan-uplink-gw",
+for i in ("wan-vmid", "wan-storage", "wan-bridge", "wan-uplink-vlan", "wan-uplink-ip", "wan-uplink-gw",
           "wan-seg-hub-vlan", "wan-seg-hub-subnet", "wan-seg-hub-gw", "wan-seg-a-vlan", "wan-seg-a-subnet", "wan-seg-a-gw",
           "wan-seg-a-res", "wan-seg-b-vlan", "wan-seg-b-subnet", "wan-seg-b-gw", "wan-seg-b-res"):
     assert f'id="{i}"' in sec, i
@@ -126,3 +126,6 @@ act = html[html.index('id="btn_deploy"') - 400:html.index('id="btn_deploy"')]
 assert 'id="btn_flexcheck"' in act, "Check licences staat naast Deploy"
 assert "dry_run: false" in js[js.index('$("#btn_deploy").onclick'):][:2500]
 print("OK  UI: geen preview-blok en geen dry-run; Check licences naast Deploy")
+
+assert 'id="wan-template"' not in html and "wan-template" not in js, "het CT-template kiest de gebruiker niet"
+print("OK  UI: geen template-veld bij de WAN-emulatie")
