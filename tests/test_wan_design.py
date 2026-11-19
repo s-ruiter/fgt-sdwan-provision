@@ -70,7 +70,7 @@ for multi in (True, False):
             assert r["sdwan"]["members"][0].get("gateway") == hub["wan1_gw"], r["sdwan"]["members"][0]   # gateway on member
             for blk in re.findall(r"config router static\n((?:.|\n)*?)\nend", cli):   # no route on wan1 next to the
                 assert '"$(wan1_intf)"' not in blk and hub["wan1_intf"] not in blk, blk  # SD-WAN default (dup 1/100)
-            assert [s["dst"] for s in r["static"]] == [["0.0.0.0", "0.0.0.0"]] and r["static"][0].get("sdwan-zone"), r["static"]
+            assert [s["dst"] for s in r["static"]][0] == ["0.0.0.0", "0.0.0.0"] and r["static"][0].get("sdwan-zone"), r["static"]
             # Day-0 builds the same SD-WAN default as the template, so the install edits it in place (no dup 1/100)
             from app import bootstrap as bs
             m0 = r["sdwan"]["members"][0]
@@ -97,3 +97,16 @@ for multi in (True, False):
                 assert "set mode dhcp" in blk and "set mode static" not in blk, (r["name"], w, blk)
 print("OK  templates (multi- en single-VRF): hub alleen EDGE_WAN1 + Lo-HC; elke branch-WAN een tunnel naar wan1 van elke hub")
 print("alle WAN-ontwerp-tests geslaagd")
+
+# FortiManager host route on every role: the template's blackhole 10.0.0.0/8 (summary) must not swallow the FGFM tunnel
+for multi in (True, False):
+    t = topo(multi)
+    t["fmgr"]["ip"] = "10.10.106.11/24"
+    plan = ft.build_plan(t, ORCH)
+    for r in plan["roles"]:
+        fr = [x for x in r["static"] if x.get("dst") == ["10.10.106.11", "255.255.255.255"]]
+        assert len(fr) == 1 and fr[0]["sdwan-zone"] == ["underlay"] and fr[0]["seq-num"] == ft.FMG_ROUTE_SEQ, (r["name"], r["static"])
+        assert len({x["seq-num"] for x in r["static"]}) == len(r["static"])
+        cli = "\n".join(text for _, text, _ in r["cli"])
+        assert f"edit {ft.FMG_ROUTE_SEQ}\n" not in cli, r["name"]                      # no clash with the CLI templates' routes
+print("OK  hostroute naar FortiManager via underlay op elke rol (niet in de blackhole 10.0.0.0/8 van het template)")
