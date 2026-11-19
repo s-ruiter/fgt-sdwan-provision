@@ -41,7 +41,7 @@ try:
     _login_retry(s, 20, 15)
     raise SystemExit("had moeten falen")
 except FmgError as e:
-    assert s.n == 2 and "geweigerd" in str(e) and "blokkeert" in str(e), (s.n, str(e))
+    assert s.n == 2 and "refused" in str(e) and "lock" in str(e), (s.n, str(e))
 # -11 (no permission): the factory admin has rpc-permit none -> the message says how to fix it
 s = Stub(["exec /sys/login/user: (-11) No permission for the resource"] * 20)
 try:
@@ -66,7 +66,7 @@ except FmgError as e:
 # progress: every failed attempt is reported (a long wait must be visible in the job log)
 msgs = []
 s = Stub(["x: refused"] * 2)
-_login_retry(s, 20, 15, msgs.append); assert len(msgs) == 2 and "inlogpoging 1/20" in msgs[0], msgs
+_login_retry(s, 20, 15, msgs.append); assert len(msgs) == 2 and "login attempt 1/20" in msgs[0], msgs
 
 # Day-0 readiness: login works, but the licence is not active yet (FMG still has to reboot) -> wait, then continue
 assert _license_state({"License Status": "Valid"})[0]
@@ -91,14 +91,14 @@ f = StatusStub([{"License Status": "Invalid"}, {"License Status": "Valid", "Vers
 msgs = []
 st = wait_fmg_ready(f, {"login_delay": 0}, msgs.append)
 assert st["License Status"] == "Valid" and f.n == 2 and f.logouts == 1 and f.timeout == 60, (st, f.n)
-assert any("licentie" in m for m in msgs), msgs
+assert any("licence" in m for m in msgs), msgs
 # never licensed: stops with a clear message after the timeout
 f = StatusStub([{"License Status": "Invalid"}] * 5)
 try:
     wait_fmg_ready(f, {"login_delay": 0, "fmg_ready_timeout": -1}, msgs.append)
     raise SystemExit("had moeten falen")
 except FmgError as e:
-    assert "nog niet gelicenseerd" in str(e), str(e)
+    assert "still not licensed" in str(e), str(e)
 print("OK  FMG-login: pad met /, geweigerd wachtwoord stopt na 2 pogingen, lockout (-23) wordt uitgewacht, niet-gereed wordt herhaald")
 
 # wait_online: FortiManager answers enums as text with verbose=1 ("up" / "down" / "UNKNOWN"), older code used 1

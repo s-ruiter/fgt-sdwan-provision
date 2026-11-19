@@ -27,7 +27,7 @@ def err(fn, *a):
 assert main.fortiflex_get() == {"user": "", "has_password": False, "enabled": False, "program": "", "fmg_config": None,
                                 "fgt_config": None, "folder": ""}
 code, msg = err(main.fortiflex_test, main.FlexCreds(user=fake.USER, password="fout"))
-assert code == 400 and "geweigerd" in msg
+assert code == 400 and "refused" in msg
 r = main.fortiflex_test(main.FlexCreds(user=fake.USER, password=fake.PASSWORD))
 assert r["programs"][0]["serialNumber"] == "ELAVMS0000001234"
 main.fortiflex_put(main.FlexSettings(user=fake.USER, password=fake.PASSWORD, enabled=True, program="ELAVMS0000001234",
@@ -69,7 +69,7 @@ t2 = model.merged({"adom": "SDWAN"})
 log = main._licenses(t2, r, dry=False)
 assert t2["hubs"][0]["serial"] == "FGVMELTM26000001" and r.secrets.fgt_tokens["site1-H1"].startswith("RGN")
 assert r.secrets.fmg_token == "TOK000001AAAAAAAAAAA" and t2["edges"][1]["serial"].startswith("FGVMELTM2699")
-assert any("site1-2" in m and "nieuwe licentie" in m for _, m in log) and not any("RGN" in m or "TOK" in m for _, m in log)
+assert any("site1-2" in m and "new licence" in m for _, m in log) and not any("RGN" in m or "TOK" in m for _, m in log)
 rd = req(dry=True)
 t3 = model.merged({"adom": "SDWAN"})
 main._licenses(t3, rd, dry=True)
@@ -78,7 +78,7 @@ fake.reset()                                                                   #
 t5 = model.merged({"adom": "SDWAN"})
 main._licenses(t5, req(dry=True), dry=True)
 sns = [d["serial"] for d in t5["hubs"] + t5["edges"]]
-assert len(set(sns)) == len(sns) and "FGVMNEWLIC000001" in sns and not any("serienummer" in e for e in model.validate(t5)), (sns, model.validate(t5))
+assert len(set(sns)) == len(sns) and "FGVMNEWLIC000001" in sns and not any("serial number" in e for e in model.validate(t5)), (sns, model.validate(t5))
 main.fortiflex_put(main.FlexSettings(user=fake.USER, password="", enabled=False, program="ELAVMS0000001234", fmg_config=20, fgt_config=10))
 t4 = model.merged({"adom": "SDWAN"})
 assert main._licenses(t4, req(dry=False), dry=False) == [] and t4["hubs"][0]["serial"] == ""

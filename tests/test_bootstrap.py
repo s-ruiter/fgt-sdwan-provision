@@ -65,7 +65,7 @@ def test_fgt_static_with_ip_move():
     c = dev.state.cmds
     assert "set mode static" in c and "set gateway 100.127.200.1" in c
     assert 'set sdwan-zone "underlay"' in c and "set device" not in c     # default via SD-WAN, not a route on port1
-    assert any("wachten op 100.127.200.11" in m for _, m in log)
+    assert any("waiting for 100.127.200.11" in m for _, m in log)
     print("OK  FortiGate static: route + IP als laatste, herverbinden op nieuw IP, licentie")
 
 
@@ -73,7 +73,7 @@ def test_bad_token():
     t = topo()
     d = t["edges"][0]
     dev, log, st, err = run(d, token=BAD_TOKEN, lines=fgt_network_lines(d, t))
-    assert err and "licentie geweigerd" in str(err), err
+    assert err and "licence refused" in str(err), err
     assert BAD_TOKEN not in str(err)
     print("OK  afgewezen token -> duidelijke fout, token gemaskeerd")
 
@@ -82,7 +82,7 @@ def test_serial_mismatch():
     t = topo()
     d = t["edges"][0]
     dev, log, st, err = run(d, lines=fgt_network_lines(d, t), serial="FGVMMLTM26009999")
-    assert err and "wijkt af" in str(err), err
+    assert err and "differs" in str(err), err
     print("OK  serienummer-mismatch gevangen")
 
 
@@ -90,7 +90,7 @@ def test_no_new_password():
     t = topo()
     d = t["edges"][0]
     dev, log, st, err = run(d, lines=fgt_network_lines(d, t), new_pw="")
-    assert err and "nieuw wachtwoord" in str(err), err
+    assert err and "new password" in str(err), err
     print("OK  forced pw-change zonder nieuw wachtwoord -> duidelijke fout")
 
 

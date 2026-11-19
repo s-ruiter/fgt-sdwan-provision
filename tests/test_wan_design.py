@@ -43,13 +43,13 @@ print("OK  invoer wordt afgedwongen: hub alleen wan1 statisch, branch wan1/wan2 
 t = topo()
 assert model.validate(t) == [], model.validate(t)
 t["hubs"][0]["wan1_ip"] = ""
-assert any("hub: altijd statisch" in x for x in model.validate(t))
+assert any("hub: always static" in x for x in model.validate(t))
 t = topo()
 t["hubs"][0]["wan1_gw"] = ""
 assert any("gateway" in x for x in model.validate(t)) and any("gateway" in x for x in model.validate(t, devices=False))
 t = topo()
 t["edges"][0]["wan2_intf"] = t["edges"][0]["wan1_intf"]
-assert any("andere poort" in x for x in model.validate(t))
+assert any("another port" in x for x in model.validate(t))
 print("OK  validatie: hub-wan1 IP verplicht (gateway bij devices), branch zonder adres, wan2 != wan1")
 
 # 3. rendered templates, multi- and single-VRF

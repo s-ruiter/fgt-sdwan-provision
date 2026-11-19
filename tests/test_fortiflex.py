@@ -14,7 +14,7 @@ try:
     cl("fout").programs()
     raise SystemExit("verwachtte loginfout")
 except ff.FlexError as e:
-    assert "inloggen" in str(e).lower() and "fout" not in str(e)          # password never in the message
+    assert "login" in str(e).lower() and "fout" not in str(e)          # password never in the message
 c = cl()
 assert c.programs()[0]["serialNumber"] == "ELAVMS0000001234"
 assert [x["id"] for x in c.configs("ELAVMS0000001234")] == [10, 11, 20]
@@ -72,7 +72,7 @@ try:
     raise SystemExit("verwachtte fout")
 except ff.FlexError as e:
     m = str(e)
-    assert "not enough points" in m and "x" in m and "aangemaakt" in m and "site1-1" in m and "heractiveerd" in m, m
+    assert "not enough points" in m and "x" in m and "created" in m and "site1-1" in m and "reactivated" in m, m
 srv.shutdown()
 print("OK  fout halverwege: melding van FortiFlex plus wat al aangemaakt is")
 

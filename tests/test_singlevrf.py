@@ -37,9 +37,9 @@ assert not any(p["name"] == "Internet (to PE)" for r in ps["roles"] for p in r["
 assert any(p["name"] == "Internet (to PE)" for r in pm["roles"] for p in r["policies"])
 # validation
 bad = topo(False); bad["region"]["lan_summary"] = "nope"
-assert any("LAN-summary" in e for e in model.validate(bad))
+assert any("LAN summary" in e for e in model.validate(bad))
 bad = topo(True); bad["region"]["vrfs"] = []
-assert any("minstens 1 vrf" in e.lower() for e in model.validate(bad))
+assert any("at least 1 vrf" in e.lower() for e in model.validate(bad))
 print("OK  single-VRF: geen VRF 1/11/12, leak, vpn-id-ipip of vrf-select; 1 LAN; multi-VRF ongewijzigd; validatie")
 
 # single-VRF: everything in VRF 0 (only explicit 'set vrf 0'), FMG tunnel without vrf-select

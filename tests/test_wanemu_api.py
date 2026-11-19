@@ -37,27 +37,27 @@ def err(fn, *a):
 
 # nothing deployed yet
 code, msg = err(main.wanemu_links)
-assert code == 409 and "nog geen wan-emulator" in msg.lower(), msg
+assert code == 409 and "no wan emulator" in msg.lower(), msg
 conn = db.connect(os.environ["DATA_DIR"])
 db.put_secret(conn, "wanemu_agent_token", "geheimtoken123")
 db.put_secret(conn, "wanemu_addr", f"127.0.0.1:{port}")
 
 r = main.wanemu_links()
-assert len(r["links"]) == 7 and r["addr"] == f"127.0.0.1:{port}" and "isp-a-storing" in r["presets"]
+assert len(r["links"]) == 7 and r["addr"] == f"127.0.0.1:{port}" and "isp-a-down" in r["presets"]
 assert {l["seg"] for l in r["links"]} == {"hub", "a", "b"} and all("state" in l for l in r["links"])
 assert "geheimtoken123" not in json.dumps(r)
 r = main.wanemu_put("site1-1-wan1", {"delay_ms": 25, "loss_pct": 1})
 assert r["state"]["delay_ms"] == 25 and app.state["site1-1-wan1"]["loss_pct"] == 1
 code, msg = err(main.wanemu_put, "site1-1-wan1", {"loss_pct": 150})
 assert code == 400 and "loss_pct" in msg
-r = main.wanemu_preset("isp-a-storing", None)
+r = main.wanemu_preset("isp-a-down", None)
 down = sorted(k for k, v in app.state.items() if v.get("down"))
 assert down == ["site1-1-wan1", "site1-2-wan1", "site1-3-wan1"], down
 from app.wanemu import client as _cl  # noqa: E402
-assert set(_cl.PRESETS) == {"isp-a-storing", "isp-b-storing", "hub1-weg"}, _cl.PRESETS     # only the failure presets
+assert set(_cl.PRESETS) == {"isp-a-down", "isp-b-down", "hub1-down"}, _cl.PRESETS     # only the failure presets
 code, _ = err(main.wanemu_preset, "slechte-4g", None)
 assert code == 404
-main.wanemu_preset("hub1-weg", None)
+main.wanemu_preset("hub1-down", None)
 assert app.state["site1-H1-wan1"]["down"] is True
 code, _ = err(main.wanemu_preset, "bestaat-niet", None)
 assert code == 404
@@ -68,6 +68,6 @@ print("OK  WAN-emulatie-API: proxy met token in de tool, PUT, ongeldige waarde 4
 srv.shutdown()
 srv.server_close()
 code, msg = err(main.wanemu_links)
-assert code == 502 and f"WAN-emulator niet bereikbaar op 127.0.0.1:{port}" in msg
+assert code == 502 and f"WAN emulator not reachable on 127.0.0.1:{port}" in msg
 db.put_secret(conn, "wanemu_agent_token", "fout")
 print("OK  agent onbereikbaar: 502 met duidelijke melding")

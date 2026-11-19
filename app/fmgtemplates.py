@@ -272,7 +272,7 @@ def build_plan(topo, orch_dir):
         sd, un1 = cli_to_json(s["sdwan"])
         fw, un2 = cli_to_json(s["firewall"])
         for u in un1 + un2:
-            warnings.append(f"{role}: Orchestrator-blok '{u}' kon niet naar een native object worden omgezet en ontbreekt")
+            warnings.append(f"{role}: Orchestrator block '{u}' could not be converted to a native object and is missing")
         r["sdwan"] = sd.get("system sdwan", {})
         lit = _literal_intfs(r, per)
         r["sdwan"] = _subst(r["sdwan"], lit)
@@ -304,7 +304,7 @@ def build_plan(topo, orch_dir):
         for dn in r["devices"]:                       # variables of the shared role must exist for every device of it
             miss = [v for _, _, vs in r["cli"] for v in vs if v not in per[dn]["values"]]
             if miss:
-                raise ValueError(f"{dn}: variabelen ontbreken voor rol {role}: {sorted(set(miss))}")
+                raise ValueError(f"{dn}: variables missing for role {role}: {sorted(set(miss))}")
         r["ippool_map"] = {dn: _ippool_values(r["ippools"], per[dn]["reg"]) for dn in r["devices"]}
     return {"roles": roles, "variables": variables, "warnings": warnings, "per": per,
             "dns": [topo["dns_primary"], topo.get("dns_secondary", "")], "adom_meta": {}}
@@ -317,8 +317,8 @@ def _literal_intfs(role, per):
     for var in ("wan1_intf", "wan2_intf"):
         vals = {per[d]["values"].get(var) for d in role["devices"]}
         if len(vals) > 1:
-            raise ValueError(f"Rol {role['name']} ({', '.join(role['devices'])}): {var} verschilt per device ({sorted(map(str, vals))}); "
-                             "de native SD-WAN-template vereist dezelfde poortnaam binnen een rol")
+            raise ValueError(f"Role {role['name']} ({', '.join(role['devices'])}): {var} differs per device ({sorted(map(str, vals))}); "
+                             "the native SD-WAN template needs the same port name within a role")
         if vals != {None}:
             lit[var] = vals.pop()
     return lit
@@ -340,7 +340,7 @@ def rename_edge_tunnels(s):
             if m and hub:
                 names[name] = f"{hub.group(1)}-WAN{m.group(1)}"
     if len(set(names.values())) != len(names):
-        raise ValueError(f"tunnelnamen niet uniek na hernoemen: {names}")
+        raise ValueError(f"tunnel names not unique after renaming: {names}")
     if names:
         pat = re.compile(r"(?<![\w-])(" + "|".join(map(re.escape, sorted(names, key=len, reverse=True))) + r")(?![\w-])")
         sub = lambda text: pat.sub(lambda m: names[m.group(1)], text)
@@ -360,7 +360,7 @@ def _fmg_host_route(r, topo, warnings):
     if not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", ip):
         return
     if not any(z.get("name") == "underlay" for z in r["sdwan"].get("zone", [])):
-        warnings.append(f"{r['name']}: geen SD-WAN-zone 'underlay', geen hostroute naar FortiManager {ip}")
+        warnings.append(f"{r['name']}: no SD-WAN zone 'underlay', no host route to FortiManager {ip}")
         return
     r["static"].append({"seq-num": FMG_ROUTE_SEQ, "_seq-num": FMG_ROUTE_SEQ, "dst": [ip, "255.255.255.255"],
                         "sdwan-zone": ["underlay"], "status": "enable", "comment": "FortiManager (fgt-sdwan-provision)"})

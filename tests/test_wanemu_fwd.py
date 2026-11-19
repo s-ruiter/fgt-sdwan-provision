@@ -21,7 +21,7 @@ assert 'iifname "eth0" tcp dport 10026 dnat ip to 100.127.201.13:22' in r
 assert "dnat" not in agent.nft_ruleset(dict(at, forwards=[]), {})
 assert model.validate_wanemu(t) == []
 bad = model.merged({"wanemu": {"fwd_ssh_base": 10440}})                      # overlaps the HTTPS range
-assert any("poort" in e for e in model.validate_wanemu(bad)), model.validate_wanemu(bad)
+assert any("port" in e for e in model.validate_wanemu(bad)), model.validate_wanemu(bad)
 bad = model.merged({"wanemu": {"fwd_https_base": 8085}})                       # 8085..8089 covers agent_port 8090? no
 assert model.validate_wanemu(bad) == []
 bad = model.merged({"wanemu": {"fwd_https_base": 8088}})                       # 8088..8092 contains the agent port
@@ -42,7 +42,7 @@ specs = pv.build_specs(dict(t, fmgr=dict(t["fmgr"], ip="10.10.106.11/24", gatewa
                        {d["name"]: "T" * 20 for d in t["hubs"] + t["edges"]}, "", "fgt")
 assert [s["nics"][4]["vlan"] for s in specs] == [3301, 3302, 3303, 3304, 3305]
 bad = model.merged({"wanemu": {"lan_vlan_base": 3199}})              # 3200..3204 hits ISP-HUB/A/B
-assert any("LAN-VLAN" in e for e in model.validate_wanemu(bad)), model.validate_wanemu(bad)
+assert any("LAN VLAN" in e for e in model.validate_wanemu(bad)), model.validate_wanemu(bad)
 print("OK  LAN-VLAN's: LAN1 3301+n, LAN2 3401+n per FortiGate; andere poorten volgen de poortentabel; botsing gevalideerd")
 
 # LAN client per spoke: CT client-<spoke> on the LAN1 VLAN, .10 in the LAN, gateway = spoke LAN IP

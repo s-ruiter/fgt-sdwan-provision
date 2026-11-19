@@ -15,7 +15,7 @@ topo["hubs"][0]["wan1_gw"] = "100.127.200.1"
 topo["hubs"][1]["wan1_gw"] = "100.127.200.1"
 # 1. missing serials must be rejected
 r = requests.post(f"{APP}/api/render", json={"topology": topo})
-assert r.status_code == 422 and any("serienummer" in e for e in r.json()["detail"]), r.text
+assert r.status_code == 422 and any("serial number" in e for e in r.json()["detail"]), r.text
 print("OK  validatie weigert lege serienummers:", len(r.json()["detail"]), "fouten")
 
 for i, d in enumerate(topo["hubs"] + topo["edges"]):
@@ -86,12 +86,12 @@ topo["fmgr"]["initial_ip"] = "192.168.1.98"
 body = {"topology": topo, "dry_run": True, "fmg": {"username": "admin", "password": "Mock-Pass-1"},
         "bootstrap": {"fmg": True, "fgt": True}, "secrets": {}}
 r = requests.post(f"{APP}/api/deploy", json=body)
-assert r.status_code == 422 and any("FortiFlex-token" in e for e in r.json()["detail"]), r.text
+assert r.status_code == 422 and any("FortiFlex token" in e for e in r.json()["detail"]), r.text
 print("OK  bootstrap zonder tokens/wachtwoord geweigerd:", len(r.json()["detail"]), "fouten")
 dup = copy.deepcopy(body)
 dup["topology"]["edges"][0]["initial_ip"] = dup["topology"]["hubs"][0]["initial_ip"]
 r = requests.post(f"{APP}/api/deploy", json=dup)
-assert r.status_code == 422 and any("uniek" in e for e in r.json()["detail"]), r.text
+assert r.status_code == 422 and any("unique" in e for e in r.json()["detail"]), r.text
 print("OK  dubbel initieel IP geweigerd")
 TOK = "ABCDEFGHIJ0123456789"
 body["secrets"] = {"fmg_token": TOK, "fgt_tokens": {d["name"]: TOK + str(i) for i, d in enumerate(topo["hubs"] + topo["edges"])},
@@ -120,7 +120,7 @@ r = requests.post(f"{APP}/api/images", data={"role": "fgt"},
 assert r.status_code == 200 and r.json()["virtual_gb"] == 2 and r.json()["version"] == "8.0.0", r.text
 img_fgt = r.json()["id"]
 r = requests.post(f"{APP}/api/images", data={"role": "fmg"}, files={"file": ("FGT_VM64_KVM-v8.0.0-build0001.zip", buf.getvalue())})
-assert r.status_code == 422 and "FortiGate-image" in r.json()["detail"], r.text
+assert r.status_code == 422 and "FortiGate image" in r.json()["detail"], r.text
 assert [i["id"] for i in requests.get(f"{APP}/api/images").json()] == [img_fgt]
 print("OK  /api/images: upload (zip -> qcow2), rol-mismatch geweigerd, lijst")
 
@@ -174,7 +174,7 @@ assert r.status_code == 200 and r.json()["name"] == "pve-lab2", r.text
 requests.post(f"{APP}/api/servers/{sid}/test", json={})
 assert requests.get(f"{PVE}/__auth").json()["auth"].endswith("=" + SECRET), "oud secret moet bewaard blijven bij bewerken zonder secret"
 r = requests.put(f"{APP}/api/servers/{sid}", json=dict(srv, name="pve-lab2", url="http://127.0.0.1:9999", token_secret=None))
-assert r.status_code == 422 and "opnieuw" in r.json()["detail"], r.text
+assert r.status_code == 422 and "again" in r.json()["detail"], r.text
 print("OK  opgeslagen secret wordt echt gebruikt richting Proxmox; bewerken zonder secret behoudt hem; URL wijzigen eist nieuw secret")
 
 r = requests.get(f"{APP}/api/servers/{sid}/nodes/pve1/options")
@@ -211,13 +211,13 @@ assert [s["last"] for s in requests.get(f"{APP}/api/servers").json()] == [True]
 print("OK  deploy met server_id zonder secret in het verzoek; laatst gebruikte keuzes (node, storages, bridge, vCPU) bewaard; server gemarkeerd als laatst gebruikt")
 
 r = requests.post(f"{APP}/api/deploy", json=dict(body, topology=dict(topo2, pve=dict(topo2["pve"], server_id=9999))))
-assert r.status_code == 422 and "niet gevonden" in r.json()["detail"][0], r.text
+assert r.status_code == 422 and "not found" in r.json()["detail"][0], r.text
 r = requests.post(f"{APP}/api/deploy", json=dict(body, topology=dict(topo2, pve=dict(topo2["pve"], server_id=None))))
-assert r.status_code == 422 and any("kies een server" in e for e in r.json()["detail"]), r.text
+assert r.status_code == 422 and any("choose a server" in e for e in r.json()["detail"]), r.text
 assert requests.delete(f"{APP}/api/servers/{sid}").status_code == 204
 assert requests.get(f"{APP}/api/servers/{sid}/last-used").json() == {} and requests.get(f"{APP}/api/servers").json() == []
 r = requests.post(f"{APP}/api/deploy", json=body)
-assert r.status_code == 422 and "niet gevonden" in r.json()["detail"][0], r.text
+assert r.status_code == 422 and "not found" in r.json()["detail"][0], r.text
 for i in imgs.values():
     requests.delete(f"{APP}/api/images/{i}")
 print("OK  onbekende/geen server geweigerd; verwijderen ruimt ook last-used op")

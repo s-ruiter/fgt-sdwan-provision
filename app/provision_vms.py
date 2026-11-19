@@ -124,14 +124,14 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True):
             if s["name"] in existing:
                 v = existing[s["name"]]
                 state[s["name"]] = {"vmid": int(v["vmid"]), "iso_volid": None}
-                emit(step, "running", f"{s['name']}: bestaat al (VMID {v['vmid']}), hergebruikt")
+                emit(step, "running", f"{s['name']}: exists (VMID {v['vmid']}), reused")
             else:
                 todo.append(s)
         import_vol = {}
         for role in sorted({s["role"] for s in todo}):
             path = image_paths[role]
             fname = f"fgt-sdwan-{job}-{role}.qcow2"
-            emit(step, "running", f"image {Path(path).name} uploaden naar {cfg['import_storage']}")
+            emit(step, "running", f"uploading image {Path(path).name} to {cfg['import_storage']}")
             last = {"p": -1.0}
 
             def prog(frac, bps, last=last):
@@ -158,7 +158,7 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True):
             created.append(vmid)
             state[s["name"]] = {"vmid": vmid, "iso_volid": iso_volid}
             pending.append((s, vmid, upid))
-            emit(step, "running", f"{s['name']}: VM {vmid} aangemaakt, schijf importeren")
+            emit(step, "running", f"{s['name']}: VM {vmid} created, importing the disk")
         for s, vmid, upid in pending:
             pve.wait_task(node, upid)
         if start:
@@ -166,7 +166,7 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True):
                 vmid = state[s["name"]]["vmid"]
                 if s in todo or any(v["name"] == s["name"] and v.get("status") != "running" for v in existing.values()):
                     pve.wait_task(node, pve.start_vm(node, vmid))
-                    emit(step, "running", f"{s['name']}: gestart")
+                    emit(step, "running", f"{s['name']}: started")
         for storage, volid in uploaded:
             if volid.endswith(".qcow2"):
                 vol_delete(storage, volid)
@@ -192,6 +192,6 @@ def cleanup_isos(pve, cfg, names, state, emit, step):
             pve.set_config(cfg["node"], s["vmid"], {"ide2": "none,media=cdrom"})
             pve.delete_volume(cfg["node"], cfg["iso_storage"], s["iso_volid"])
             s["iso_volid"] = None
-            emit(step, "info", f"{n}: Day-0 ISO losgekoppeld en verwijderd")
+            emit(step, "info", f"{n}: Day-0 ISO detached and deleted")
         except PveError as e:
-            emit(step, "warn", f"{n}: Day-0 ISO opruimen mislukt ({e.detail}); verwijder hem handmatig: bevat wachtwoord/token")
+            emit(step, "warn", f"{n}: cleaning up the Day-0 ISO failed ({e.detail}); delete it by hand: it contains a password/token")

@@ -82,7 +82,7 @@ class Pve:
         try:
             r = requests.request(method, self.base + path, headers=headers, verify=self.verify, **kw)
         except requests.RequestException as e:
-            raise PveError(f"verbinding met Proxmox mislukt: {e}") from e
+            raise PveError(f"connection to Proxmox failed: {e}") from e
         if r.status_code >= 400:
             # PVE puts the message in the reason phrase for 5xx and leaves the body empty
             parts = [r.reason]
@@ -98,14 +98,14 @@ class Pve:
     def check(self):
         v = str(self._req("GET", "/version")["version"])
         if int(v.split(".")[0]) < 9:
-            raise PveError(f"Proxmox VE {v} wordt niet ondersteund (minimaal 9)")
+            raise PveError(f"Proxmox VE {v} is not supported (minimum 9)")
         res = {"version": v, "nodes": self.nodes()}
         cfg = self._req("GET", "/storage") or []
         res["import_storages"] = [s["storage"] for s in cfg if "import" in str(s.get("content", "")).split(",")]
         res["iso_storages"] = [s["storage"] for s in cfg if "iso" in str(s.get("content", "")).split(",")]
         res["image_storages"] = [s["storage"] for s in cfg if "images" in str(s.get("content", "")).split(",")]
         if not res["import_storages"]:
-            res["warning"] = "geen storage met content-type 'import' (Datacenter > Storage > Content > Import)"
+            res["warning"] = "no storage with content type 'import' (Datacenter > Storage > Content > Import)"
         return res
 
     def nodes(self):
@@ -194,8 +194,8 @@ class Pve:
                 raise
             if st.get("status") == "stopped":
                 if st.get("exitstatus") != "OK":
-                    raise PveError(f"taak mislukt: {st.get('exitstatus')}")
+                    raise PveError(f"task failed: {st.get('exitstatus')}")
                 return
             if time.monotonic() > end:
-                raise PveError("timeout bij wachten op Proxmox-taak")
+                raise PveError("timeout while waiting for the Proxmox task")
             time.sleep(self.poll)

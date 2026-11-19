@@ -52,19 +52,19 @@ def _get_job(jid):
         return db.load_job(_jobdb(), jid)
 
 STEPS = [
-    ("licenses", "Licenties", "FortiFlex: per device een bestaande licentie hergebruiken (nieuw token) of een nieuwe aanmaken; serienummer en token gaan naar de uitrol"),
-    ("pve_fmg", "FortiManager-VM", "Image naar Proxmox, VM + datadisk + Day-0 config-drive (cloud-init) aanmaken en starten"),
-    ("bootstrap_fmg", "FortiManager ZTP", "Vast IP, route, DNS en FortiFlex-licentie: via Day-0 (wachten) of via SSH (execute vm-license)"),
-    ("preflight", "Preflight", "Verbinding en FortiManager-versie (8.0.x) controleren"),
-    ("fmg_settings", "FortiManager-instellingen", "Uitlogtimers 180 min, tijdzone Europe/Amsterdam, ADOMs in advanced mode, FortiAnalyzer-features aan (herstart)"),
-    ("adom", "ADOM", "ADOM aanmaken op basis van jouw naam (bestaat hij al: hergebruiken)"),
-    ("devices", "Model devices", "2 hubs + 3 branches toevoegen met opgegeven serienummers"),
-    ("templates", "Templates", "Metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups en blueprints in de ADOM"),
-    ("pve_wan", "WAN-emulator", "LXC wan-emu: routeert ISP-HUB / ISP-A / ISP-B (NAT naar het lab), DHCP voor de spokes, verkeersmanipulatie per link"),
-    ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1: hub vast IP + gateway, branch DHCP; DNS, FMG-koppeling, FortiFlex-licentie) starten"),
-    ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wachten tot ze gelicenseerd online zijn in FMG; of via SSH op bestaande VM's"),
-    ("install", "Install", "Quick install (device settings) per device, daarna Re-install policy per rol; echte FortiGates pas als ze online zijn"),
-    ("clients", "LAN-clients", "Per spoke een container op het LAN1-VLAN (.10, spoke als gateway) om verkeer te testen; bediening via de Proxmox-console"),
+    ("licenses", "Licences", "FortiFlex: per device reuse an existing licence (new token) or create a new one; serial number and token go into the deployment"),
+    ("pve_fmg", "FortiManager VM", "Image to Proxmox, create and start the VM + data disk + Day-0 config drive (cloud-init)"),
+    ("bootstrap_fmg", "FortiManager ZTP", "Static IP, route, DNS and FortiFlex licence: via Day-0 (wait) or via SSH (execute vm-license)"),
+    ("preflight", "Preflight", "Check the connection and the FortiManager version (8.0.x)"),
+    ("fmg_settings", "FortiManager settings", "Idle timeouts 180 min, time zone Europe/Amsterdam, ADOMs in advanced mode, FortiAnalyzer features on (reboot)"),
+    ("adom", "ADOM", "Create the ADOM with your name (reused when it exists)"),
+    ("devices", "Model devices", "Add the hubs and branches with their serial numbers"),
+    ("templates", "Templates", "Metadata variables, system, SD-WAN and CLI templates, policy packages, template groups and blueprints in the ADOM"),
+    ("pve_wan", "WAN emulator", "LXC wan-emu: routes ISP-HUB / ISP-A / ISP-B (NAT to the lab), DHCP for the spokes, traffic shaping per link, port forwards"),
+    ("pve_fgt", "FortiGate VMs", "Image to Proxmox, per FortiGate a VM with Day-0 ISO (wan1: hub static IP + gateway, branch DHCP; DNS, FMG link, FortiFlex licence), started"),
+    ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wait until they are licensed and online in FMG; or via SSH on existing VMs"),
+    ("install", "Install", "Quick install (device settings) per device, then Re-install policy per role; real FortiGates once they are online"),
+    ("clients", "LAN clients", "Per spoke a container on the LAN1 VLAN (.10, spoke as gateway) to test traffic; operated from the Proxmox console"),
 ]
 
 
@@ -119,13 +119,13 @@ class DeployReq(BaseModel):
     scope: str = "all"                         # 'all', 'fmg' (only FortiManager), 'fgt' (only FortiGates), 'tpl' (only templates), 'dev' (only model devices)
 
 
-SCOPE_TITLE = {"all": "", "fmg": " - alleen FortiManager", "fgt": " - alleen FortiGates", "tpl": " - alleen templates", "dev": " - alleen model devices"}
+SCOPE_TITLE = {"all": "", "fmg": " - FortiManager only", "fgt": " - FortiGates only", "tpl": " - templates only", "dev": " - model devices only"}
 
 
 def _apply_scope(r):
     """The scope wins over the per-product method: a product that is not deployed gets method 'none'."""
     if r.scope not in SCOPE_TITLE:
-        raise HTTPException(422, detail=[f"onbekende uitrol-keuze '{r.scope}' (all, fmg, fgt, tpl of dev)"])
+        raise HTTPException(422, detail=[f"unknown deployment choice '{r.scope}' (all, fmg, fgt, tpl or dev)"])
     if r.scope == "fgt":
         r.bootstrap.fmg = "none"
     elif r.scope == "fmg":
@@ -147,7 +147,7 @@ def _render(topo, create_psk=False, devices=True, fmg_vm=True):
     try:
         plan = fmgtemplates.build_plan(topo, ORCH_DIR)
     except Exception as e:
-        raise HTTPException(500, detail=[f"Templates genereren mislukt: {type(e).__name__}: {e}"])
+        raise HTTPException(500, detail=[f"Generating the templates failed: {type(e).__name__}: {e}"])
     return project, inv, plan
 
 
@@ -162,40 +162,40 @@ def _check_bootstrap(topo, r):
     mf, mg = _method(b.fmg), _method(b.fgt)
     for m in (mf, mg):
         if m not in ("none", "ssh", "day0"):
-            errs.append(f"onbekende bootstrap-methode '{m}'")
+            errs.append(f"unknown bootstrap method '{m}'")
     devs = topo["hubs"] + topo["edges"]
     if "day0" in (mf, mg):
         if not topo["pve"].get("server_id") and not topo["pve"].get("url"):
-            errs.append("Proxmox: kies een server (menu Servers) of voeg er een toe")
+            errs.append("Proxmox: choose a server (Servers page) or add one")
         else:
             errs += model.validate_pve(topo, wanemu=mg == "day0" and r.scope not in ("fmg", "tpl", "dev"))
             if not s.pve_token_secret:
-                errs.append("Proxmox: token-secret ontbreekt")
+                errs.append("Proxmox: token secret is missing")
         for role, m in (("fmg", mf), ("fgt", mg)):
             if m == "day0":
                 try:
                     meta = images.get_image(DATA_DIR, r.images.get(role, ""))
                     if meta["role"] != role:
-                        errs.append(f"image voor {role} is als {meta['role']} geupload")
+                        errs.append(f"image for {role} was uploaded as {meta['role']}")
                 except images.ImageError:
-                    errs.append(f"{'FortiManager' if role == 'fmg' else 'FortiGate'}: image ontbreekt, upload eerst een image")
+                    errs.append(f"{'FortiManager' if role == 'fmg' else 'FortiGate'}: image missing, upload an image first")
     if mf in ("ssh", "day0"):
         if not model.valid_token(s.fmg_token):
-            errs.append("FortiManager: FortiFlex-token ontbreekt of is ongeldig (alleen letters/cijfers)")
+            errs.append("FortiManager: FortiFlex token missing or invalid (letters/digits only)")
     if not r.fmg.password and not r.fmg.api_token:     # the tool always logs in to the FortiManager API
-        errs.append("FortiManager: admin-wachtwoord is verplicht")
+        errs.append("FortiManager: admin password is required")
     if mg in ("ssh", "day0"):
         for d in devs:
             if not model.valid_token(s.fgt_tokens.get(d["name"])):
-                errs.append(f"{d['name']}: FortiFlex-token ontbreekt of is ongeldig")
+                errs.append(f"{d['name']}: FortiFlex token missing or invalid")
         if not s.fgt_new_pw:
-            errs.append("FortiGates: admin-wachtwoord is verplicht")
+            errs.append("FortiGates: admin password is required")
     if mg == "ssh":
         ips = [d.get("initial_ip") or model.DEFAULT_INITIAL_IP for d in devs]
         dup = sorted({i for i in ips if ips.count(i) > 1})
         if dup:
-            errs.append("Initieel IP moet uniek zijn per FortiGate (nu dubbel: " + ", ".join(dup) +
-                        "). Gebruik het DHCP-adres of een eigen VLAN per device tijdens ZTP.")
+            errs.append("The initial IP must be unique per FortiGate (duplicate now: " + ", ".join(dup) +
+                        "). Use the DHCP address or a separate VLAN per device during ZTP.")
     if errs:
         raise HTTPException(422, detail=errs)
 
@@ -242,14 +242,14 @@ def cloudinit_preview(r: PreviewReq):
     errs = model.validate(topo)
     if errs:
         raise HTTPException(422, detail=errs)
-    pw, tok = "<ADMIN-WACHTWOORD>", "XXXXXXXXXXXXXXXXXXXX"
+    pw, tok = "<ADMIN-PASSWORD>", "XXXXXXXXXXXXXXXXXXXX"
     mode = cloudinit.license_mode("fmg" if r.device == "fmg" else "fgt", topo["pve"].get("license_mode", "cli"))
     if r.device == "fmg":
         cli = cloudinit.fmg_cli(topo, pw)
     else:
         dev = next((d for d in topo["hubs"] + topo["edges"] if d["name"] == r.device), None)
         if dev is None:
-            raise HTTPException(404, detail="onbekend device")
+            raise HTTPException(404, detail="unknown device")
         cli = cloudinit.fgt_cli(dev, topo, pw)
     return {"mode": mode, "layout": "config-2 ISO: /openstack/latest/user_data",
             "user_data": cloudinit.mask(cloudinit.build_user_data(cli, tok, mode), tok)}
@@ -297,7 +297,7 @@ def csv_export(r: ExportReq):
         row = db.get_server(db.connect(DATA_DIR), sid)
         name = row["name"] if row else ""
     body = csvio.export_csv(topo, full=r.full, server_name=name, tokens=r.tokens)
-    fn = "sdwan-volledig.csv" if r.full else "sdwan-devices.csv"
+    fn = "sdwan-full.csv" if r.full else "sdwan-devices.csv"
     return Response(body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
@@ -306,7 +306,7 @@ async def csv_import(file: UploadFile = File(...), topology: str = Form("{}"), a
     """Devices; with apply_settings also [algemeen]/[vrf]/[proxmox]. The current GUI settings are sent along for validation."""
     raw = await file.read()
     if len(raw) > 1_000_000:
-        raise HTTPException(413, detail="CSV-bestand te groot")
+        raise HTTPException(413, detail="CSV file too large")
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -314,7 +314,7 @@ async def csv_import(file: UploadFile = File(...), topology: str = Form("{}"), a
     try:
         current = json.loads(topology or "{}")
     except ValueError:
-        raise HTTPException(422, detail="CSV: ongeldige topologie in het verzoek")
+        raise HTTPException(422, detail="CSV: invalid topology in the request")
     try:
         res = csvio.import_devices(text, current, bool(apply_settings))
     except csvio.CsvError as e:
@@ -326,7 +326,7 @@ async def csv_import(file: UploadFile = File(...), topology: str = Form("{}"), a
 @app.post("/api/fmg/test")
 def fmg_test(c: Fmgcfg):
     if not c.host:
-        raise HTTPException(422, detail="host ontbreekt")
+        raise HTTPException(422, detail="host is missing")
     f = Fmg(c.host, c.username, c.password, c.api_token)
     try:
         f.login()
@@ -380,7 +380,7 @@ def _agent():
     conn = db.connect(DATA_DIR)
     addr, tok = db.get_secret(conn, "wanemu_addr"), db.get_secret(conn, "wanemu_agent_token")
     if not addr or not tok:
-        raise HTTPException(409, detail="Nog geen WAN-emulator uitgerold: rol eerst FortiGates uit (Alles of Alleen FortiGates)")
+        raise HTTPException(409, detail="No WAN emulator deployed yet: deploy FortiGates first (Everything or FortiGates only)")
     return Agent(addr, tok)
 
 
@@ -410,7 +410,7 @@ def wanemu_put(link_id: str, values: dict = Body(...)):
 def wanemu_preset(name: str, link: Optional[str] = None):
     from .wanemu.client import PRESETS, preset_changes
     if name not in PRESETS:
-        raise HTTPException(404, detail=f"onbekende preset {name}")
+        raise HTTPException(404, detail=f"unknown preset {name}")
     a = _agent()
     changes = preset_changes(name, _agent_call(a.links), link)
     for lid, vals in changes:
@@ -422,7 +422,7 @@ def wanemu_preset(name: str, link: Optional[str] = None):
 def wanemu_forwards():
     raw = db.get_secret(db.connect(DATA_DIR), "wanemu_forwards")
     if not raw:
-        raise HTTPException(409, detail="Nog geen WAN-emulator uitgerold: rol eerst FortiGates uit (Alles of Alleen FortiGates)")
+        raise HTTPException(409, detail="No WAN emulator deployed yet: deploy FortiGates first (Everything or FortiGates only)")
     return json.loads(raw)
 
 
@@ -440,15 +440,15 @@ def _term_connect(host, port, user, password, cols, rows):
                   auth_timeout=15, allow_agent=False, look_for_keys=False)
     except paramiko.AuthenticationException:
         c.close()
-        raise TermError("inloggen geweigerd (gebruiker of wachtwoord onjuist)") from None
+        raise TermError("login refused (wrong user or password)") from None
     except Exception as e:
         c.close()
-        raise TermError(f"geen SSH-verbinding met {host}:{port} ({type(e).__name__})") from None
+        raise TermError(f"no SSH connection to {host}:{port} ({type(e).__name__})") from None
     try:
         chan = c.invoke_shell(term="xterm", width=cols, height=rows)
     except Exception as e:
         c.close()
-        raise TermError(f"geen shell op {host}:{port} ({type(e).__name__})") from None
+        raise TermError(f"no shell on {host}:{port} ({type(e).__name__})") from None
     return chan, c.close
 
 
@@ -477,13 +477,13 @@ async def term(ws: WebSocket, name: str):
             auth = json.loads(await ws.receive_text())
             cols, rows = int(auth.get("cols") or 80), int(auth.get("rows") or 24)
         except (ValueError, TypeError, AttributeError):
-            await say("ongeldig startbericht")
+            await say("invalid start message")
             return await close()
         raw = db.get_secret(db.connect(DATA_DIR), "wanemu_forwards")
         fw = json.loads(raw) if raw else {"forwards": []}
         f = next((x for x in fw["forwards"] if x["name"] == name), None)
         if not f:
-            await say(f"onbekend device {name}: rol eerst de FortiGates uit")
+            await say(f"unknown device {name}: deploy the FortiGates first")
             return await close()
         try:
             chan, closer = await asyncio.to_thread(TERM_CONNECT, fw["host"], f["ssh"], auth.get("user") or "admin",
@@ -518,7 +518,7 @@ async def term(ws: WebSocket, name: str):
             x.cancel()
         await asyncio.gather(t_out, t_in, return_exceptions=True)    # retrieve, never "exception was never retrieved"
         if t_out in done:                                             # the FortiGate ended the session: tell the browser
-            await say("sessie beëindigd")
+            await say("session ended")
             await close()
     except Exception:                                                 # disconnects and anything else: just clean up
         pass
@@ -562,7 +562,7 @@ def _flex_client(user="", password=""):
     conn, cfg = _flex_cfg()
     user, password = user or cfg["user"], password or db.get_secret(conn, "fortiflex_password") or ""
     if not user or not password:
-        raise HTTPException(400, detail="FortiFlex: API-gebruiker en wachtwoord zijn nog niet ingesteld (pagina FortiFlex)")
+        raise HTTPException(400, detail="FortiFlex: API user and password are not set yet (FortiFlex page)")
     return Client(user, password)
 
 
@@ -649,7 +649,7 @@ def fortiflex_stop(sn: str):
     _, cfg = _flex_cfg()
     cl = _flex_client()
     if sn not in {e["serialNumber"] for e in _tool_licenses(cl, cfg)}:
-        raise HTTPException(404, detail=f"{sn} is geen licentie van deze tool (omschrijving 'fgt-sdwan ...')")
+        raise HTTPException(404, detail=f"{sn} is not a licence of this tool (description 'fgt-sdwan ...')")
     e = _flex_call(lambda: cl.stop(sn))
     return {"serialNumber": e.get("serialNumber"), "status": e.get("status")}     # never the token
 
@@ -722,7 +722,7 @@ def _licenses(topo, r, dry):
         r.secrets.fmg_token = res[fmg_name]["token"]
     for x in rows:
         log.append(("running", f"{x['name']}: {res[x['name']]['serial']} - {ACTION_TEXT[x['action']]}"
-                               + (" (dry-run: niets aangemaakt)" if dry else "")))
+                               + (" (dry run: nothing created)" if dry else "")))
     return log
 
 
@@ -733,7 +733,7 @@ def deploy(r: DeployReq):
     if sid:                                    # saved server: url/token-id/secret come from the database
         row = db.get_server(db.connect(DATA_DIR), sid)
         if row is None:
-            raise HTTPException(422, detail=["Proxmox-server niet gevonden (is hij verwijderd?)"])
+            raise HTTPException(422, detail=["Proxmox server not found (was it deleted?)"])
         topo["pve"].update(url=row["url"], token_id=row["token_id"], verify_tls=bool(row["verify_tls"]))
         r.secrets.pve_token_secret = row["token_secret"]
     _apply_scope(r)
@@ -770,13 +770,13 @@ def deploy(r: DeployReq):
                       json.dumps({"host": model.split_cidr(w["uplink"]["ip"])[0], "forwards": forwards(topo)}))
     jid = uuid.uuid4().hex[:8]
     job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [], "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-           "title": f"Uitrol van {topo['adom']}" + SCOPE_TITLE[r.scope] + (" (dry-run)" if r.dry_run else ""),
+           "title": f"Deployment of {topo['adom']}" + SCOPE_TITLE[r.scope] + (" (dry-run)" if r.dry_run else ""),
            "steps": {i: "pending" for i, _, _ in STEPS}}
     now = time.strftime("%H:%M:%S")
     for st, m in lic:
         job["events"].append({"t": now, "step": "licenses", "status": st, "msg": mask(m)})
     job["events"].append({"t": now, "step": "licenses", "status": "ok" if lic else "skipped",
-                          "msg": f"{len(lic)} licentie(s) via FortiFlex" if lic else "FortiFlex niet gebruikt (pagina FortiFlex)"})
+                          "msg": f"{len(lic)} licence(s) via FortiFlex" if lic else "FortiFlex not used (FortiFlex page)"})
     job["steps"]["licenses"] = "ok" if lic else "skipped"
     JOBS[jid] = job
     _persist(job)
@@ -804,14 +804,14 @@ def jobs_list():
 def job(jid: str):
     j = _get_job(jid)
     if j is None:
-        raise HTTPException(404, detail="Deze uitrol bestaat niet (meer)")
+        raise HTTPException(404, detail="This deployment does not exist (any more)")
     return j
 
 
 @app.get("/api/jobs/{jid}/stream")
 def stream(jid: str):
     if _get_job(jid) is None:
-        raise HTTPException(404, detail="Deze uitrol bestaat niet (meer)")
+        raise HTTPException(404, detail="This deployment does not exist (any more)")
 
     def gen():
         sent = 0

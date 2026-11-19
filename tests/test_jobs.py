@@ -22,7 +22,7 @@ assert [j["id"] for j in db.list_jobs(c)] == ["aaaa1111", "bbbb2222"]          #
 c2 = db.connect(tmp)
 assert db.interrupt_running_jobs(c2, "10:05:00") == 1
 j = db.load_job(c2, "aaaa1111")
-assert j["state"] == "failed" and j["steps"]["bootstrap_fmg"] == "error" and "herstart" in j["events"][-1]["msg"], j
+assert j["state"] == "failed" and j["steps"]["bootstrap_fmg"] == "error" and "restarted" in j["events"][-1]["msg"], j
 assert j["events"][-1]["status"] == "error" and len(j["events"]) == 3                   # history kept + one explanation
 assert db.load_job(c2, "bbbb2222")["state"] == "done"
 assert db.interrupt_running_jobs(c2, "10:06:00") == 0                                    # idempotent
@@ -37,7 +37,7 @@ try:
     main.job("nope")
     raise SystemExit("geen 404")
 except main.HTTPException as e:
-    assert e.status_code == 404 and "bestaat niet" in e.detail
+    assert e.status_code == 404 and "does not exist" in e.detail
 # a live job wins over its (older) stored row
 main.JOBS["cccc3333"] = {"id": "cccc3333", "state": "running", "events": [], "steps": {}, "created": "2026-11-17 11:00:00", "title": "t", "dry_run": False}
 db.save_job(c2, dict(main.JOBS["cccc3333"], state="running"))

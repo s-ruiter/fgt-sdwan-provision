@@ -21,7 +21,7 @@ TOKEN_RE = re.compile(r"^[A-Za-z0-9]{10,64}$")
 def q(value):
     """Quote a CLI string value."""
     if "\n" in value or "\r" in value:
-        raise ValueError("een wachtwoord mag geen regeleinde bevatten")
+        raise ValueError("a password must not contain a line break")
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
@@ -56,9 +56,9 @@ def license_mode(role, cfg_mode="cli"):
 
 def build_user_data(cli, token, mode="cli"):
     if mode not in MODES:
-        raise ValueError(f"onbekende licentiemodus '{mode}'")
+        raise ValueError(f"unknown licence mode '{mode}'")
     if token is not None and not TOKEN_RE.match(token):
-        raise ValueError("een FortiFlex-token mag alleen letters en cijfers bevatten (10-64 tekens)")
+        raise ValueError("a FortiFlex token may only contain letters and digits (10-64 characters)")
     if token is None:
         data = cli
     elif mode == "cli":
@@ -73,7 +73,7 @@ def build_user_data(cli, token, mode="cli"):
     try:
         data.encode("ascii")
     except UnicodeEncodeError as e:
-        raise ValueError("Day-0 configuratie mag alleen ASCII bevatten") from e
+        raise ValueError("the Day-0 configuration may only contain ASCII") from e
     return data
 
 

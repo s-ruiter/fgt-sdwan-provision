@@ -1,11 +1,11 @@
 """The tool's side of the WAN-emulator agent: HTTP client and presets. The agent token never leaves the tool."""
 import requests
 
-# failure scenarios: several links down at once ("Alles neutraal" / reset clears them)
+# failure scenarios: several links down at once ("All neutral" / reset clears them)
 PRESETS = {
-    "isp-a-storing": {"label": "ISP-A storing", "seg": "a", "values": {"down": True}},
-    "isp-b-storing": {"label": "ISP-B storing", "seg": "b", "values": {"down": True}},
-    "hub1-weg": {"label": "Hub 1 weg", "hub": 0, "values": {"down": True}},
+    "isp-a-down": {"label": "ISP-A outage", "seg": "a", "values": {"down": True}},
+    "isp-b-down": {"label": "ISP-B outage", "seg": "b", "values": {"down": True}},
+    "hub1-down": {"label": "Hub 1 down", "hub": 0, "values": {"down": True}},
 }
 
 
@@ -34,15 +34,15 @@ class Agent:
             r = requests.request(method, self.base + path, json=body, timeout=self.timeout,
                                  headers={"Authorization": f"Bearer {self.token}"})
         except requests.RequestException:
-            raise AgentError(f"WAN-emulator niet bereikbaar op {self.addr} (draait de container wan-emu?)") from None
+            raise AgentError(f"WAN emulator not reachable on {self.addr} (is the wan-emu container running?)") from None
         try:
             data = r.json()
         except ValueError:
             data = {}
         if r.status_code == 401:
-            raise AgentError("WAN-emulator weigert het token: rol de FortiGates opnieuw uit om de agent bij te werken")
+            raise AgentError("WAN emulator refuses the token: deploy the FortiGates again to update the agent")
         if r.status_code >= 400:
-            raise AgentError(data.get("error") or f"WAN-emulator gaf HTTP {r.status_code}", r.status_code)
+            raise AgentError(data.get("error") or f"WAN emulator returned HTTP {r.status_code}", r.status_code)
         return data
 
     def links(self):

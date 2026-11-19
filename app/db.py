@@ -78,7 +78,7 @@ def last_server(conn):
     return int(row["value"]) if row else None
 
 
-PSK_PLACEHOLDER = "<PSK-wordt-bij-de-uitrol-gegenereerd>"
+PSK_PLACEHOLDER = "<PSK-generated-at-deployment>"
 
 
 def get_psk(conn, adom, create=False):
@@ -152,8 +152,8 @@ def interrupt_running_jobs(conn, when):
         if cur:
             j["steps"][cur] = "error"
         j["events"].append({"t": when, "step": cur, "status": "error",
-                            "msg": "Onderbroken: de service is herstart terwijl de uitrol bezig was. Controleer wat er al is aangemaakt "
-                                   "(VM's op Proxmox, objecten in FortiManager) en start de uitrol opnieuw; bestaande onderdelen worden hergebruikt."})
+                            "msg": "Interrupted: the service restarted while the deployment was running. Check what was already created "
+                                   "(VMs on Proxmox, objects in FortiManager) and start the deployment again; existing parts are reused."})
         j["state"] = "failed"
         save_job(conn, j)
         n += 1

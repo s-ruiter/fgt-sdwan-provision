@@ -51,8 +51,8 @@ def test_images():
         got = images.get_image(td, meta["id"])
         assert Path(got["path"]).exists() and images.qcow2_virtual_size(got["path"]) == 2 * 1024 ** 3
         assert not list(Path(got["path"]).parent.glob("*.zip")), "zip moet na uitpakken weg zijn"
-        for args, msg in ((("fmg", "FGT_VM64_KVM-v8.0.0-build1.zip"), "FortiGate-image"),
-                          (("fgt", "notes.txt"), "alleen .zip"),):
+        for args, msg in ((("fmg", "FGT_VM64_KVM-v8.0.0-build1.zip"), "FortiGate image"),
+                          (("fgt", "notes.txt"), "only .zip"),):
             try:
                 images.save_upload(td, io.BytesIO(z), args[1], args[0])
                 raise AssertionError("moest falen")
@@ -62,7 +62,7 @@ def test_images():
             images.save_upload(td, io.BytesIO(b"not a qcow2" * 10), "fmg.qcow2", "fmg")
             raise AssertionError("moest falen")
         except images.ImageError as e:
-            assert "geen geldig qcow2" in str(e)
+            assert "not a valid qcow2" in str(e)
         assert len(images.list_images(td)) == 1, "mislukte uploads mogen niets achterlaten"
         m2 = images.save_upload(td, io.BytesIO(make_zip("x", "fmg.qcow2")), "FMG_VM64_KVM-v7.6.1-build1.out.kvm.zip", "fmg")
         assert m2["warnings"] and "8.0.x" in m2["warnings"][0]
