@@ -207,6 +207,16 @@ class Pve:
     def delete_ct(self, node, vmid):
         return self._req("DELETE", f"/nodes/{node}/lxc/{vmid}", params={"purge": 1, "force": 1})
 
+    def _task_log_tail(self, node, upid, n=6):
+        """The last lines of a task's log (Proxmox puts the real reason there), as ' - a | b'; '' if unavailable."""
+        try:
+            rows = self._req("GET", f"/nodes/{node}/tasks/{upid}/log", params={"limit": 500}) or []
+        except PveError:
+            return ""
+        lines = [str(r.get("t", "")).strip() for r in rows]
+        lines = [x for x in lines if x and x not in ("TASK OK",) and not x.startswith(("TASK ERROR", "TASK WARNINGS"))][-n:]
+        return (" - " + " | ".join(lines))[:900] if lines else ""
+
     def wait_task(self, node, upid, timeout=3600):
         end = time.monotonic() + timeout
         errors = 0
@@ -222,7 +232,7 @@ class Pve:
                 raise
             if st.get("status") == "stopped":
                 if st.get("exitstatus") != "OK":
-                    raise PveError(f"task failed: {st.get('exitstatus')}")
+                    raise PveError(f"task failed: {st.get('exitstatus')}{self._task_log_tail(node, upid)}")
                 return
             if time.monotonic() > end:
                 raise PveError("timeout while waiting for the Proxmox task")
