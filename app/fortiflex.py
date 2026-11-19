@@ -132,16 +132,18 @@ def resolve(client, rows, dry):
             if act == "create":
                 e = client.create_vm(r["config_id"], r["description"])
                 sn, tok = e["serialNumber"], e.get("token")
-                created.append(f"{r['name']} ({sn})")
+                created.append(f"{r['name']} ({sn}) aangemaakt")
             else:
                 if r.get("rename"):
                     client.update(sn, r["config_id"], r["description"])
                 if act == "reactivate":
                     client.reactivate(sn)
+                    created.append(f"{r['name']} ({sn}) heractiveerd")
                 if act in ("reactivate", "regen"):
                     tok = client.regen_token(sn).get("token")
+                    created.append(f"{r['name']} ({sn}) nieuw token")
         except FlexError as e:
-            extra = f" (in deze uitrol al aangemaakt: {', '.join(created)})" if created else ""
+            extra = f" (in deze uitrol al gedaan: {'; '.join(created)})" if created else ""
             raise FlexError(f"{r['name']}: {e}{extra}") from None
         if not tok:
             raise FlexError(f"{r['name']}: FortiFlex gaf geen token voor {sn}")

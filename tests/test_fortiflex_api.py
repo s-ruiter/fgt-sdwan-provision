@@ -66,21 +66,69 @@ print("OK  controleren: alleen opzoeken; FortiManager alleen als hij een token n
 # deploy helper: fills serials + tokens (real run), placeholders (dry run), nothing when disabled
 r = req(dry=False)
 t2 = model.merged({"adom": "SDWAN"})
-log = main._licenses(t2, r)
+log = main._licenses(t2, r, dry=False)
 assert t2["hubs"][0]["serial"] == "FGVMELTM26000001" and r.secrets.fgt_tokens["site1-H1"].startswith("RGN")
 assert r.secrets.fmg_token == "TOK000001AAAAAAAAAAA" and t2["edges"][1]["serial"].startswith("FGVMELTM2699")
 assert any("site1-2" in m and "nieuwe licentie" in m for _, m in log) and not any("RGN" in m or "TOK" in m for _, m in log)
 rd = req(dry=True)
 t3 = model.merged({"adom": "SDWAN"})
-main._licenses(t3, rd)
+main._licenses(t3, rd, dry=True)
 assert t3["edges"][2]["serial"].startswith("FGVMELTM2699")                      # created in the real run above
 fake.reset()                                                                   # dry run: several new -> unique placeholders
 t5 = model.merged({"adom": "SDWAN"})
-main._licenses(t5, req(dry=True))
+main._licenses(t5, req(dry=True), dry=True)
 sns = [d["serial"] for d in t5["hubs"] + t5["edges"]]
 assert len(set(sns)) == len(sns) and "FGVMNEWLIC000001" in sns and not any("serienummer" in e for e in model.validate(t5)), (sns, model.validate(t5))
 main.fortiflex_put(main.FlexSettings(user=fake.USER, password="", enabled=False, program="ELAVMS0000001234", fmg_config=20, fgt_config=10))
 t4 = model.merged({"adom": "SDWAN"})
-assert main._licenses(t4, req(dry=False)) == [] and t4["hubs"][0]["serial"] == ""
+assert main._licenses(t4, req(dry=False), dry=False) == [] and t4["hubs"][0]["serial"] == ""
 srv.shutdown()
 print("OK  uitrol: serienummers in de topologie en tokens in de job-geheimen; dry-run zonder aanmaken; uit = niets")
+
+# ---- review fixes
+import threading as _th  # noqa: E402
+srv = fake.start()
+URL = f"http://127.0.0.1:{srv.server_address[1]}"
+ff.AUTH_URL, ff.BASE = URL + "/api/v1/oauth/token/", URL + "/ES/api/fortiflex/v2"
+fake.reset()
+main.fortiflex_put(main.FlexSettings(user=fake.USER, password="", enabled=True, program="ELAVMS0000001234", fmg_config=20, fgt_config=10))
+st = main.fortiflex_stop("FGVMELTM26000003")                                       # tool license (descr fgt-sdwan ...)
+assert "token" not in json.dumps(st) and st["status"] == "STOPPED", st
+fake.reset()
+
+
+def deploy_req(dry, **topo_over):
+    t = model.merged(dict({"adom": "SDWAN"}, **topo_over))
+    t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
+    for i, d in enumerate(t["hubs"] + t["edges"]):
+        d["initial_ip"] = f"192.168.1.{10 + i}"
+    return main.DeployReq(topology=t, fmg=main.Fmgcfg(password="x"), dry_run=dry, scope="all",
+                          bootstrap={"fmg": "ssh", "fgt": "ssh"}, secrets=main.Secrets(fgt_new_pw="Pw-123456"))
+
+
+changing = lambda: [p for p, _ in fake.STATE["calls"] if not (p.endswith("/list") or "oauth" in p)]
+# 1. dry run with FortiFlex on: accepted (placeholder tokens), nothing created
+j = main.deploy(deploy_req(True))
+job = main.JOBS[j["job"]]
+assert job["steps"]["licenses"] == "ok" and changing() == [], changing()
+# 2. invalid request: refused BEFORE any license is created / token regenerated
+bad = deploy_req(False)
+bad.topology["fmgr"]["gateway"] = ""
+code, msg = err(main.deploy, bad)
+assert code == 422 and changing() == [], changing()
+# real run: licenses resolved, serials in the job's topology
+j = main.deploy(deploy_req(False))
+assert any(p.endswith("/vm/create") for p in changing()) and main.JOBS[j["job"]]["steps"]["licenses"] == "ok"
+# 3. concurrent: the real resolution waits for the lock
+fake.reset()
+n0 = len(changing())
+main._FLEX_LOCK.acquire()
+th = _th.Thread(target=lambda: main.deploy(deploy_req(False)))
+th.start()
+th.join(1.0)
+assert th.is_alive() and len(changing()) == n0                                    # blocked, nothing changed yet
+main._FLEX_LOCK.release()
+th.join(10)
+assert not th.is_alive() and len(changing()) > n0
+srv.shutdown()
+print("OK  review: dry-run met FortiFlex werkt, ongeldige uitrol maakt niets aan, licenties onder een lock, stop zonder token")

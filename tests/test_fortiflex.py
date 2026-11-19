@@ -63,12 +63,15 @@ print("OK  resolve: dry roept alleen /list aan; echt: token / nieuw token / hera
 # failure halfway: message names what was already created
 fake.reset()
 fake.STATE["fail"] = "/vm/token"
-p = ff.plan([{"name": "x", "serial": "", "config_id": 10}, {"name": "site1-H1", "serial": "", "config_id": 10}],
-            {10: c.entitlements(10)}, "SDWAN")
+fake.STATE["fail"] = None
+p = ff.plan([{"name": "x", "serial": "", "config_id": 10}, {"name": "site1-1", "serial": "", "config_id": 10},
+             {"name": "site1-H1", "serial": "", "config_id": 10}], {10: c.entitlements(10)}, "SDWAN")
+fake.STATE["fail"] = "/vm/token"
 try:
     ff.resolve(c, p, dry=False)
     raise SystemExit("verwachtte fout")
 except ff.FlexError as e:
-    assert "not enough points" in str(e) and "x" in str(e) and "aangemaakt" in str(e), str(e)
+    m = str(e)
+    assert "not enough points" in m and "x" in m and "aangemaakt" in m and "site1-1" in m and "heractiveerd" in m, m
 srv.shutdown()
 print("OK  fout halverwege: melding van FortiFlex plus wat al aangemaakt is")

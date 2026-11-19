@@ -517,7 +517,8 @@ def fortiflex_stop(sn: str):
     cl = _flex_client()
     if sn not in {e["serialNumber"] for e in _tool_licenses(cl, cfg)}:
         raise HTTPException(404, detail=f"{sn} is geen licentie van deze tool (omschrijving 'fgt-sdwan ...')")
-    return _flex_call(lambda: cl.stop(sn))
+    e = _flex_call(lambda: cl.stop(sn))
+    return {"serialNumber": e.get("serialNumber"), "status": e.get("status")}     # never the token
 
 
 def _flex_devices(topo, r, cfg):
@@ -556,17 +557,27 @@ def fortiflex_check(r: DeployReq):
                          "text": ACTION_TEXT[x["action"]]} for x in rows]}
 
 
-def _licenses(topo, r):
-    """At deployment, before validation: serial numbers into the topology, tokens into the job secrets.
-    Returns [(status, message)] for the 'licenses' step. Dry run: lookup only."""
+_FLEX_LOCK = threading.Lock()
+_NOLOCK = __import__("contextlib").nullcontext()                   # two deploys at once must not both create / regenerate a license
+DRY_TOKEN = "FORTIFLEXDRYRUN000000"             # placeholder: lets validation pass without touching FortiFlex
+
+
+def _licenses(topo, r, dry):
+    """Serial numbers into the topology, tokens into the job secrets. Returns [(status, message)] for the 'licenses'
+    step. dry=True: lookup only, placeholder serials for new licenses and placeholder tokens (used to validate the
+    whole request first; nothing is created or regenerated)."""
     from .fortiflex import ACTION_TEXT, FlexError, resolve
-    cl, rows = _flex_plan(topo, r)
-    if not rows:
-        return []
-    try:
-        res = resolve(cl, rows, dry=r.dry_run)
-    except FlexError as e:
-        raise HTTPException(422, detail=[str(e)])
+    with _FLEX_LOCK if not dry else _NOLOCK:
+        cl, rows = _flex_plan(topo, r)
+        if not rows:
+            return []
+        try:
+            res = resolve(cl, rows, dry=dry)
+        except FlexError as e:
+            raise HTTPException(422, detail=[str(e)])
+    if dry:
+        for v in res.values():
+            v["token"] = DRY_TOKEN
     log = []
     fmg_name = topo["fmgr"].get("name") or "fmg"
     for d in topo["hubs"] + topo["edges"]:
@@ -578,7 +589,7 @@ def _licenses(topo, r):
         r.secrets.fmg_token = res[fmg_name]["token"]
     for x in rows:
         log.append(("running", f"{x['name']}: {res[x['name']]['serial']} - {ACTION_TEXT[x['action']]}"
-                               + (" (dry-run: niets aangemaakt)" if r.dry_run else "")))
+                               + (" (dry-run: niets aangemaakt)" if dry else "")))
     return log
 
 
@@ -593,9 +604,15 @@ def deploy(r: DeployReq):
         topo["pve"].update(url=row["url"], token_id=row["token_id"], verify_tls=bool(row["verify_tls"]))
         r.secrets.pve_token_secret = row["token_secret"]
     _apply_scope(r)
-    lic = _licenses(topo, r)                   # FortiFlex: serial numbers + tokens, before validation needs them
-    _, _, cfg = _render(topo, create_psk=True, devices=r.scope not in ("fmg", "tpl"), fmg_vm=r.scope in ("all", "fmg"))
+    # FortiFlex: first validate the whole request with placeholders (lookup only), and only then create / reactivate /
+    # regenerate licenses, so a refused request never costs points or invalidates a running device's token
+    lic = _licenses(topo, r, dry=True)
+    render = lambda: _render(topo, create_psk=True, devices=r.scope not in ("fmg", "tpl"), fmg_vm=r.scope in ("all", "fmg"))
+    _, _, cfg = render()
     _check_bootstrap(topo, r)
+    if lic and not r.dry_run:
+        lic = _licenses(topo, r, dry=False)    # real serials + tokens (under a lock), then render with the real serials
+        _, _, cfg = render()
     if sid:                                    # remember this server's choices for the next run
         db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"])
     s = r.secrets

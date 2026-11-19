@@ -381,8 +381,11 @@ $("#btn_deploy").onclick = async () => {
     : sc === "dev" ? "Dit schrijft de ADOM, de model devices en de templates naar de bestaande FortiManager (set/update: eerdere objecten van deze tool worden overschreven) en doet daarna per device een Quick install en een Re-install policy. Doorgaan?"
     : `Dit schrijft naar FortiManager, maakt ${what} op Proxmox, configureert en licenseert ze (ze herstarten). Doorgaan?`;
   if (!dry && !confirm(ask)) return;
+  const btn = $("#btn_deploy"); if (btn.disabled) return;
+  btn.disabled = true;                                   // FortiFlex licenses are fetched in this request: no double click
   const r = await post("/api/deploy", { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } });
   const j = await json(r);
+  btn.disabled = false;
   if (!r.ok) return showErr(errList(j));
   if (ES) ES.close();
   location.hash = "#/progress/" + j.job;                 // route() attaches to the job; a refresh keeps working
