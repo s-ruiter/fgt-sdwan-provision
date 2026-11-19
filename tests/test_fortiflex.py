@@ -46,7 +46,7 @@ print("OK  plan: gebruiken / nieuw token / heractiveren / aanmaken; serienummer 
 n = len(fake.STATE["calls"])
 res = ff.resolve(c, list(p.values()), dry=True)
 assert all(path.endswith("/list") or "oauth" in path for path, _ in fake.STATE["calls"][n:]), fake.STATE["calls"][n:]
-assert res["site1-2"]["serial"] == "FGVMNEWLICENSE00" and res["fmg"]["serial"] == "FMGVMSTM26000001" and res["site1-2"]["token"] is None
+assert res["site1-2"]["serial"] == "FGVMNEWLIC000001" and res["site1-3"]["serial"] == "FGVMNEWLIC000002" and res["fmg"]["serial"] == "FMGVMSTM26000001" and res["site1-2"]["token"] is None
 assert res["site1-H1"]["token"] is None                                         # dry: no regenerated token
 # real
 res = ff.resolve(c, list(p.values()), dry=False)

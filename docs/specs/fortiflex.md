@@ -44,7 +44,7 @@ Een op serienummer gevonden licentie met een andere omschrijving krijgt de tool-
   *Alleen model devices* / *Alleen templates* geen FortiFlex (handmatige serienummers zoals nu).
 - Dry-run en de knop **Licenties controleren** (`POST /api/fortiflex/check`): alleen opzoeken; tonen per device het
   serienummer en de actie; nooit iets aanmaken, activeren of een token genereren. Bij een dry-run krijgt een device
-  zonder licentie de plaatshouder `FGVMNEWLICENSE00`/`FMGVMNEWLICENS00`.
+  zonder licentie een unieke plaatshouder `FGVMNEWLIC000001`, `…002` (FortiManager `FMGVMNEWLC…`).
 - Model device bestaat al met een ander serienummer: de tool zet het nieuwe serienummer (`update` op dvmdb); weigert
   FortiManager dat, dan stopt de uitrol met de opdracht het model device te verwijderen.
 - Fouten van FortiFlex (login, rechten, punten op): de uitrol start niet; de melding van FortiFlex wordt getoond.

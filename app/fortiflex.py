@@ -8,7 +8,7 @@ import requests
 AUTH_URL = "https://customerapiauth.fortinet.com/api/v1/oauth/token/"
 BASE = "https://support.fortinet.com/ES/api/fortiflex/v2"
 PREFIX = "fgt-sdwan"
-PLACEHOLDER = {"fgt": "FGVMNEWLICENSE00", "fmg": "FMGVMNEWLICENS00"}   # dry-run / check: no license yet
+PLACEHOLDER = {"fgt": "FGVMNEWLIC{:06d}", "fmg": "FMGVMNEWLC{:06d}"}   # dry-run / check: no license yet (unique)
 USABLE = ("ACTIVE", "PENDING")
 
 
@@ -119,12 +119,14 @@ ACTION_TEXT = {"use": "bestaande licentie, token ongebruikt", "regen": "bestaand
 def resolve(client, rows, dry):
     """Carry out the plan. dry=True: only report (placeholder serial for new ones, no tokens).
     Returns {name: {serial, token, action}}. A failure names the licenses already created in this run."""
-    out, created = {}, []
+    out, created, n = {}, [], 0
     for r in rows:
         sn, tok, act = r["serial"], r.get("token"), r["action"]
         if dry:
-            out[r["name"]] = {"serial": sn or PLACEHOLDER.get(r["role"], PLACEHOLDER["fgt"]),
-                              "token": None, "action": act}
+            if not sn:
+                n += 1
+                sn = PLACEHOLDER.get(r["role"], PLACEHOLDER["fgt"]).format(n)
+            out[r["name"]] = {"serial": sn, "token": None, "action": act}
             continue
         try:
             if act == "create":
