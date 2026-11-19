@@ -10,6 +10,7 @@
 #
 # Settings via environment (all optional): CTID, CT_HOSTNAME, STORAGE (rootfs), TEMPLATE_STORAGE, BRIDGE, VLAN,
 #   CT_IP (dhcp | a.b.c.d/nn), CT_GW, CT_DNS, CORES, MEMORY, DISK_GB, YES=1 (no confirmation),
+#   PORT (web port, default 80; UPDATE keeps the container's current port unless PORT is set),
 #   UPDATE=1 with CTID=<existing> (update the app in an existing container instead of creating one).
 set -Eeuo pipefail
 
@@ -54,12 +55,19 @@ install_app() {   # $1 = CTID
     pct push "$id" "$tgz" /root/fgt-sdwan-src.tgz
     rm -f "$tgz"
     pct push "$id" "$LOCAL_SRC/ct/install.sh" /root/install.sh
-    pct exec "$id" -- bash -c "apt-get update -qq && apt-get install -y -qq ca-certificates >/dev/null && APP_LOCAL=/root/fgt-sdwan-src.tgz bash /root/install.sh"
+    pct exec "$id" -- env PORT="${PORT:-}" bash -c "apt-get update -qq && apt-get install -y -qq ca-certificates >/dev/null && APP_LOCAL=/root/fgt-sdwan-src.tgz bash /root/install.sh"
   else
     msg "Installing from GitHub (${REPO_RAW})"
-    pct exec "$id" -- env GITHUB_TOKEN="${GITHUB_TOKEN:-}" REPO_RAW="$REPO_RAW" bash -c \
+    pct exec "$id" -- env PORT="${PORT:-}" GITHUB_TOKEN="${GITHUB_TOKEN:-}" REPO_RAW="$REPO_RAW" bash -c \
       'apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null && curl -fsSL ${GITHUB_TOKEN:+-H "Authorization: token $GITHUB_TOKEN"} "$REPO_RAW/ct/install.sh" | bash'
   fi
+}
+
+app_url() {   # $1 = CTID: the URL of the app, from the container's IP and the port in its service
+  local ip port
+  ip="$(pct exec "$1" -- hostname -I | awk '{print $1}')"
+  port="$(pct exec "$1" -- sed -n 's/^ExecStart=.*--port \([0-9][0-9]*\).*/\1/p' /etc/systemd/system/fgt-sdwan.service | head -1)"
+  [[ -z "$port" || "$port" == "80" ]] && echo "http://${ip}" || echo "http://${ip}:${port}"
 }
 
 # --- update an existing container
@@ -67,7 +75,7 @@ if [[ "$UPDATE" == "1" ]]; then
   [[ -n "${CTID:-}" ]] || die "UPDATE=1 needs CTID=<container id>."
   pct status "$CTID" >/dev/null 2>&1 || die "CT $CTID does not exist."
   install_app "$CTID"
-  msg "Updated CT $CTID."
+  msg "Updated CT $CTID. Open: $(app_url "$CTID")"
   exit 0
 fi
 
@@ -86,6 +94,7 @@ echo "  Storage      : rootfs on $STORAGE (${DISK_GB} GB), template on $TEMPLATE
 echo "  Network      : bridge $BRIDGE${VLAN:+, VLAN $VLAN}, $CT_IP${CT_GW:+ gw $CT_GW}"
 echo "  Resources    : $CORES core(s), ${MEMORY} MB RAM"
 echo "  Code         : ${LOCAL_SRC:-GitHub ($REPO_RAW)}"
+echo "  Web port     : ${PORT:-80}"
 echo
 if [[ "$YES" != "1" && -t 0 ]]; then
   read -r -p "Continue? [Y/n] " ans
@@ -105,11 +114,10 @@ NET="name=eth0,bridge=${BRIDGE}"
 [[ -n "$VLAN" ]] && NET+=",tag=${VLAN}"
 if [[ "$CT_IP" == "dhcp" ]]; then NET+=",ip=dhcp"; else NET+=",ip=${CT_IP},gw=${CT_GW}"; fi
 
-ROOTPW="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20 || true)"
 msg "Creating LXC $CTID ($CT_HOSTNAME)"
 args=(--hostname "$CT_HOSTNAME" --cores "$CORES" --memory "$MEMORY" --swap 256
       --rootfs "${STORAGE}:${DISK_GB}" --net0 "$NET"
-      --unprivileged 1 --features nesting=0 --onboot 1 --password "$ROOTPW"
+      --unprivileged 1 --features nesting=0 --onboot 1
       --description "FGT SD-WAN provisioning tool (fgt-sdwan-provision)")
 [[ -n "$CT_DNS" ]] && args+=(--nameserver "$CT_DNS")
 pct create "$CTID" "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE}" "${args[@]}"
@@ -124,8 +132,7 @@ pct exec "$CTID" -- getent hosts deb.debian.org >/dev/null 2>&1 || die "Containe
 
 install_app "$CTID"
 
-IP="$(pct exec "$CTID" -- hostname -I | awk '{print $1}')"
 echo
-msg "Done. Open: http://${IP}:8000"
-echo "    CT $CTID root password (shown once, not stored): $ROOTPW"
+msg "Done. Open: $(app_url "$CTID")"
+echo "    Shell in the container: pct enter $CTID   (the web tool has no login; root has no password)"
 echo "    Update later: UPDATE=1 CTID=$CTID bash <this script>   (data and saved servers are kept)"
