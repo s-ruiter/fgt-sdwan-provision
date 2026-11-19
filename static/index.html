@@ -38,6 +38,7 @@
           <div class="inline"><input type="radio" name="scope" id="scope_fgt" value="fgt"><label for="scope_fgt"><b>FortiGates only</b> &ndash; against an existing, reachable FortiManager; ADOM and templates are reused or updated, model devices added, then install</label></div>
           <div class="inline"><input type="radio" name="scope" id="scope_dev" value="dev"><label for="scope_dev"><b>Model devices only</b> &ndash; to an existing, reachable FortiManager: ADOM, model devices and templates with the per-device values, then a Quick install and a Re-install policy per device; no link to real FortiGates, no VMs and no Proxmox</label></div>
           <div class="inline"><input type="radio" name="scope" id="scope_tpl" value="tpl"><label for="scope_tpl"><b>Templates only</b> &ndash; to an existing, reachable FortiManager: ADOM and templates for hubs and spokes; no VMs, no Proxmox, no model devices and no install</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_lan" value="lan"><label for="scope_lan"><b>LAN clients only</b> &ndash; one container per spoke on its LAN VLAN (<code>client-&lt;spoke&gt;</code>, .10, the spoke as gateway) on Proxmox; nothing on FortiManager or the FortiGates</label></div>
         </div>
         <div class="hint" id="scope_hint"></div>
       </div>
@@ -108,7 +109,7 @@
         </div><!-- /wanemu -->
       </div>
 
-      <div class="card">
+      <div class="card not-lan">
         <h2><span class="num">02</span>FortiManager <small class="only-fmg">(always a static IP; Day-0)</small><small class="only-existing">(existing FortiManager: IP, ADOM and API login)</small></h2>
         <div class="fields">
           <div class="f only-fmg"><label>Hostname</label><input id="fm_name"></div>
@@ -141,7 +142,7 @@
         <div class="only-fgt">
         <h3>FortiGates: password &amp; licence</h3>
         <div class="fields">
-          <div class="f"><label>FortiGate admin and SSH password</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
+          <div class="f"><label><span class="not-lan">FortiGate admin and SSH password</span><span class="only-lan">Root password of the LAN clients</span></label><input id="fgt_newpw" type="password" autocomplete="off"></div>
         </div>
         <div class="hint">Enter the serial number and FortiFlex token per FortiGate below (or let FortiFlex fill them in). Hubs have one WAN (wan1, static IP + gateway); branches use wan1 and optionally wan2, always via DHCP. Every branch WAN gets a tunnel to wan1 of every hub. The tool creates the VMs with Day-0 (cloud-init) on Proxmox: IP, password, FMG link and token go into the config drive.</div>
         </div>

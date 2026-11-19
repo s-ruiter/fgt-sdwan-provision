@@ -237,6 +237,17 @@ except FmgError as e:
 mock_fmg.STATE["refuse_sn_update"] = False
 print("OK  model device met ander serienummer: bijgewerkt; weigert FortiManager dat, dan duidelijke fout")
 
+# ---------------------------------------------------------------- LAN clients only: nothing but the client CTs
+fake_proxmox.reset()
+mock_fmg.STATE["bodies"].clear()
+n_calls = len(mock_fmg.STATE["calls"])
+last, ev = run(scope="lan", fmg="none", fgt="none", images={})
+assert last["clients"] == "ok" and all(v == "skipped" for k, v in last.items() if k != "clients"), last
+cts = sorted(c["params"]["hostname"] for c in fake_proxmox.STATE["cts"].values())
+assert cts == ["client-site1-1", "client-site1-2", "client-site1-3"] and not fake_proxmox.STATE["vms"], cts
+assert len(mock_fmg.STATE["calls"]) == n_calls, "geen FortiManager-aanroepen bij alleen LAN-clients"
+print("OK  alleen LAN-clients: drie client-CT's, alle andere stappen overgeslagen, FortiManager niet aangesproken")
+
 # ---------------------------------------------------------------- API: scope overrides the methods + validation
 def req(scope, **sec):
     s = {"fgt_tokens": {}, "fgt_new_pw": "", **sec}
@@ -287,5 +298,15 @@ r = req("fgt", fgt_tokens=TOKS, fgt_new_pw=PW, pve_token_secret="x")
 r.fmg.password = None
 main._apply_scope(r)
 assert any("FortiManager: admin password" in x for x in errors(r))                          # API login always needed
+# LAN clients only: Proxmox + a root password; no FortiManager, no tokens, no images
+r = req("lan", pve_token_secret="x", fgt_new_pw=PW)
+r.fmg.password = None
+main._apply_scope(r)
+assert (r.bootstrap.fmg, r.bootstrap.fgt) == ("none", "none")
+e = errors(r)
+assert not any("FortiManager" in x or "FortiFlex" in x or "image" in x for x in e), e
+r = req("lan", pve_token_secret="x")
+main._apply_scope(r)
+assert any("LAN clients" in x and "password" in x for x in errors(r)), errors(r)             # client root password
 print("OK  API: keuze zet de methode van het andere product op 'none'; alleen de benodigde tokens/images/wachtwoorden verplicht")
 print("alle scope-tests geslaagd")

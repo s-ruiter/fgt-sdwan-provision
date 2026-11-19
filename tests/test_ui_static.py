@@ -129,3 +129,19 @@ print("OK  UI: geen preview-blok en geen dry-run; Check licences naast Deploy")
 
 assert 'id="wan-template"' not in html and "wan-template" not in js, "het CT-template kiest de gebruiker niet"
 print("OK  UI: geen template-veld bij de WAN-emulatie")
+
+# scope "LAN clients only": radio, hint, hidden FortiManager card, deploy without FMG/FGT methods, topology
+assert 'id="scope_lan" value="lan"' in html and "lan:" in js[js.index("const SCOPE_HINT"):js.index("const SCOPE_HINT") + 3000]
+assert 'class="card not-lan"' in html and '[data-scope="lan"] .not-lan' in open(os.path.join(root, "static", "style.css")).read()
+dep = js[js.index('$("#btn_deploy").onclick'):][:1500]
+assert '["fgt", "tpl", "dev", "lan"]' in dep and '["fmg", "tpl", "dev", "lan"]' in dep and 'sc === "lan"' in dep
+try:
+    probe = ("const esc=s=>String(s);" + js[js.index("function topoSvg"):js.index("function topoDraw")] +
+             "const T=" + __import__("json").dumps(__import__("app.model", fromlist=["x"]).merged({})) + ";"
+             "const s=topoSvg(T,'lan');const i=s.indexOf('client-site1-1');const g=s.lastIndexOf('<g',i);"
+             "if(s.slice(g,i).includes('opacity'))throw 'client gedimd bij lan';console.log('ok')")
+    r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stderr[:400]
+except FileNotFoundError:
+    pass
+print("OK  UI: keuze 'LAN clients only' (FortiManager-kaart weg, geen FMG/FGT, clients niet gedimd in de topologie)")

@@ -119,18 +119,19 @@ class DeployReq(BaseModel):
     scope: str = "all"                         # 'all', 'fmg' (only FortiManager), 'fgt' (only FortiGates), 'tpl' (only templates), 'dev' (only model devices)
 
 
-SCOPE_TITLE = {"all": "", "fmg": " - FortiManager only", "fgt": " - FortiGates only", "tpl": " - templates only", "dev": " - model devices only"}
+SCOPE_TITLE = {"all": "", "fmg": " - FortiManager only", "fgt": " - FortiGates only", "tpl": " - templates only", "dev": " - model devices only",
+               "lan": " - LAN clients only"}
 
 
 def _apply_scope(r):
     """The scope wins over the per-product method: a product that is not deployed gets method 'none'."""
     if r.scope not in SCOPE_TITLE:
-        raise HTTPException(422, detail=[f"unknown deployment choice '{r.scope}' (all, fmg, fgt, tpl or dev)"])
+        raise HTTPException(422, detail=[f"unknown deployment choice '{r.scope}' (all, fmg, fgt, tpl, dev or lan)"])
     if r.scope == "fgt":
         r.bootstrap.fmg = "none"
     elif r.scope == "fmg":
         r.bootstrap.fgt = "none"
-    elif r.scope in ("tpl", "dev"):            # existing FortiManager, no VMs at all
+    elif r.scope in ("tpl", "dev", "lan"):     # existing FortiManager / only the LAN clients: no FMG or FGT VMs
         r.bootstrap.fmg = r.bootstrap.fgt = "none"
 
 
@@ -160,6 +161,18 @@ def _check_bootstrap(topo, r):
     errs = []
     b, s = r.bootstrap, r.secrets
     mf, mg = _method(b.fmg), _method(b.fgt)
+    if r.scope == "lan":                       # LAN clients only: Proxmox + the client root password
+        if not topo["pve"].get("server_id") and not topo["pve"].get("url"):
+            errs.append("Proxmox: choose a server (Servers page) or add one")
+        else:
+            errs += model.validate_pve(topo)
+            if not s.pve_token_secret:
+                errs.append("Proxmox: token secret is missing")
+        if len(s.fgt_new_pw or "") < 5:
+            errs.append("LAN clients: a root password of at least 5 characters is required (FortiGate admin password field)")
+        if errs:
+            raise HTTPException(422, detail=errs)
+        return
     for m in (mf, mg):
         if m not in ("none", "ssh", "day0"):
             errs.append(f"unknown bootstrap method '{m}'")
@@ -347,7 +360,7 @@ def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
     def log(level, msg):
         job["events"].append({"t": time.strftime("%H:%M:%S"), "step": None, "status": level, "msg": mask(msg)})
 
-    host = fmgcfg.host or model.split_cidr(topo["fmgr"]["ip"])[0]
+    host = fmgcfg.host or (model.split_cidr(topo["fmgr"]["ip"])[0] if topo["fmgr"].get("ip") else "127.0.0.1")   # lan: unused
     fmg = Fmg(host, fmgcfg.username, fmgcfg.password, fmgcfg.api_token, dry_run=dry, log=log)
     try:
         pipeline(topo, cfg, fmg, emit, boot)
@@ -740,7 +753,13 @@ def deploy(r: DeployReq):
     # FortiFlex: first validate the whole request with placeholders (lookup only), and only then create / reactivate /
     # regenerate licenses, so a refused request never costs points or invalidates a running device's token
     lic = _licenses(topo, r, dry=True)
-    render = lambda: _render(topo, create_psk=True, devices=r.scope not in ("fmg", "tpl"), fmg_vm=r.scope in ("all", "fmg"))
+    if r.scope == "lan":                       # only the LAN clients: no FortiManager templates are rendered
+        errs = [e for e in model.validate(topo, devices=False, fmg_vm=False) if not e.startswith("FortiManager")]
+        if errs:
+            raise HTTPException(422, detail=errs)
+        render = lambda: (None, None, {})
+    else:
+        render = lambda: _render(topo, create_psk=True, devices=r.scope not in ("fmg", "tpl"), fmg_vm=r.scope in ("all", "fmg"))
     _, _, cfg = render()
     _check_bootstrap(topo, r)
     if lic and not r.dry_run:
