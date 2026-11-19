@@ -104,19 +104,21 @@ def fmg_script_body(config):
 
 
 def wait_online(fmg, adom, names, timeout, emit, step="install", poll=5):
-    """Poll FMG until every device reports conn_status == 1 (up). Returns list of still-offline names."""
+    """Poll FMG until every device is connected. With verbose=1 FortiManager answers enums as text ("up", "down",
+    "UNKNOWN"); 1 is the numeric form. Checks at least once. Returns the names still offline."""
     if fmg.dry:
         return []
     end = time.time() + timeout
     pending = list(names)
-    while pending and time.time() < end:
+    while pending:
         for n in list(pending):
             d = fmg.call("get", f"/dvmdb/adom/{adom}/device/{n}").get("data") or {}
-            if d.get("conn_status") == 1:
+            if d.get("conn_status") in (1, "up", "UP"):
                 pending.remove(n)
                 emit(step, "running", f"{n}: online in FortiManager")
-        if pending:
-            time.sleep(poll)
+        if not pending or time.time() >= end:
+            break
+        time.sleep(poll)
     return pending
 
 
