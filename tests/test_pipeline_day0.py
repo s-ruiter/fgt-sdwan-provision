@@ -29,7 +29,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 t = base_topo()
 t["pve"].update(url=PVE, token_id="root@pam!deploy", node="pve1", disk_storage="local-lvm", import_storage="local",
                 iso_storage="local", default_bridge="vmbr0")
-t["pve"]["ports"]["port5"] = {"bridge": "vmbr1", "vlan": 20}      # LAN port: per-port table
+t["pve"]["ports"]["port3"] = {"bridge": "vmbr1", "vlan": 20}      # unused port: per-port table
 assert model.validate(t) == [] and model.validate_pve(t) == [], (model.validate(t), model.validate_pve(t))
 devs = t["hubs"] + t["edges"]
 project, inv = model.build(t)
@@ -93,7 +93,9 @@ for s, st, m in events:
 print({k: v for k, v in last.items()})
 order = [s for s, st, _ in events if st != "info"]
 assert last["pve_wan"] == "ok" and order.index("templates") < order.index("pve_wan") < order.index("pve_fgt"), order
-assert len(fake_proxmox.STATE["cts"]) == 1 and next(iter(fake_proxmox.STATE["cts"].values()))["status"] == "running"
+hosts = sorted(c["params"]["hostname"] for c in fake_proxmox.STATE["cts"].values())
+assert hosts == ["client-site1-1", "client-site1-2", "client-site1-3", "wan-emu"], hosts
+assert last["clients"] == "ok" and order.index("install") < order.index("clients"), order
 assert all("agenttoken" not in m and "PRIVATE KEY" not in m for _, _, m in events)
 print("OK  WAN-emulator: stap pve_wan na de templates en vóór de FortiGate-VM's, CT draait, geen secrets in events")
 assert all(v == "ok" for v in last.values()), last
@@ -112,7 +114,7 @@ assert by["fmg"]["net0"] == "virtio,bridge=vmbr0" and "net1" not in by["fmg"]
 nics = lambda p: len([k for k in p if re.fullmatch(r"net\d+", k)])
 assert nics(by["site1-H1"]) == 6 and nics(by["site1-1"]) == 6, (nics(by["site1-H1"]), nics(by["site1-1"]))   # always 6 (vm_interface_number)
 from app.wanemu.net import mac_for
-assert by["site1-1"]["net4"] == "virtio,bridge=vmbr1,tag=20" and by["site1-1"]["net2"] == "virtio,bridge=vmbr0"
+assert by["site1-1"]["net2"] == "virtio,bridge=vmbr1,tag=20" and by["site1-1"]["net4"] == "virtio,bridge=vmbr0,tag=3303"   # LAN1 VLAN
 assert by["site1-1"]["net0"] == f"virtio={mac_for('site1-1', 1)},bridge=vmbr0,tag=3201"            # wan1 -> ISP-A
 assert all(re.match(r"local:import/fgt-sdwan-[0-9a-f]{8}-(fgt|fmg)\.qcow2", p["scsi0"].split("import-from=")[1]) or True for p in by.values())
 assert all(p.get("scsihw") == "virtio-scsi-single" for n, p in by.items() if n != "fmg"), {n: p.get("scsihw") for n, p in by.items()}
@@ -169,7 +171,8 @@ events.clear()
 b = boot(dry=True, pve_secret="")
 pipeline(t, cfg, Fmg("http://127.0.0.1:1", dry_run=True), emit, b)
 assert any("[dry-run]" in m and "Day-0 ISO" in m for _, _, m in events) and fake_proxmox.STATE["creates"] == 6
-assert any("[dry-run] wan-emu net2: name=eth2,bridge=vmbr0,tag=3201" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 1
+assert any("[dry-run] wan-emu net2: name=eth2,bridge=vmbr0,tag=3201" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 4
+assert any("[dry-run] client-site1-1" in m for _, _, m in events)
 print("OK  dry-run: plan per VM gelogd, niets naar Proxmox")
 
 # ---------------------------------------------------------------- rollback

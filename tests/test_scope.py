@@ -80,7 +80,7 @@ ev = []
 pipeline(bare, bare_cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m)), boot(scope="fmg"))
 last = {s_: st for s_, st, _ in ev if st != "info"}
 assert names() == {"fmg"}, names()
-skip = ("devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "install")
+skip = ("devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "install", "clients")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
 assert all(last[k] == "ok" for k in ("pve_fmg", "bootstrap_fmg", "preflight", "fmg_settings", "adom", "templates")), last
 assert any(s_ == "pve_fgt" and "alleen FortiManager" in m for s_, _, m in ev)
@@ -139,7 +139,7 @@ pipeline(tb, bare_cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, s
          boot(scope="tpl", fmg="day0", fgt="day0", pve_secret=None, images={}))         # methods are overridden by the scope
 last = {s_: st for s_, st, _ in ev if st != "info"}
 assert fake_proxmox.STATE["creates"] == creates                                      # nothing on Proxmox
-skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "install")
+skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "install", "clients")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
 assert all(last[k] == "ok" for k in ("preflight", "adom", "templates")), last
 assert any(s_ == "fmg_settings" and "alleen templates" in m for s_, _, m in ev)
@@ -167,7 +167,7 @@ pipeline(t, cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m))
          boot(scope="dev", fgt_tokens={}, fgt_new_pw="", images={}))            # no FortiGate tokens/password needed
 last = {s_: st for s_, st, _ in ev if st != "info"}
 assert fake_proxmox.STATE["creates"] == creates                                      # nothing on Proxmox
-skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "pve_wan", "pve_fgt", "bootstrap_fgt")
+skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "pve_wan", "pve_fgt", "bootstrap_fgt", "clients")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
 assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "templates", "install")), last
 bodies = mock_fmg.STATE["bodies"]

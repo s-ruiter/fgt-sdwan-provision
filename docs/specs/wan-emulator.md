@@ -136,3 +136,18 @@ ISP-A/B ook reservering-start (.11) en pool (.100–.199). Alle waarden vooraf i
 ## Buiten scope
 
 Meerdere hub-sites/regio's, IPv6, NAT/CGNAT-simulatie (kan later per segment), BGP in de container.
+
+## Uitbreiding: port forwarding, SSH in de browser, LAN-clients
+
+- **Port forwarding** op wan-emu (eth0, DNAT): FortiGate n (volgorde: hubs, dan spokes; n = 0, 1, …) is bereikbaar op
+  `10.10.106.250:<10443+n>` (HTTPS → 443) en `:<10022+n>` (SSH → 22) op zijn WAN1-adres (hub: vast, spoke: de
+  ISP-A-reservering). Instelbaar: `wanemu.fwd_https_base`, `wanemu.fwd_ssh_base`.
+- **SSH in de browser**: pagina WAN-emulatie, per FortiGate "GUI openen" en "SSH". De tool (CT 100) maakt de
+  SSH-verbinding via de doorgestuurde poort (websocket `/api/term/<device>`, xterm.js). Gebruiker/wachtwoord per sessie,
+  nooit opgeslagen of gelogd.
+- **LAN-VLAN's**: LAN1 van FortiGate n op VLAN `lan_vlan_base + 1 + n` (3301 …), LAN2 op `lan2_vlan_base + 1 + n`
+  (3401 …), zodat de LAN's niet meer in het lab-L2 zitten. De per-poort-tabel geldt alleen nog voor andere poorten.
+- **LAN-client per spoke**: CT `client-<spoke>` (Debian 13, unprivileged, nesting) op het LAN1-VLAN van die spoke, IP
+  `.10` in het LAN, gateway = LAN-IP van de spoke, DNS uit de topologie, root-wachtwoord = FortiGate-admin-wachtwoord.
+  Stap **LAN-clients** na de install; hergebruik op naam + tag. Geen extra pakketten (Proxmox kan niet in een CT
+  uitvoeren en de tool bereikt de clients niet); bediening via de Proxmox-console.

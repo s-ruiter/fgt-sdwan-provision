@@ -55,6 +55,10 @@ DEFAULTS = {
     "wanemu": {
         "vmid": None, "hostname": "wan-emu", "template": "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst",
         "storage": "local-lvm", "bridge": "vmbr0", "cores": 1, "memory_mb": 512, "disk_gb": 4, "agent_port": 8090,
+        # port forwarding on the uplink: FortiGate n (hubs, then branches) on <base>+n -> its WAN1 443 / 22
+        "fwd_https_base": 10443, "fwd_ssh_base": 10022,
+        # LAN VLANs: LAN1 of FortiGate n on lan_vlan_base+1+n, LAN2 on lan2_vlan_base+1+n
+        "lan_vlan_base": 3300, "lan2_vlan_base": 3400,
         "uplink": {"vlan": 106, "ip": "10.10.106.250/24", "gw": "10.10.106.1"},
         "segments": {
             "hub": {"name": "ISP-HUB", "vlan": 3200, "subnet": "100.127.200.0/24", "gw": "100.127.200.1"},
@@ -372,6 +376,7 @@ def validate_wanemu(t):
     """WAN emulator: segments, uplink and the hub addresses that must live in ISP-HUB."""
     w, err = t.get("wanemu", {}), []
     seg, up = w.get("segments", {}), w.get("uplink", {})
+    n_fgt = len(t.get("hubs", [])) + len(t.get("edges", []))
     nets = {}
     for key in ("hub", "a", "b"):
         g = seg.get(key, {})
@@ -403,9 +408,31 @@ def validate_wanemu(t):
         for b in names[i + 1:]:
             if nets[a].overlaps(nets[b]):
                 err.append(f"WAN-emulatie: {a} en {b} overlappen")
+    for key in ("lan_vlan_base", "lan2_vlan_base"):            # LAN VLANs base+1 .. base+n must stay clear
+        b = w.get(key)
+        rng = range(b + 1, b + 1 + n_fgt) if isinstance(b, int) else range(0)
+        if not isinstance(b, int) or b < 1 or b + n_fgt > 4094:
+            err.append(f"WAN-emulatie: LAN-VLAN-basis {key} moet 1-{4094 - n_fgt} zijn")
+        elif any(v in rng for v in [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]):
+            err.append(f"WAN-emulatie: LAN-VLAN's {rng.start}-{rng.stop - 1} botsen met uplink- of ISP-VLAN's")
+    if isinstance(w.get("lan_vlan_base"), int) and isinstance(w.get("lan2_vlan_base"), int) and \
+            abs(w["lan_vlan_base"] - w["lan2_vlan_base"]) < n_fgt:
+        err.append("WAN-emulatie: LAN-VLAN's voor LAN1 en LAN2 overlappen")
     vlans = [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]
     if any(not isinstance(v, int) or not 1 <= v <= 4094 for v in vlans) or len(set(vlans)) != len(vlans):
         err.append("WAN-emulatie: VLAN's moeten uniek zijn en 1-4094")
+    ranges = []
+    for key, lbl in (("fwd_https_base", "HTTPS"), ("fwd_ssh_base", "SSH")):
+        b = w.get(key)
+        if not isinstance(b, int) or not 1024 <= b <= 65535 - n_fgt:
+            err.append(f"WAN-emulatie: poort-forward {lbl}-basis moet 1024-{65535 - n_fgt} zijn")
+        else:
+            ranges.append((lbl, b, b + n_fgt - 1))
+    if len(ranges) == 2 and not (ranges[0][2] < ranges[1][1] or ranges[1][2] < ranges[0][1]):
+        err.append("WAN-emulatie: de poortbereiken voor HTTPS en SSH overlappen")
+    for lbl, lo, hi in ranges:
+        if lo <= w.get("agent_port", 8090) <= hi:
+            err.append(f"WAN-emulatie: {lbl}-poortbereik {lo}-{hi} bevat de agent-poort {w.get('agent_port', 8090)}")
     hub = seg.get("hub", {})
     hn = nets.get(hub.get("name", "hub"))
     for h in t.get("hubs", []):

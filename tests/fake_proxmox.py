@@ -77,7 +77,7 @@ class H(BaseHTTPRequestHandler):
         if path == "/nodes/pve1/network":
             return self._send([{"iface": "vmbr0"}, {"iface": "vmbr1"}])
         if path == "/cluster/nextid":
-            used = [int(v) for v in vms]
+            used = [int(v) for v in vms] + [int(c) for c in STATE["cts"]]     # PVE: VMs and CTs share the id space
             return self._send(str(max([STATE["nextid"] - 1] + used) + 1))
         if path == "/cluster/resources":
             return self._send([{"vmid": v["vmid"], "name": v["name"], "tags": v["params"].get("tags", ""),

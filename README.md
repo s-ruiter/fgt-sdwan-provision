@@ -104,6 +104,14 @@ altijd. De standaardwaarden (aan te passen onder *Proxmox & images*):
 - De tool logt in op de container met een eigen SSH-sleutel (in de tool-database, 0600). In de container draait een
   agent (`/opt/wan-emu/agent.py`, poort 8090, met token) die per link `tc` (htb + netem, beide richtingen via ifb) en
   `nftables` (link down, NAT) toepast en de stand na een herstart terugzet.
+- **FortiGates bereiken zonder route naar de ISP-netwerken**: wan-emu stuurt per FortiGate n (hubs, dan spokes)
+  `10.10.106.250:10443+n` door naar HTTPS en `:10022+n` naar SSH van zijn WAN1-adres. Op de pagina WAN-emulatie staat
+  per FortiGate **GUI openen** en **SSH** (terminal in de browser via de tool; gebruiker en wachtwoord per sessie,
+  niet bewaard; xterm.js wordt van jsDelivr geladen).
+- **LAN's op eigen VLAN's**: LAN1 van FortiGate n op VLAN 3301+n, LAN2 op 3401+n.
+- **LAN-client per spoke**: stap *LAN-clients* (na de install) maakt `client-<spoke>` (Debian 13) op het LAN1-VLAN, op
+  `.10` met de spoke als gateway. Bediening via de Proxmox-console (root, wachtwoord = FortiGate-admin-wachtwoord);
+  extra pakketten (iperf3, mtr) installeer je zelf, internet loopt via de spoke.
 - Pagina **WAN-emulatie**: per link (hub-wan1, spoke-wan1, spoke-wan2) schuifjes voor latency, jitter, loss en
   bandbreedte, *link down*, en presets (Glasvezel, DSL, Slechte 4G, Satelliet, Trans-Atlantisch, ISP-A/ISP-B storing,
   Hub 1 weg). Waarden gelden in beide richtingen: 40 ms latency = 80 ms extra RTT.

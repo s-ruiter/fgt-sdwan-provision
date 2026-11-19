@@ -100,7 +100,15 @@ def nft_ruleset(topo, state):
     keep = ", ".join(topo.get("no_nat", []))             # lab subnet: real addresses, the FortiManager routes back
     if nat:
         lines.append(f'    oifname "eth0" ip saddr {{ {nat} }}' + (f" ip daddr != {{ {keep} }}" if keep else "") + " masquerade")
-    lines += ["  }", "}"]
+    lines.append("  }")
+    fw = topo.get("forwards") or []
+    if fw:                                               # FortiGate GUI/SSH from the lab: uplink port -> WAN1 443/22
+        lines += ["  chain prerouting {", "    type nat hook prerouting priority -100; policy accept;"]
+        for f in fw:
+            lines += [f'    iifname "eth0" tcp dport {f["https"]} dnat ip to {f["ip"]}:443',
+                      f'    iifname "eth0" tcp dport {f["ssh"]} dnat ip to {f["ip"]}:22']
+        lines.append("  }")
+    lines.append("}")
     return "\n".join(lines) + "\n"
 
 

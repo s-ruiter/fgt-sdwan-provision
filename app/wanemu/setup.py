@@ -174,3 +174,31 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
         emit(step, "warn", "geen internet vanuit ISP-A: controleer NAT op wan-emu en de uplink "
                            f"{w['uplink']['gw']} (FortiGates krijgen dan geen FortiFlex-licentie)")
     return {"vmid": vmid, "created": created, "internet": internet}
+
+
+def deploy_clients(pve, t, password, emit, step="clients"):
+    """One LAN client CT per branch (client-<name>), reused by name + tag (network config updated). Returns
+    [{name, vmid, created, ip}]. No packages are installed: Proxmox cannot run commands in a CT."""
+    node = t["pve"]["node"]
+    have = {c.get("name"): int(c["vmid"]) for c in pve.find_cts(TAG_VM)}
+    out = []
+    for e in t["edges"]:
+        if not (e.get("lans") or [{}])[0].get("ip"):
+            continue
+        name = f"client-{e['name']}"
+        if name in have:
+            vmid = have[name]
+            p = {k: v for k, v in net.client_params(t, e, vmid, password).items() if k not in CREATE_ONLY | {"password"}}
+            if pve.ct_status(node, vmid) == "running":
+                pve.wait_task(node, pve.stop_ct(node, vmid))
+            pve.set_ct_config(node, vmid, p)
+            created = False
+        else:
+            vmid = pve.next_vmid()
+            pve.wait_task(node, pve.create_ct(node, net.client_params(t, e, vmid, password)))
+            created = True
+        pve.wait_task(node, pve.start_ct(node, vmid))
+        ip = net.client_params(t, e, vmid, "").get("net0").split("ip=")[1].split(",")[0]
+        emit(step, "running", f"{name}: CT {vmid} {'aangemaakt' if created else 'bijgewerkt'}, {ip} achter {e['name']}")
+        out.append({"name": name, "vmid": vmid, "created": created, "ip": ip})
+    return out

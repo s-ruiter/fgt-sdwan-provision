@@ -26,7 +26,7 @@ function route() {
   if (view === "deploy") { bannerLoad(); flexApply(); }
   if (view === "fortiflex") ffLoad();
   clearInterval(WAN_TIMER); WAN_TIMER = null;
-  if (view === "wanemu") { wanLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
+  if (view === "wanemu") { wanLoad(); wanFwdLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
 }
 window.addEventListener("hashchange", route);
 let WAN_TIMER = null, WAN = { links: [], presets: {} }, FLEX = { enabled: false };
@@ -524,6 +524,62 @@ $("#srv_test").onclick = async () => {
 const WAN_SEG = { hub: "ISP-HUB", a: "ISP-A", b: "ISP-B" };
 const WAN_F = [["delay_ms", "Latency", "ms", 0, 1000, 1], ["jitter_ms", "Jitter", "ms", 0, 200, 1], ["loss_pct", "Loss", "%", 0, 100, 0.1], ["rate_kbit", "Bandbreedte", "kbit/s (0 = onbeperkt)", 0, 1000000, 1000]];
 function wanErr(msg) { $("#wanemu-err").innerHTML = msg ? `<div class="error">✕ ${esc(msg)}</div>` : ""; }   // no scroll: the page refreshes every 10 s
+// ---- FortiGates via wan-emu: GUI via port forward, SSH in the browser (xterm.js) ----------------------------------
+const XTERM = "https://cdn.jsdelivr.net/npm/xterm@5.3.0/", XFIT = "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/";
+let TERM = null, TERM_WS = null, TERM_NAME = "";
+async function wanFwdLoad() {
+  const r = await fetch("/api/wanemu/forwards"), j = await json(r);
+  if (!r.ok) { $("#wanemu-fgts").innerHTML = `<div class="hint">${esc(errList(j).join(" "))}</div>`; return; }
+  $("#wanemu-fgts").innerHTML = j.forwards.map((f) => `<div class="fgt-row"><b>${esc(f.name)}</b><span class="mono">${esc(f.ip)}</span>` +
+    `<a href="https://${esc(j.host)}:${f.https}/" target="_blank" rel="noopener"><button>GUI openen</button></a>` +
+    `<button data-ssh="${esc(f.name)}">SSH</button><span class="hint mono">ssh -p ${f.ssh} admin@${esc(j.host)}</span></div>`).join("");
+}
+function loadOnce(tag, attrs) {
+  return new Promise((ok, bad) => {
+    if (document.querySelector(`${tag}[${tag === "script" ? "src" : "href"}="${attrs.src || attrs.href}"]`)) return ok();
+    const e = document.createElement(tag); Object.assign(e, attrs); e.onload = ok; e.onerror = () => bad(new Error("laden mislukt: " + (attrs.src || attrs.href)));
+    document.head.appendChild(e);
+  });
+}
+function termOpen(name) {
+  TERM_NAME = name; $("#term_title").textContent = `SSH naar ${name}`;
+  $("#term_overlay").hidden = false; $("#term_form").hidden = false; $("#term_box").innerHTML = ""; $("#term_pw").focus();
+}
+let TERM_FIT = null, TERM_BUSY = false;
+const termResize = () => TERM && TERM_FIT && TERM_FIT.fit();
+window.addEventListener("resize", termResize);                  // one listener for every session
+async function termStart() {
+  if (TERM_BUSY || TERM) return;                                // Enter twice while loading: one session only
+  TERM_BUSY = true;
+  try {
+    await loadOnce("link", { rel: "stylesheet", href: XTERM + "css/xterm.css" });
+    await loadOnce("script", { src: XTERM + "lib/xterm.js" }); await loadOnce("script", { src: XFIT + "lib/xterm-addon-fit.js" });
+  } catch (e) { TERM_BUSY = false; $("#term_box").innerHTML = `<div class="error">✕ ${esc(e.message)} (heeft de browser internet?)</div>`; return; }
+  const user = $("#term_user").value.trim() || "admin", pw = $("#term_pw").value;
+  $("#term_pw").value = "";                                     // not kept in the page
+  $("#term_form").hidden = true;
+  TERM = new window.Terminal({ cursorBlink: true, fontSize: 13 });
+  $("#term_box").innerHTML = "";
+  TERM_FIT = new window.FitAddon.FitAddon(); TERM.loadAddon(TERM_FIT); TERM.open($("#term_box")); TERM_FIT.fit();
+  TERM_BUSY = false;
+  const term = TERM, ws = TERM_WS = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/term/${encodeURIComponent(TERM_NAME)}`);
+  ws.onopen = () => ws.send(JSON.stringify({ user, password: pw, cols: term.cols, rows: term.rows }));
+  ws.onmessage = (e) => term.write(e.data);                     // bound to this session's terminal, not a later one
+  ws.onclose = () => { if (TERM === term) term.write("\r\n[verbinding gesloten]\r\n"); };
+  term.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ data: d })));
+  term.onResize(({ cols, rows }) => ws.readyState === 1 && ws.send(JSON.stringify({ resize: [cols, rows] })));
+  term.focus();
+}
+function termClose() {
+  if (TERM_WS) { try { TERM_WS.close(); } catch (_) {} TERM_WS = null; }
+  if (TERM) { TERM.dispose(); TERM = null; TERM_FIT = null; }
+  TERM_BUSY = false;
+  $("#term_pw").value = ""; $("#term_overlay").hidden = true;
+}
+$("#wanemu-fgts").addEventListener("click", (e) => { const b = e.target.closest("[data-ssh]"); if (b) termOpen(b.dataset.ssh); });
+$("#term_go").onclick = termStart;
+$("#term_pw").addEventListener("keydown", (e) => { if (e.key === "Enter") termStart(); });
+$("#term_close").onclick = termClose;
 async function wanLoad() {
   const r = await fetch("/api/wanemu/links"), j = await r.json().catch(() => ({}));
   if (!r.ok) { wanErr(j.detail || `HTTP ${r.status}`); $("#wanemu-links").innerHTML = ""; return; }

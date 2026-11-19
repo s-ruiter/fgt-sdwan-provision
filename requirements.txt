@@ -6,3 +6,4 @@ pydantic>=2
 paramiko>=3.4
 pycdlib>=1.14
 python-multipart>=0.0.9
+websockets>=12
