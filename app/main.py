@@ -5,7 +5,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -58,6 +58,7 @@ STEPS = [
     ("adom", "ADOM", "ADOM aanmaken op basis van jouw naam (bestaat hij al: hergebruiken)"),
     ("devices", "Model devices", "2 hubs + 3 branches toevoegen met opgegeven serienummers"),
     ("templates", "Templates", "Metadata-variabelen, system-, SD-WAN- en CLI-templates, policy packages, template groups en blueprints in de ADOM"),
+    ("pve_wan", "WAN-emulator", "LXC wan-emu: routeert ISP-HUB / ISP-A / ISP-B (NAT naar het lab), DHCP voor de spokes, verkeersmanipulatie per link"),
     ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1: hub vast IP + gateway, branch DHCP; DNS, FMG-koppeling, FortiFlex-licentie) starten"),
     ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wachten tot ze gelicenseerd online zijn in FMG; of via SSH op bestaande VM's"),
     ("install", "Install", "Quick install (device settings) per device, daarna Re-install policy per rol; echte FortiGates pas als ze online zijn"),
@@ -164,7 +165,7 @@ def _check_bootstrap(topo, r):
         if not topo["pve"].get("server_id") and not topo["pve"].get("url"):
             errs.append("Proxmox: kies een server (menu Servers) of voeg er een toe")
         else:
-            errs += model.validate_pve(topo)
+            errs += model.validate_pve(topo, wanemu=mg == "day0" and r.scope not in ("fmg", "tpl", "dev"))
             if not s.pve_token_secret:
                 errs.append("Proxmox: token-secret ontbreekt")
         for role, m in (("fmg", mf), ("fgt", mg)):
@@ -362,6 +363,64 @@ def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
         boot.clear()
 
 
+def _wanemu_secrets():
+    """SSH key (root login in wan-emu) and agent token: generated once, kept in the tool database (0600)."""
+    from .wanemu import setup
+    conn = db.connect(DATA_DIR)
+    return {"ssh_key": db.get_secret(conn, "wanemu_ssh_key", create=setup.new_ssh_key),
+            "agent_token": db.get_secret(conn, "wanemu_agent_token", create=lambda: __import__("secrets").token_urlsafe(32))}
+
+
+# ---- WAN-emulatie: proxy to the agent in wan-emu (the token stays in the tool) ------------------------------------
+def _agent():
+    from .wanemu.client import Agent
+    conn = db.connect(DATA_DIR)
+    addr, tok = db.get_secret(conn, "wanemu_addr"), db.get_secret(conn, "wanemu_agent_token")
+    if not addr or not tok:
+        raise HTTPException(409, detail="Nog geen WAN-emulator uitgerold: rol eerst FortiGates uit (Alles of Alleen FortiGates)")
+    return Agent(addr, tok)
+
+
+def _agent_call(fn):
+    from .wanemu.client import AgentError
+    try:
+        return fn()
+    except AgentError as e:
+        raise HTTPException(e.status, detail=str(e))
+
+
+@app.get("/api/wanemu/links")
+def wanemu_links():
+    from .wanemu.client import PRESETS
+    a = _agent()
+    return {"addr": a.addr, "links": _agent_call(a.links),
+            "presets": {k: v["label"] for k, v in PRESETS.items()}}
+
+
+@app.put("/api/wanemu/links/{link_id}")
+def wanemu_put(link_id: str, values: dict = Body(...)):
+    a = _agent()
+    return _agent_call(lambda: a.put(link_id, values))
+
+
+@app.post("/api/wanemu/preset/{name}")
+def wanemu_preset(name: str, link: Optional[str] = None):
+    from .wanemu.client import PRESETS, preset_changes
+    if name not in PRESETS:
+        raise HTTPException(404, detail=f"onbekende preset {name}")
+    a = _agent()
+    changes = preset_changes(name, _agent_call(a.links), link)
+    for lid, vals in changes:
+        _agent_call(lambda lid=lid, vals=vals: a.put(lid, vals))
+    return {"applied": [lid for lid, _ in changes]}
+
+
+@app.post("/api/wanemu/reset")
+def wanemu_reset():
+    a = _agent()
+    return {"links": _agent_call(a.reset)}
+
+
 @app.post("/api/deploy")
 def deploy(r: DeployReq):
     topo = model.merged(r.topology)
@@ -390,6 +449,10 @@ def deploy(r: DeployReq):
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
             "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw}
+    if boot["fgt"] == "day0" and r.scope not in ("fmg", "tpl", "dev") and not r.dry_run:
+        boot["wanemu_secrets"] = _wanemu_secrets()
+        w = topo["wanemu"]                     # where the WAN-emulatie page finds the agent of this deployment
+        db.put_secret(db.connect(DATA_DIR), "wanemu_addr", f"{model.split_cidr(w['uplink']['ip'])[0]}:{w['agent_port']}")
     jid = uuid.uuid4().hex[:8]
     job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [], "created": time.strftime("%Y-%m-%d %H:%M:%S"),
            "title": f"Uitrol van {topo['adom']}" + SCOPE_TITLE[r.scope] + (" (dry-run)" if r.dry_run else ""),

@@ -11,8 +11,8 @@ MOCK = "http://127.0.0.1:8099"
 topo = requests.get(f"{APP}/api/defaults").json()
 topo["dns_primary"] = "1.1.1.1"
 topo["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
-topo["hubs"][0]["wan1_gw"] = "100.64.1.6"
-topo["hubs"][1]["wan1_gw"] = "100.64.2.6"
+topo["hubs"][0]["wan1_gw"] = "100.127.200.1"
+topo["hubs"][1]["wan1_gw"] = "100.127.200.1"
 # 1. missing serials must be rejected
 r = requests.post(f"{APP}/api/render", json={"topology": topo})
 assert r.status_code == 422 and any("serienummer" in e for e in r.json()["detail"]), r.text

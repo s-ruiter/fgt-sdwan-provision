@@ -36,10 +36,17 @@ PW = "Sup3r-Secret-Pw"
 TOKS = {d["name"]: f"FGTTOKEN{i}ABCDEFGHIJ" for i, d in enumerate(devs)}
 
 
+from tests import fake_wanemu  # noqa: E402
+from app.wanemu.setup import new_ssh_key  # noqa: E402
+WANEMU_KEY = new_ssh_key()
+
+
 def boot(**kw):
     b = {"dry": False, "fmg": "day0", "fgt": "day0", "fmg_token": "FMGTOKEN0123456789", "fgt_tokens": TOKS,
          "fmg_new_pw": PW, "fgt_new_pw": PW, "pve_secret": "pve-secret", "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
          "waiter": lambda h, p, up, tmo: True, "poll": 0, "login_delay": 0, "online_timeout": 5, "fgt_boot_timeout": 5}
+    b.setdefault("wanemu_secrets", {"ssh_key": WANEMU_KEY, "agent_token": "agenttoken1234567890"})
+    b.setdefault("wanemu_connector", fake_wanemu.connector(fake_wanemu.FakeShell(installed=True)))
     b.update(kw)
     return b
 
@@ -73,7 +80,7 @@ ev = []
 pipeline(bare, bare_cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m)), boot(scope="fmg"))
 last = {s_: st for s_, st, _ in ev if st != "info"}
 assert names() == {"fmg"}, names()
-skip = ("devices", "pve_fgt", "bootstrap_fgt", "install")
+skip = ("devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "install")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
 assert all(last[k] == "ok" for k in ("pve_fmg", "bootstrap_fmg", "preflight", "fmg_settings", "adom", "templates")), last
 assert any(s_ == "pve_fgt" and "alleen FortiManager" in m for s_, _, m in ev)
@@ -92,7 +99,8 @@ assert names() == {"fmg", *TOKS}, names()
 assert fake_proxmox.STATE["creates"] == 1 + len(devs), fake_proxmox.STATE["creates"]       # FMG not created again
 assert last["pve_fmg"] == last["bootstrap_fmg"] == last["fmg_settings"] == "skipped", last
 assert any(s == "pve_fmg" and "alleen FortiGates" in m for s, _, m in ev)
-assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "pve_fgt", "bootstrap_fgt", "templates", "install")), last
+assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "templates", "install")), last
+assert fake_proxmox.STATE["cts"], "alleen FortiGates (Day-0): WAN-emulator hoort erbij"
 assert any(s == "adom" and "hergebruikt" in m for s, _, m in ev)
 assert any("dynamic_mapping" in str(d) for _, _, d in mock_fmg.STATE["bodies"])        # per-device values filled now
 inst = [(u, d) for _, u, d in mock_fmg.STATE["bodies"] if u.startswith("securityconsole/")]
@@ -131,7 +139,7 @@ pipeline(tb, bare_cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, s
          boot(scope="tpl", fmg="day0", fgt="day0", pve_secret=None, images={}))         # methods are overridden by the scope
 last = {s_: st for s_, st, _ in ev if st != "info"}
 assert fake_proxmox.STATE["creates"] == creates                                      # nothing on Proxmox
-skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "devices", "pve_fgt", "bootstrap_fgt", "install")
+skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "devices", "pve_wan", "pve_fgt", "bootstrap_fgt", "install")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
 assert all(last[k] == "ok" for k in ("preflight", "adom", "templates")), last
 assert any(s_ == "fmg_settings" and "alleen templates" in m for s_, _, m in ev)
@@ -159,7 +167,7 @@ pipeline(t, cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m))
          boot(scope="dev", fgt_tokens={}, fgt_new_pw="", images={}))            # no FortiGate tokens/password needed
 last = {s_: st for s_, st, _ in ev if st != "info"}
 assert fake_proxmox.STATE["creates"] == creates                                      # nothing on Proxmox
-skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "pve_fgt", "bootstrap_fgt")
+skip = ("pve_fmg", "bootstrap_fmg", "fmg_settings", "pve_wan", "pve_fgt", "bootstrap_fgt")
 assert {k: last[k] for k in skip} == dict.fromkeys(skip, "skipped"), last
 assert all(last[k] == "ok" for k in ("preflight", "adom", "devices", "templates", "install")), last
 bodies = mock_fmg.STATE["bodies"]
@@ -183,7 +191,7 @@ mock_fmg.STATE["bodies"].clear()
 pipeline(t, cfg, Fmg(FMG, "admin", PW), lambda *a: None, boot(scope="dev", fgt_tokens={}, fgt_new_pw="", images={}))
 assert n_add == len(devs) and not any(m_ == "add" and u.endswith("/global/system/interface") for m_, u, _ in mock_fmg.STATE["bodies"])
 from app.provision_vms import fgt_nics
-assert all(len(fgt_nics(x, t["pve"])) == 6 for x in devs), [len(fgt_nics(x, t["pve"])) for x in devs]   # 6 NICs per FortiGate-VM
+assert all(len(fgt_nics(x, t["pve"], t["wanemu"], False)) == 6 for x in devs), [len(fgt_nics(x, t["pve"], t["wanemu"], False)) for x in devs]   # 6 NICs per FortiGate-VM
 assert any(u.endswith("/object member") for _, u, _ in bodies)                        # devices in their device group
 inst = [(u, d) for _, u, d in bodies if u.startswith("securityconsole/")]
 dev_inst = [d["scope"][0]["name"] for u, d in inst if u == "securityconsole/install/device"]

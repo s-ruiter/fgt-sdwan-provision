@@ -17,15 +17,18 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 // ---- routing ----------------------------------------------------------------
 function route() {
   const [r, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
-  const VIEWS = ["deploy", "progress", "images", "servers", "about"];
+  const VIEWS = ["deploy", "progress", "wanemu", "images", "servers", "about"];
   const view = VIEWS.includes(r) ? r : "deploy";
   for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
   window.scrollTo(0, 0);
   if (view === "progress") progressOpen(arg);
   if (view === "deploy") bannerLoad();
+  clearInterval(WAN_TIMER); WAN_TIMER = null;
+  if (view === "wanemu") { wanLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
 }
 window.addEventListener("hashchange", route);
+let WAN_TIMER = null, WAN = { links: [], presets: {} };
 
 // ---- IP format checks ---------------------------------------------------------
 // kinds: "ip" = a.b.c.d, "cidr" = a.b.c.d/nn (host address + prefix). Empty is allowed here; required-ness is checked by the server.
@@ -110,6 +113,29 @@ function pveFill(p) {
   const opt = (v) => `<option value="">(standaard bridge)</option>` + [...new Set([...PVE_OPT.bridges, ...(v ? [v] : [])])].map((x) => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
   $("#ports").innerHTML = "<thead><tr><th>Poort</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
     Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
+  if (T && T.wanemu) setSel("#wan-bridge", PVE_OPT.bridges, $("#wan-bridge").value || T.wanemu.bridge);   // bridges of this node
+}
+const WAN_SEGS = ["hub", "a", "b"];
+function wanFill(w) {
+  $("#wan-vmid").value = w.vmid ?? ""; $("#wan-template").value = w.template; $("#wan-storage").value = w.storage;
+  setSel("#wan-bridge", PVE_OPT.bridges, w.bridge);
+  $("#wan-uplink-vlan").value = w.uplink.vlan; $("#wan-uplink-ip").value = w.uplink.ip; $("#wan-uplink-gw").value = w.uplink.gw;
+  WAN_SEGS.forEach((k) => {
+    const g = w.segments[k];
+    $(`#wan-seg-${k}-vlan`).value = g.vlan; $(`#wan-seg-${k}-subnet`).value = g.subnet; $(`#wan-seg-${k}-gw`).value = g.gw;
+    if (k !== "hub") $(`#wan-seg-${k}-res`).value = g.res_start;
+  });
+}
+function wanCollect() {
+  const w = JSON.parse(JSON.stringify(T.wanemu)), n = (v) => (v === "" ? null : +v);
+  w.vmid = n($("#wan-vmid").value); w.template = $("#wan-template").value.trim(); w.storage = $("#wan-storage").value.trim();
+  w.bridge = $("#wan-bridge").value.trim();
+  w.uplink = { vlan: n($("#wan-uplink-vlan").value), ip: $("#wan-uplink-ip").value.trim(), gw: $("#wan-uplink-gw").value.trim() };
+  WAN_SEGS.forEach((k) => {
+    Object.assign(w.segments[k], { vlan: n($(`#wan-seg-${k}-vlan`).value), subnet: $(`#wan-seg-${k}-subnet`).value.trim(), gw: $(`#wan-seg-${k}-gw`).value.trim() });
+    if (k !== "hub") w.segments[k].res_start = n($(`#wan-seg-${k}-res`).value);
+  });
+  return w;
 }
 function dev(kind, d, i) {
   const hub = kind === "hubs";
@@ -126,7 +152,7 @@ function draw() {
   const p = T.pve;
   $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub;
   $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port;
-  pveFill(p);
+  pveFill(p); wanFill(T.wanemu);
   const mv = T.region.multi_vrf !== false;
   $("#r_multi").checked = mv; $("#sv_box").hidden = mv; $("#vrfs").hidden = !mv; $("#r_lansum").value = T.region.lan_summary || "10.0.0.0/8";
   $("#vrfs").innerHTML = "<thead><tr><th>VRF-id</th><th>LAN-summary</th><th>DIA</th></tr></thead><tbody>" +
@@ -154,6 +180,7 @@ function collect() {
     fmg: { cores: +$("#fmg_cores").value, memory_mb: +$("#fmg_mem").value, data_disk_gb: +$("#fmg_disk").value, bridge: $("#fmg_br").value.trim(), vlan: n($("#fmg_vlan").value) },
     ports: Object.fromEntries([...document.querySelectorAll("[data-p]")].map((r) => [r.dataset.p, { bridge: r.querySelector("[data-f=bridge]").value.trim(), vlan: n(r.querySelector("[data-f=vlan]").value) }])),
   };
+  t.wanemu = wanCollect();
   t.region.multi_vrf = $("#r_multi").checked; t.region.lan_summary = $("#r_lansum").value.trim();
   t.region.vrfs = [...document.querySelectorAll("[data-v]")].map((r) => ({ id: +r.querySelector("[data-f=id]").value, lan_summary: r.querySelector("[data-f=lan_summary]").value.trim(), dia: r.querySelector("[data-f=dia]").checked }));
   document.querySelectorAll(".dev").forEach((el) => {
@@ -473,3 +500,55 @@ $("#srv_test").onclick = async () => {
   $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: false }]; draw(); markIpFields(); });
   draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
 })();
+
+
+// ---- WAN-emulatie: one card per link (ISP-HUB / ISP-A / ISP-B), values go to the agent through the tool ----------
+const WAN_SEG = { hub: "ISP-HUB", a: "ISP-A", b: "ISP-B" };
+const WAN_F = [["delay_ms", "Latency", "ms", 0, 1000, 1], ["jitter_ms", "Jitter", "ms", 0, 200, 1], ["loss_pct", "Loss", "%", 0, 100, 0.1], ["rate_kbit", "Bandbreedte", "kbit/s (0 = onbeperkt)", 0, 1000000, 1000]];
+function wanErr(msg) { $("#wanemu-err").innerHTML = msg ? `<div class="error">✕ ${esc(msg)}</div>` : ""; }   // no scroll: the page refreshes every 10 s
+async function wanLoad() {
+  const r = await fetch("/api/wanemu/links"), j = await r.json().catch(() => ({}));
+  if (!r.ok) { wanErr(j.detail || `HTTP ${r.status}`); $("#wanemu-links").innerHTML = ""; return; }
+  wanErr(""); WAN = j; $("#wanemu-addr").textContent = `agent ${j.addr}`;
+  $("#wanemu-presets").innerHTML = Object.entries(j.presets).map(([k, l]) => `<button data-wp="${k}">${esc(l)}</button>`).join("") + `<button data-wreset="1">Alles neutraal</button>`;
+  $("#wanemu-links").innerHTML = Object.entries(WAN_SEG).map(([s, n]) => `<div class="wan-col"><h3>${n}</h3>${j.links.filter((l) => l.seg === s).map(wanCard).join("") || '<div class="hint">geen links</div>'}</div>`).join("");
+}
+function wanCard(l) {
+  const st = l.state, rtt = 2 * st.delay_ms;
+  return `<div class="card wan-card${st.down ? " down" : ""}" data-wl="${esc(l.id)}"><b>${esc(l.name)}</b> <span class="mono">${esc(l.ip)}</span> <small>${esc(l.id.split("-").pop())}</small>` +
+    WAN_F.map(([k, lbl, unit, lo, hi, step]) => `<div class="wan-f"><label>${lbl} <output>${st[k]}</output> ${unit}</label><input type="range" data-wf="${k}" min="${lo}" max="${hi}" step="${step}" value="${st[k]}"></div>`).join("") +
+    `<div class="wan-f"><label><input type="checkbox" data-wf="down" ${st.down ? "checked" : ""}> link down</label></div>` +
+    `<div class="btnrow"><button class="primary" data-wa="1">Toepassen</button><select data-wps><option value="">preset…</option>${Object.entries(WAN.presets).filter(([k]) => !/storing|weg/.test(k)).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select><span class="hint">RTT +${rtt} ms</span></div></div>`;
+}
+async function wanApply(card) {
+  const v = {};
+  card.querySelectorAll("[data-wf]").forEach((i) => (v[i.dataset.wf] = i.type === "checkbox" ? i.checked : +i.value));
+  const r = await fetch("/api/wanemu/links/" + encodeURIComponent(card.dataset.wl), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(v) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
+  card.classList.remove("dirty"); await wanLoad();
+}
+async function wanPreset(name, link) {
+  const r = await fetch(`/api/wanemu/preset/${name}` + (link ? `?link=${encodeURIComponent(link)}` : ""), { method: "POST" });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
+  await wanLoad();
+}
+$("#v_wanemu").addEventListener("input", (e) => {
+  const i = e.target.closest("[data-wf]"); if (!i) return;
+  const card = i.closest("[data-wl]"); card.classList.add("dirty");
+  if (i.type === "range") i.previousElementSibling.querySelector("output").textContent = i.value;
+});
+$("#v_wanemu").addEventListener("change", (e) => {
+  const s = e.target.closest("[data-wps]"); if (s && s.value) wanPreset(s.value, s.closest("[data-wl]").dataset.wl);
+});
+$("#v_wanemu").addEventListener("click", async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.wa) return wanApply(b.closest("[data-wl]"));
+  if (b.dataset.wp) return wanPreset(b.dataset.wp);
+  if (b.dataset.wreset && confirm("Alle links terug naar neutraal (geen vertraging, geen verlies, alles up)?")) {
+    const r = await fetch("/api/wanemu/reset", { method: "POST" }), j = await r.json().catch(() => ({}));
+    if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
+    await wanLoad();
+  }
+});

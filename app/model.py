@@ -5,6 +5,7 @@ import json
 import re
 
 DEFAULT_INITIAL_IP = "192.168.1.99"   # factory default of FortiGate-VM / FortiManager-VM port1
+TAG_VM = "fgt-sdwan"                  # Proxmox tag on every VM / CT the tool creates
 
 
 # WAN design (user decision): a hub has ONE wan (wan1), always static; a branch has wan1 + optional wan2, both
@@ -12,7 +13,7 @@ DEFAULT_INITIAL_IP = "192.168.1.99"   # factory default of FortiGate-VM / FortiM
 # code reads it) but is forced by normalize_wans(): hub = static, branch = dhcp.
 def _hub(name, lo, wan1, lan):
     return {"name": name, "serial": "", "loopback": lo,
-            "wan1_intf": "port1", "wan1_mode": "static", "wan1_ip": f"{wan1}/29", "wan1_gw": "",
+            "wan1_intf": "port1", "wan1_mode": "static", "wan1_ip": f"{wan1}/24", "wan1_gw": "100.127.200.1",
             "initial_ip": DEFAULT_INITIAL_IP, "lans": [{"intf": "port5", "ip": lan}]}
 
 
@@ -49,6 +50,20 @@ DEFAULTS = {
         "fmg": {"bridge": "", "vlan": None, "cores": 4, "memory_mb": 16384, "data_disk_gb": 100},
         "fgt": {"cores": 2, "memory_mb": 2048},
     },
+    # WAN emulator (LXC wan-emu): always deployed with Day-0 FortiGates. ISP-HUB = hub wan1 (static), ISP-A = branch
+    # wan1, ISP-B = branch wan2 (both DHCP from the container). The container gateway is .1 of each segment.
+    "wanemu": {
+        "vmid": None, "hostname": "wan-emu", "template": "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst",
+        "storage": "local-lvm", "bridge": "vmbr0", "cores": 1, "memory_mb": 512, "disk_gb": 4, "agent_port": 8090,
+        "uplink": {"vlan": 106, "ip": "10.10.106.250/24", "gw": "10.10.106.1"},
+        "segments": {
+            "hub": {"name": "ISP-HUB", "vlan": 3200, "subnet": "100.127.200.0/24", "gw": "100.127.200.1"},
+            "a": {"name": "ISP-A", "vlan": 3201, "subnet": "100.127.201.0/24", "gw": "100.127.201.1",
+                  "res_start": 11, "pool": [100, 199]},
+            "b": {"name": "ISP-B", "vlan": 3202, "subnet": "100.127.202.0/24", "gw": "100.127.202.1",
+                  "res_start": 11, "pool": [100, 199]},
+        },
+    },
     "region": {
         "name": "West",
         "bgp_as": 65001,
@@ -61,8 +76,8 @@ DEFAULTS = {
         ],
     },
     "hubs": [
-        _hub("site1-H1", "10.200.1.253", "100.64.1.1", "10.1.0.1/24"),
-        _hub("site1-H2", "10.200.1.254", "100.64.2.1", "10.2.0.1/24"),
+        _hub("site1-H1", "10.200.1.253", "100.127.200.11", "10.1.0.1/24"),
+        _hub("site1-H2", "10.200.1.254", "100.127.200.12", "10.2.0.1/24"),
     ],
     "edges": [
         _edge("site1-1", "10.200.1.1", 1),
@@ -345,17 +360,70 @@ FIXED = {"platform": "FortiGate-VM64", "dns_primary": "1.1.1.1", "dns_secondary"
 def merged(user):
     t = copy.deepcopy(DEFAULTS)
     for k, v in (user or {}).items():
-        if k == "pve" and isinstance(v, dict):
-            _deep(t["pve"], v)
+        if k in ("pve", "wanemu") and isinstance(v, dict):
+            _deep(t[k], v)
         elif v is not None:
             t[k] = v
     _deep(t, copy.deepcopy(FIXED))
     return normalize_wans(t)
 
 
-def validate_pve(t):
-    """Extra checks when VMs are created on Proxmox (day-0)."""
-    c, err = t.get("pve", {}), []
+def validate_wanemu(t):
+    """WAN emulator: segments, uplink and the hub addresses that must live in ISP-HUB."""
+    w, err = t.get("wanemu", {}), []
+    seg, up = w.get("segments", {}), w.get("uplink", {})
+    nets = {}
+    for key in ("hub", "a", "b"):
+        g = seg.get(key, {})
+        name = g.get("name", key)
+        try:
+            n = ipaddress.ip_network(str(g.get("subnet", "")).strip())
+        except ValueError:
+            err.append(f"WAN-emulatie {name}: ongeldig subnet (a.b.c.0/nn)")
+            continue
+        nets[name] = n
+        if not _ip(g.get("gw", "")) or ipaddress.ip_address(g["gw"].strip()) not in n:
+            err.append(f"WAN-emulatie {name}: gateway ontbreekt of ligt niet in {n}")
+        if key != "hub":
+            lo, hi = (g.get("pool") or [0, 0])[:2]
+            rs = g.get("res_start")
+            if not all(isinstance(x, int) for x in (lo, hi, rs)) or not (0 < rs < lo <= hi < n.num_addresses - 1):
+                err.append(f"WAN-emulatie {name}: reserveringen en pool moeten binnen het subnet vallen (start < pool)")
+            elif rs + len(t.get("edges", [])) - 1 >= lo:
+                err.append(f"WAN-emulatie {name}: te veel spokes voor de reserveringen (.{rs} t/m .{lo - 1})")
+    try:
+        ui = ipaddress.ip_interface(str(up.get("ip", "")).strip())
+        if ui.network.prefixlen == 32 or not _ip(up.get("gw", "")) or ipaddress.ip_address(up["gw"].strip()) not in ui.network:
+            err.append("WAN-emulatie uplink: gateway ontbreekt of ligt niet in het subnet van het uplink-IP")
+        nets["uplink"] = ui.network
+    except ValueError:
+        err.append("WAN-emulatie uplink: IP als a.b.c.d/nn is verplicht")
+    names = list(nets)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if nets[a].overlaps(nets[b]):
+                err.append(f"WAN-emulatie: {a} en {b} overlappen")
+    vlans = [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]
+    if any(not isinstance(v, int) or not 1 <= v <= 4094 for v in vlans) or len(set(vlans)) != len(vlans):
+        err.append("WAN-emulatie: VLAN's moeten uniek zijn en 1-4094")
+    hub = seg.get("hub", {})
+    hn = nets.get(hub.get("name", "hub"))
+    for h in t.get("hubs", []):
+        try:
+            inside = hn is not None and ipaddress.ip_interface(h.get("wan1_ip", "").strip()).ip in hn
+        except ValueError:
+            inside = False
+        if not inside:
+            err.append(f"{h.get('name')}: wan1 moet in ISP-HUB ({hn}) liggen")
+        elif (h.get("wan1_gw") or "").strip() != hub.get("gw"):
+            err.append(f"{h.get('name')}: wan1 gateway moet de ISP-HUB-gateway {hub.get('gw')} zijn")
+    return err
+
+
+def validate_pve(t, wanemu=True):
+    """Extra checks when VMs are created on Proxmox (day-0). wanemu=False: no FortiGate-VMs in this run (e.g. only the
+    FortiManager), so the WAN emulator - which comes with every FortiGate-VM deployment - is not checked."""
+    c, err = t.get("pve", {}), (validate_wanemu(t) if wanemu else [])
     if not re.match(r"^https?://[^\s/]+(:\d+)?/?$", c.get("url", "")):
         err.append("Proxmox: URL als https://host:8006 is verplicht")
     if not re.match(r"^[^\s!]+@[^\s!]+![^\s!]+$", c.get("token_id", "")):

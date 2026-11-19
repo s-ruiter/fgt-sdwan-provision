@@ -96,6 +96,27 @@ def get_psk(conn, adom, create=False):
     return psk
 
 
+def get_secret(conn, name, create=None):
+    """A tool secret (e.g. the wan-emu SSH key). create = callable that makes a new value when none is stored;
+    without it a missing secret returns None."""
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (f"secret:{name}",)).fetchone()
+    if row:
+        return row[0]
+    if create is None:
+        return None
+    v = create()
+    conn.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                 (f"secret:{name}", v))
+    conn.commit()
+    return v
+
+
+def put_secret(conn, name, value):
+    conn.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                 (f"secret:{name}", value))
+    conn.commit()
+
+
 # ---- deployment jobs: persisted so progress survives a page refresh and a service restart -------------------------
 def save_job(conn, job):
     """job = {id, created, title, state, dry_run, steps{}, events[]}; events are already masked (no secrets)."""

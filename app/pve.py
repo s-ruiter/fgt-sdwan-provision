@@ -126,9 +126,15 @@ class Pve:
     def next_vmid(self):
         return int(self._req("GET", "/cluster/nextid"))
 
+    def _tagged(self, tag, kind):
+        rows = self._req("GET", "/cluster/resources", params={"type": "vm"}) or []   # qemu VMs and LXC containers
+        return [r for r in rows if r.get("type", "qemu") == kind and tag in str(r.get("tags", "")).split(";")]
+
     def find_vms(self, tag):
-        rows = self._req("GET", "/cluster/resources", params={"type": "vm"}) or []
-        return [r for r in rows if tag in str(r.get("tags", "")).split(";")]
+        return self._tagged(tag, "qemu")
+
+    def find_cts(self, tag):
+        return self._tagged(tag, "lxc")
 
     # ---- storage
     def upload(self, node, storage, path, filename, content, on_progress=None):
@@ -153,6 +159,25 @@ class Pve:
     def delete_vm(self, node, vmid):
         return self._req("DELETE", f"/nodes/{node}/qemu/{vmid}",
                          params={"purge": 1, "destroy-unreferenced-disks": 1})
+
+    # ---- LXC containers
+    def create_ct(self, node, params):
+        return self._req("POST", f"/nodes/{node}/lxc", data=params)
+
+    def set_ct_config(self, node, vmid, params):
+        return self._req("PUT", f"/nodes/{node}/lxc/{vmid}/config", data=params)
+
+    def start_ct(self, node, vmid):
+        return self._req("POST", f"/nodes/{node}/lxc/{vmid}/status/start")
+
+    def stop_ct(self, node, vmid):
+        return self._req("POST", f"/nodes/{node}/lxc/{vmid}/status/stop")
+
+    def ct_status(self, node, vmid):
+        return (self._req("GET", f"/nodes/{node}/lxc/{vmid}/status/current") or {}).get("status")
+
+    def delete_ct(self, node, vmid):
+        return self._req("DELETE", f"/nodes/{node}/lxc/{vmid}", params={"purge": 1, "force": 1})
 
     def wait_task(self, node, upid, timeout=3600):
         end = time.monotonic() + timeout

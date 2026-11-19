@@ -11,7 +11,7 @@ def topo(multi):
     t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
     for i, d in enumerate(t["hubs"] + t["edges"]):
         d["serial"] = f"FGVMMLTM2600{i:04d}"
-    t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.64.1.6", "100.64.2.6"
+    t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.127.200.1", "100.127.200.1"
     return t
 
 
@@ -42,7 +42,7 @@ assert "lan3_intf" in cols(csvio.export_csv(three))
 for delim in (";", ","):
     hubs, edges, notes, todo = imp(csvio.export_csv(m, delim), m)
     assert [d["name"] for d in hubs] == ["site1-H1", "site1-H2"] and len(edges) == 3 and notes == [] and todo == [], (todo, notes)
-    assert hubs[0]["wan1_gw"] == "100.64.1.6" and hubs[0]["wan1_ip"] == m["hubs"][0]["wan1_ip"]
+    assert hubs[0]["wan1_gw"] == "100.127.200.1" and hubs[0]["wan1_ip"] == m["hubs"][0]["wan1_ip"]
     assert "wan2_intf" not in hubs[0] and "wan1_ip" not in edges[0] and edges[0]["wan2_intf"] == "port2"   # hub: 1 wan; branch: DHCP
     assert edges[1]["wan2_intf"] == "" and edges[0]["lans"] == m["edges"][0]["lans"]
 # single-VRF GUI + multi-VRF layout in the file: extra LAN's dropped with a note
@@ -100,6 +100,9 @@ for multi in (True, False):
     assert r["todo"] == [], r["todo"]          # validated against the *imported* settings (mode matches the LAN columns)
     assert [d["name"] for d in r["hubs"]] == ["site1-H1", "site1-H2"] and len(r["edges"]) == 3
     assert "server_id" not in str(st)           # DB ids are not portable: only the server name travels
+    assert "wanemu.uplink.ip;10.10.106.250/24" in full and "wanemu.segments.b.vlan;3202" in full
+    assert st["wanemu"]["segments"]["a"]["subnet"] == "100.127.201.0/24" and st["wanemu"]["uplink"]["vlan"] == 106
+    assert st["wanemu"]["vmid"] is None and st["wanemu"]["segments"]["a"]["res_start"] == 11
 # fixed values: not in the file, and an imported/old file cannot change them
 full = csvio.export_csv(topo(True), full=True)
 for k in ("platform", "dns_primary", "dns_secondary", "wan1_access", "psk", "lo_summary", "region.name", "region.bgp_as", "region.lo_summary", "pve.license_mode"):

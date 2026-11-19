@@ -12,7 +12,7 @@ STATE = {}
 
 def reset():
     STATE.clear()
-    STATE.update(vms={}, uploads={}, calls=[], fail_create_at=None, creates=0, nextid=100, upid=0)
+    STATE.update(vms={}, cts={}, ct_delete_params=None, uploads={}, calls=[], fail_create_at=None, creates=0, nextid=100, upid=0)
 
 
 reset()
@@ -81,7 +81,35 @@ class H(BaseHTTPRequestHandler):
             return self._send(str(max([STATE["nextid"] - 1] + used) + 1))
         if path == "/cluster/resources":
             return self._send([{"vmid": v["vmid"], "name": v["name"], "tags": v["params"].get("tags", ""),
-                                "status": v["status"], "type": "qemu"} for v in vms.values()])
+                                "status": v["status"], "type": "qemu"} for v in vms.values()] +
+                              [{"vmid": c["vmid"], "name": c["params"].get("hostname"), "tags": c["params"].get("tags", ""),
+                                "status": c["status"], "type": "lxc"} for c in STATE["cts"].values()])
+        cts = STATE["cts"]
+        if path == "/nodes/pve1/lxc" and method == "POST":
+            f = {k: v[0] for k, v in parse_qs(body.decode()).items()}
+            if not f.get("ostemplate", "").startswith(("local:vztmpl/",)) or f.get("vmid") in cts or f.get("vmid") in vms:
+                return self._send(None, 500, "bad ostemplate or vmid in use")
+            if STATE.get("fail_ct_create"):
+                return self._send(None, 500, "ct create failed: simulated")
+            cts[f["vmid"]] = {"vmid": int(f["vmid"]), "params": f, "status": "stopped"}
+            return self._send(self._upid())
+        m = re.fullmatch(r"/nodes/pve1/lxc/(\d+)(/.*)?", path)
+        if m:
+            ct, sub = cts.get(m.group(1)), m.group(2) or ""
+            if ct is None:
+                return self._send(None, 500, "no such CT")
+            if method == "DELETE" and not sub:
+                STATE["ct_delete_params"] = q
+                cts.pop(m.group(1))
+                return self._send(self._upid())
+            if method == "POST" and sub in ("/status/start", "/status/stop"):
+                ct["status"] = "running" if sub.endswith("start") else "stopped"
+                return self._send(self._upid())
+            if method == "GET" and sub == "/status/current":
+                return self._send({"status": ct["status"]})
+            if method == "PUT" and sub == "/config":
+                ct["params"].update({k: v[0] for k, v in parse_qs(body.decode()).items()})
+                return self._send(None)
         m = re.fullmatch(r"/nodes/pve1/storage/([^/]+)/upload", path)
         if m and method == "POST":
             ctype = self.headers["Content-Type"]

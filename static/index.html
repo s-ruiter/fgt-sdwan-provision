@@ -16,6 +16,7 @@
         <a href="#/deploy" data-nav="deploy">Uitrol</a>
         <a href="#/progress" data-nav="progress">Voortgang</a>
         <a href="#/images" data-nav="images">Images</a>
+        <a href="#/wanemu" data-nav="wanemu">WAN-emulatie</a>
         <a href="#/servers" data-nav="servers">Servers</a>
         <a href="#/about" data-nav="about">Over</a>
       </nav>
@@ -76,10 +77,30 @@
           <div class="f"><label>RAM (MB)</label><input id="fgt_mem" type="number"></div>
         </div>
         <div class="hint">vCPU moet passen bij de FortiFlex-entitlement.</div>
-        <h4>Poorten <small>&rarr; bridge/VLAN (port1 = wan1; leeg = standaard bridge)</small></h4>
+        <h4>Poorten <small>&rarr; bridge/VLAN voor de LAN-poorten (de wan-poorten gaan altijd naar de WAN-emulatie; leeg = standaard bridge)</small></h4>
         <table id="ports" class="tbl"></table>
         <div class="hint">Nog geen image? Upload het <code>.out.kvm.zip</code> van FortiCloud op de pagina <a href="#/images" style="color:var(--accent)">Images</a>.</div>
         </div>
+
+        <div class="only-fgt" id="wanemu-section">
+        <h3>WAN-emulatie <small>(LXC wan-emu, altijd mee bij FortiGate-VM's)</small></h3>
+        <div class="hint">De container routeert tussen ISP-HUB (hubs, vast IP), ISP-A (wan1 van de spokes) en ISP-B (wan2), geeft de spokes een DHCP-reservering en doet NAT naar het lab via de uplink. Latency, jitter, loss en bandbreedte per link stel je in op de pagina <a href="#/wanemu" style="color:var(--accent)">WAN-emulatie</a>.</div>
+        <div class="fields">
+          <div class="f"><label>CT-id (leeg = automatisch)</label><input id="wan-vmid" type="number"></div>
+          <div class="f"><label>Template</label><input id="wan-template" class="mono"></div>
+          <div class="f"><label>Storage (rootfs)</label><input id="wan-storage"></div>
+          <div class="f"><label>Bridge</label><select id="wan-bridge"></select></div>
+          <div class="f"><label>Uplink VLAN</label><input id="wan-uplink-vlan" type="number"></div>
+          <div class="f"><label>Uplink IP/prefix</label><input id="wan-uplink-ip" class="mono"></div>
+          <div class="f"><label>Uplink gateway</label><input id="wan-uplink-gw" class="mono"></div>
+        </div>
+        <table class="tbl" id="wan-segs"><thead><tr><th>Segment</th><th>VLAN</th><th>Subnet</th><th>Gateway (= container)</th><th>Reservering vanaf</th></tr></thead><tbody>
+          <tr><td><b>ISP-HUB</b></td><td><input id="wan-seg-hub-vlan" type="number"></td><td><input id="wan-seg-hub-subnet" class="mono"></td><td><input id="wan-seg-hub-gw" class="mono"></td><td><span class="hint">vast (hubs)</span></td></tr>
+          <tr><td><b>ISP-A</b></td><td><input id="wan-seg-a-vlan" type="number"></td><td><input id="wan-seg-a-subnet" class="mono"></td><td><input id="wan-seg-a-gw" class="mono"></td><td><input id="wan-seg-a-res" type="number" title="eerste reservering (laatste octet)"></td></tr>
+          <tr><td><b>ISP-B</b></td><td><input id="wan-seg-b-vlan" type="number"></td><td><input id="wan-seg-b-subnet" class="mono"></td><td><input id="wan-seg-b-gw" class="mono"></td><td><input id="wan-seg-b-res" type="number" title="eerste reservering (laatste octet)"></td></tr>
+        </tbody></table>
+        <div class="hint">Spoke n krijgt .start+n in ISP-A (port1) en ISP-B (port2), op een vast MAC-adres; de pool voor overige clients is .100&ndash;.199. Hub-wan1 moet in ISP-HUB liggen met de ISP-HUB-gateway.</div>
+        </div><!-- /wanemu -->
       </div>
 
       <div class="card">
@@ -170,6 +191,17 @@
         <div class="btnrow"><button id="srv_test">Testen</button><span class="hint" id="srv_res"></span></div>
         <div class="actions"><button id="srv_cancel" hidden>Annuleren</button><button id="srv_save" class="primary">Opslaan</button></div>
       </div>
+    </section>
+
+    <section id="v_wanemu" hidden>
+      <h1>WAN-emulatie</h1>
+      <div id="wanemu-err"></div>
+      <div class="card">
+        <h2><span class="num">01</span>Presets <small id="wanemu-addr"></small></h2>
+        <div class="hint">Waarden gelden in beide richtingen: een vertraging van 40 ms geeft een RTT van 80 ms. Een preset zonder link geldt voor alle links; de storing-presets zetten alleen die links down. Per link kies je onder de kaart ook een preset.</div>
+        <div class="btnrow" id="wanemu-presets"></div>
+      </div>
+      <div class="wan-cols" id="wanemu-links"></div>
     </section>
 
     <section id="v_images" hidden>

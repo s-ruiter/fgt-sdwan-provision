@@ -29,7 +29,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 t = base_topo()
 t["pve"].update(url=PVE, token_id="root@pam!deploy", node="pve1", disk_storage="local-lvm", import_storage="local",
                 iso_storage="local", default_bridge="vmbr0")
-t["pve"]["ports"]["port1"] = {"bridge": "vmbr1", "vlan": 20}
+t["pve"]["ports"]["port5"] = {"bridge": "vmbr1", "vlan": 20}      # LAN port: per-port table
 assert model.validate(t) == [] and model.validate_pve(t) == [], (model.validate(t), model.validate_pve(t))
 devs = t["hubs"] + t["edges"]
 project, inv = model.build(t)
@@ -51,11 +51,18 @@ def emit(step, status, msg):
     events.append((step, status, msg))
 
 
+from tests import fake_wanemu  # noqa: E402
+from app.wanemu.setup import new_ssh_key  # noqa: E402
+WANEMU_KEY = new_ssh_key()
+
+
 def boot(**kw):
     b = {"dry": False, "fmg": "day0", "fgt": "day0", "fmg_token": TOK_FMG, "fgt_tokens": TOKS, "fmg_new_pw": NEWPW,
          "fgt_new_pw": NEWPW, "pve_secret": PVE_SECRET, "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
          "waiter": lambda h, p, up, tmo: True, "poll": 0, "login_delay": 0, "online_timeout": 5,
          "fgt_boot_timeout": 5}
+    b.setdefault("wanemu_secrets", {"ssh_key": WANEMU_KEY, "agent_token": "agenttoken1234567890"})
+    b.setdefault("wanemu_connector", fake_wanemu.connector(fake_wanemu.FakeShell(installed=True)))
     b.update(kw)
     return b
 
@@ -84,6 +91,11 @@ for s, st, m in events:
     if st != "info":           # same rule as main.emit: info lines never change a step's status
         last[s] = st
 print({k: v for k, v in last.items()})
+order = [s for s, st, _ in events if st != "info"]
+assert last["pve_wan"] == "ok" and order.index("templates") < order.index("pve_wan") < order.index("pve_fgt"), order
+assert len(fake_proxmox.STATE["cts"]) == 1 and next(iter(fake_proxmox.STATE["cts"].values()))["status"] == "running"
+assert all("agenttoken" not in m and "PRIVATE KEY" not in m for _, _, m in events)
+print("OK  WAN-emulator: stap pve_wan na de templates en vóór de FortiGate-VM's, CT draait, geen secrets in events")
 assert all(v == "ok" for v in last.values()), last
 order = [s for s, _, _ in events]
 firsts = [order.index(s) for s in ("pve_fmg", "bootstrap_fmg", "preflight", "adom", "devices", "templates",
@@ -99,7 +111,9 @@ assert "scsi1" in by["fmg"] and by["fmg"]["scsi1"] == "local-lvm:100" and by["fm
 assert by["fmg"]["net0"] == "virtio,bridge=vmbr0" and "net1" not in by["fmg"]
 nics = lambda p: len([k for k in p if re.fullmatch(r"net\d+", k)])
 assert nics(by["site1-H1"]) == 6 and nics(by["site1-1"]) == 6, (nics(by["site1-H1"]), nics(by["site1-1"]))   # always 6 (vm_interface_number)
-assert by["site1-1"]["net0"] == "virtio,bridge=vmbr1,tag=20" and by["site1-1"]["net1"] == "virtio,bridge=vmbr0"
+from app.wanemu.net import mac_for
+assert by["site1-1"]["net4"] == "virtio,bridge=vmbr1,tag=20" and by["site1-1"]["net2"] == "virtio,bridge=vmbr0"
+assert by["site1-1"]["net0"] == f"virtio={mac_for('site1-1', 1)},bridge=vmbr0,tag=3201"            # wan1 -> ISP-A
 assert all(re.match(r"local:import/fgt-sdwan-[0-9a-f]{8}-(fgt|fmg)\.qcow2", p["scsi0"].split("import-from=")[1]) or True for p in by.values())
 assert all(p.get("scsihw") == "virtio-scsi-single" for n, p in by.items() if n != "fmg"), {n: p.get("scsihw") for n, p in by.items()}
 assert "scsihw" not in by["fmg"]                                                   # FMG boots on the default (LSI)
@@ -155,6 +169,7 @@ events.clear()
 b = boot(dry=True, pve_secret="")
 pipeline(t, cfg, Fmg("http://127.0.0.1:1", dry_run=True), emit, b)
 assert any("[dry-run]" in m and "Day-0 ISO" in m for _, _, m in events) and fake_proxmox.STATE["creates"] == 6
+assert any("[dry-run] wan-emu net2: name=eth2,bridge=vmbr0,tag=3201" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 1
 print("OK  dry-run: plan per VM gelogd, niets naar Proxmox")
 
 # ---------------------------------------------------------------- rollback

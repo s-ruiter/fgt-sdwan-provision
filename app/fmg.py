@@ -197,6 +197,33 @@ def _pve_vms(topo, boot, which, step, emit, state):
     emit(step, "ok", "VM('s) aangemaakt en gestart")
 
 
+def _wanemu(topo, boot, emit, step="pve_wan"):
+    """WAN emulator (always with Day-0 FortiGates): the LXC that routes ISP-HUB / ISP-A / ISP-B and does DHCP."""
+    from . import provision_vms as pv
+    from .wanemu import net, setup
+    w = topo["wanemu"]
+    if boot.get("dry"):
+        for k, v in net.ct_params(topo, w.get("vmid") or 0, "ssh-ed25519 ...").items():
+            if k.startswith("net"):
+                emit(step, "running", f"[dry-run] {w['hostname']} {k}: {v}")
+        for r in net.reservations(topo):
+            emit(step, "running", f"[dry-run] DHCP {w['segments'][r['seg']]['name']}: {r['name']} {r['mac']} -> {r['ip']}")
+        emit(step, "ok", "dry-run: geen container aangemaakt")
+        return
+    pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
+    boot["pve_client"] = pve
+    emit(step, "running", f"WAN-emulator {w['hostname']} op Proxmox node {topo['pve']['node']}")
+    try:
+        r = setup.deploy_wanemu(pve, topo, boot["wanemu_secrets"], emit, step, connector=boot.get("wanemu_connector"),
+                                waiter=boot.get("waiter"))
+    except setup.WanEmuError as e:
+        raise FmgError(str(e)) from e
+    segs = ", ".join(f"{g['name']} {g['subnet']}" for g in w["segments"].values())
+    emit(step, "ok" if r["internet"] else "warn",       # no internet: keep the step on warning (licences will fail)
+         f"{w['hostname']} (CT {r['vmid']}{', nieuw' if r['created'] else ''}) klaar: {segs}"
+         + ("" if r["internet"] else " - maar zonder internet vanuit de segmenten"))
+
+
 def _login_retry(fmg, attempts, delay, progress=None):
     """A FortiManager that just booted is not ready for a while, so connection problems are retried. A refused login is
     not: repeating a wrong password locks the account (default: 3 failures), so that stops after two tries with a clear
@@ -512,6 +539,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
 
     if scope in NO_DEVICES:
         emit("devices", "skipped", f"{why[scope]}: model devices komen bij 'Alleen FortiGates'")
+        emit("pve_wan", "skipped", why_fgt)
         emit("pve_fgt", "skipped", why_fgt)
         emit("bootstrap_fgt", "skipped", why_fgt)
         from .fmgapply import apply_plan
@@ -557,6 +585,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     # real FortiGates (Alles / Alleen FortiGates): VM + Day-0 (hub static wan1, licence, FMG link), register, online
     names = [d["name"] for d, _ in devices]
     if m_fgt == "day0":
+        _wanemu(topo, boot, emit)
         _pve_vms(topo, boot, "fgt", "pve_fgt", emit, state)
         emit("bootstrap_fgt", "running", "wachten tot de FortiGates gelicenseerd zijn en zich bij FortiManager melden")
         offline = wait_online(fmg, adom, names, boot.get("fgt_boot_timeout", 900), emit, "bootstrap_fgt",
@@ -569,6 +598,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
             pv.cleanup_isos(boot["pve_client"], topo["pve"], [n for n in names if n not in offline], state, emit,
                             "bootstrap_fgt")
     else:
+        emit("pve_wan", "skipped", why_fgt)
         emit("pve_fgt", "skipped", why_fgt)
         if m_fgt == "ssh":
             _bootstrap_fgts(topo, devices, boot, emit)

@@ -27,3 +27,25 @@ ids = set(re.findall(r'\$\("#([A-Za-z_][\w-]*)"\)', js))
 missing = sorted(i for i in ids if f'id="{i}"' not in html and i not in dynamic)
 assert not missing, f"ids in app.js die niet in index.html staan: {missing}"
 print("OK  UI statisch: app.js parseert, start-up-functies bestaan, alle $('#id')-elementen staan in index.html")
+
+# WAN emulator settings: always on with FortiGate-VMs (no on/off switch), prefilled from the defaults
+sec = html[html.index('id="wanemu-section"') - 200:]
+sec = sec[:sec.index("</div><!-- /wanemu -->")]
+assert 'class="only-fgt"' in sec[:300], "WAN-emulatie hoort bij de FortiGate-VM's (alleen bij Day-0 FortiGates)"
+for i in ("wan-vmid", "wan-template", "wan-storage", "wan-bridge", "wan-uplink-vlan", "wan-uplink-ip", "wan-uplink-gw",
+          "wan-seg-hub-vlan", "wan-seg-hub-subnet", "wan-seg-hub-gw", "wan-seg-a-vlan", "wan-seg-a-subnet", "wan-seg-a-gw",
+          "wan-seg-a-res", "wan-seg-b-vlan", "wan-seg-b-subnet", "wan-seg-b-gw", "wan-seg-b-res"):
+    assert f'id="{i}"' in sec, i
+assert 'type="checkbox"' not in sec, "geen aan/uit-schakelaar: de WAN-emulator is altijd aan"
+assert "wanFill(" in js and "wanCollect(" in js and "t.wanemu = wanCollect()" in js
+print("OK  UI: instellingen WAN-emulatie (container, uplink, ISP-HUB/ISP-A/ISP-B) zonder aan/uit, gevuld uit de standaarden")
+
+# WAN-emulatie page: own view, cards per link in three segment columns, presets, error box
+assert 'href="#/wanemu" data-nav="wanemu"' in html and 'id="v_wanemu"' in html
+for i in ("wanemu-links", "wanemu-presets", "wanemu-err", "wanemu-addr"):
+    assert f'id="{i}"' in html, i
+assert '"wanemu"' in js[js.index("const VIEWS"):js.index("const VIEWS") + 120]
+for f in ("wanLoad", "wanCard", "wanApply"):
+    assert re.search(rf"(async\s+)?function\s+{f}\b", js), f
+assert "/api/wanemu/links" in js and "/api/wanemu/preset/" in js and "/api/wanemu/reset" in js
+print("OK  UI: pagina WAN-emulatie (kaart per link per segment, presets, foutmelding, verversen)")
