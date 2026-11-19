@@ -115,6 +115,11 @@ class H(BaseHTTPRequestHandler):
                 cts.pop(m.group(1))
                 return self._send(self._upid())
             if method == "POST" and sub in ("/status/start", "/status/stop"):
+                if sub.endswith("start") and STATE.get("fail_ct_start"):      # task runs, then fails (like PVE)
+                    upid = self._upid()
+                    STATE.setdefault("failed_tasks", {})[upid] = (f"startup for container '{m.group(1)}' failed",
+                                                                  STATE["fail_ct_start"])
+                    return self._send(upid)
                 ct["status"] = "running" if sub.endswith("start") else "stopped"
                 return self._send(self._upid())
             if method == "GET" and sub == "/status/current":
@@ -193,9 +198,13 @@ class H(BaseHTTPRequestHandler):
             if method == "PUT" and sub == "/config":
                 vm["params"].update({k: v[0] for k, v in parse_qs(body.decode()).items()})
                 return self._send(None)
-        m = re.fullmatch(r"/nodes/pve1/tasks/([^/]+)/status", path)
+        m = re.fullmatch(r"/nodes/pve1/tasks/([^/]+)/(status|log)", path)
         if m:
-            return self._send({"status": "stopped", "exitstatus": "OK"})
+            fail = STATE.get("failed_tasks", {}).get(m.group(1))
+            if m.group(2) == "log":
+                lines = (fail[1] if fail else ["TASK OK"])
+                return self._send([{"n": i + 1, "t": x} for i, x in enumerate(lines)])
+            return self._send({"status": "stopped", "exitstatus": fail[0] if fail else "OK"})
         return self._send(None, 501, f"not implemented: {method} {path}")
 
     def do_GET(self):

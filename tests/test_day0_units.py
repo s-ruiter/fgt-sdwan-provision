@@ -203,6 +203,14 @@ def test_pve_lxc():
         assert [(c["vmid"], c["name"]) for c in found] == [(130, "wan-emu")] and p.find_vms("fgt-sdwan") == []
         p.set_ct_config("pve1", 130, {"net0": "name=eth0,bridge=vmbr0,tag=106,ip=10.10.106.251/24,gw=10.10.106.1"})
         assert ct["params"]["net0"].endswith("ip=10.10.106.251/24,gw=10.10.106.1")
+        fake_proxmox.STATE["fail_ct_start"] = ["lxc-start: 130: network.c: instantiate_veth: 179 Operation not supported",
+                                               "lxc-start: 130: The container failed to start.", "TASK ERROR: startup failed"]
+        try:                                           # a failed task carries the end of its Proxmox task log
+            p.wait_task("pve1", p.start_ct("pve1", 130))
+            raise AssertionError("expected PveError")
+        except PveError as e:
+            assert "startup for container '130' failed" in str(e) and "instantiate_veth" in str(e), e
+        fake_proxmox.STATE["fail_ct_start"] = None
         p.wait_task("pve1", p.start_ct("pve1", 130))
         assert p.ct_status("pve1", 130) == "running"
         p.wait_task("pve1", p.stop_ct("pve1", 130))
