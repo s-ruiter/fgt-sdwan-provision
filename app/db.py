@@ -59,8 +59,15 @@ def get_server(conn, server_id):
     return conn.execute("SELECT * FROM servers WHERE id=?", (server_id,)).fetchone()
 
 
-def save_last_used(conn, server_id, pve_cfg):
+def save_last_used(conn, server_id, pve_cfg, wanemu=None):
+    """Remember this server's Proxmox choices, plus the WAN emulator uplink (lab-specific, no default). A run without a
+    filled-in uplink keeps the one remembered before."""
     data = {k: pve_cfg[k] for k in REMEMBER if k in pve_cfg}
+    up = (wanemu or {}).get("uplink") or {}
+    if str(up.get("ip") or "").strip():
+        data["wanemu_uplink"] = {k: up.get(k) for k in ("vlan", "ip", "gw")}
+    elif "wanemu_uplink" in get_last_used(conn, server_id):
+        data["wanemu_uplink"] = get_last_used(conn, server_id)["wanemu_uplink"]
     conn.execute("INSERT INTO last_used(server_id,data) VALUES(?,?) ON CONFLICT(server_id) DO UPDATE SET data=excluded.data",
                  (server_id, json.dumps(data)))
     conn.execute("INSERT INTO settings(key,value) VALUES('last_server',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",

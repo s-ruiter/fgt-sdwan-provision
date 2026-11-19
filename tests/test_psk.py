@@ -18,3 +18,16 @@ t = model.merged({})
 assert (t["dns_primary"], t["dns_secondary"], t["wan1_access"], t["platform"]) == ("1.1.1.1", "8.8.8.8", "ping https ssh fgfm", "FortiGate-VM64")
 assert (t["region"]["name"], t["region"]["bgp_as"], t["region"]["lo_summary"], t["lo_summary"]) == ("West", 65001, "10.200.1.0/24", "10.200.0.0/14")
 print("OK  PSK: willekeurig, stabiel per ADOM, placeholder in previews, db 0600; vaste instellingen")
+
+# last-used per Proxmox server also remembers the WAN emulator uplink (it has no default); an empty one is not saved
+c2 = db.connect(tempfile.mkdtemp())
+for i in (1, 2):
+    c2.execute("INSERT INTO servers(id,name,url,token_id,token_secret) VALUES(?,?,?,?,?)", (i, f"pve{i}", "https://x:8006", "a@pam!b", "s"))
+up = {"vlan": 106, "ip": "10.10.106.250/24", "gw": "10.10.106.1"}
+db.save_last_used(c2, 1, {"node": "pve01"}, {"uplink": up})
+assert db.get_last_used(c2, 1) == {"node": "pve01", "wanemu_uplink": up}, db.get_last_used(c2, 1)
+db.save_last_used(c2, 2, {"node": "pve02"}, {"uplink": {"vlan": None, "ip": "", "gw": ""}})
+assert db.get_last_used(c2, 2) == {"node": "pve02"}
+db.save_last_used(c2, 1, {"node": "pve01"})                       # a run without wan-emu keeps the remembered uplink
+assert db.get_last_used(c2, 1)["wanemu_uplink"] == up
+print("OK  last-used: WAN-emulator uplink per server onthouden")

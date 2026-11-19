@@ -856,7 +856,7 @@ def deploy(r: DeployReq):
         lic = _licenses(topo, r, dry=False)    # real serials + tokens (under a lock), then render with the real serials
         _, _, cfg = render()
     if sid:                                    # remember this server's choices for the next run
-        db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"])
+        db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"], topo.get("wanemu"))
     s = r.secrets
     mask = Masker(s.fmg_token, s.fmg_initial_pw, s.fgt_initial_pw, s.fgt_new_pw, s.client_pw, r.fmg.password, r.fmg.api_token,
                   s.pve_token_secret, *s.fgt_tokens.values())

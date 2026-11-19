@@ -449,8 +449,13 @@ async function applyLast(sid) {
   if (!sid) return;
   const last = await (await fetch(`/api/servers/${sid}/last-used`)).json();
   if (!Object.keys(last).length) return;
-  T.pve = Object.assign({}, T.pve, last, { ports: Object.assign({}, T.pve.ports, last.ports || {}) });
+  const { wanemu_uplink: up, ...pve } = last;
+  T.pve = Object.assign({}, T.pve, pve, { ports: Object.assign({}, T.pve.ports, pve.ports || {}) });
   pveFill(T.pve);
+  if (up && !$("#wan-uplink-ip").value.trim()) {          // uplink of this server's last deployment (it has no default)
+    $("#wan-uplink-vlan").value = up.vlan ?? ""; $("#wan-uplink-ip").value = up.ip || ""; $("#wan-uplink-gw").value = up.gw || "";
+    topoDraw();
+  }
 }
 $("#pve_server").addEventListener("change", async () => { $("#pve_res").textContent = ""; await applyLast($("#pve_server").value); await loadPve(); });
 $("#srv_list").addEventListener("click", async (e) => {
