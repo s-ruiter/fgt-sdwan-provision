@@ -109,7 +109,7 @@ function pveFill(p) {
   setSel("#pve_isostore", names(PVE_OPT.iso_storages), p.iso_storage);
   setSel("#pve_br", PVE_OPT.bridges, p.default_bridge);
   setSel("#fmg_br", PVE_OPT.bridges, p.fmg.bridge, "(standaard bridge)");
-  $("#pve_cpu").value = p.cpu_type;
+  $("#pve_cpu").value = p.cpu_type; $("#pve_first").value = p.first_vmid ?? "";
   $("#fgt_cores").value = p.fgt.cores; $("#fgt_mem").value = p.fgt.memory_mb;
   $("#fmg_cores").value = p.fmg.cores; $("#fmg_mem").value = p.fmg.memory_mb; $("#fmg_disk").value = p.fmg.data_disk_gb; $("#fmg_vlan").value = p.fmg.vlan ?? "";
   const opt = (v) => `<option value="">(standaard bridge)</option>` + [...new Set([...PVE_OPT.bridges, ...(v ? [v] : [])])].map((x) => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
@@ -169,7 +169,7 @@ function collect() {
   t.pve = {
     server_id: $("#pve_server").value ? +$("#pve_server").value : null, url: "", token_id: "", verify_tls: true, node: $("#pve_node").value.trim(),
     disk_storage: $("#pve_dstore").value.trim(), import_storage: $("#pve_istore").value.trim(), iso_storage: $("#pve_isostore").value.trim(),
-    default_bridge: $("#pve_br").value.trim(), cpu_type: $("#pve_cpu").value.trim() || "host", license_mode: "cli",   // FortiFlex: always `execute vm-license <token>` as the last CLI line
+    default_bridge: $("#pve_br").value.trim(), cpu_type: $("#pve_cpu").value.trim() || "host", license_mode: "cli", first_vmid: n($("#pve_first").value),   // FortiFlex: always `execute vm-license <token>` as the last CLI line
     fgt: { cores: +$("#fgt_cores").value, memory_mb: +$("#fgt_mem").value },
     fmg: { cores: +$("#fmg_cores").value, memory_mb: +$("#fmg_mem").value, data_disk_gb: +$("#fmg_disk").value, bridge: $("#fmg_br").value.trim(), vlan: n($("#fmg_vlan").value) },
     ports: Object.fromEntries([...document.querySelectorAll("[data-p]")].map((r) => [r.dataset.p, { bridge: r.querySelector("[data-f=bridge]").value.trim(), vlan: n(r.querySelector("[data-f=vlan]").value) }])),

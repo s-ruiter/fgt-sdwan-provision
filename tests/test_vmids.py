@@ -31,3 +31,17 @@ assert pv.deploy_names(model.merged({}), "fgt") == names[1:]
 assert pv.deploy_names(model.merged({}), "lan") == names[-3:]
 assert pv.deploy_names(model.merged({}), "fmg") == ["fmg"] and pv.deploy_names(model.merged({}), "tpl") == []
 print("OK  VM-ID's: één aaneengesloten blok (FMG, wan-emu, hubs, spokes, clients), vanaf 'first' of 100; hergebruik houdt zijn ID")
+
+# setting: pve.first_vmid (empty = automatic), validated, in the UI and the full CSV export
+t = model.merged({})
+assert t["pve"]["first_vmid"] is None
+t["pve"].update(url="https://pve:8006", token_id="a@pam!b", node="n", disk_storage="d", import_storage="i", iso_storage="s")
+assert not any("First VM ID" in e for e in model.validate_pve(t))
+t["pve"]["first_vmid"] = 50
+assert any("First VM ID" in e for e in model.validate_pve(t))
+from app import csvio  # noqa: E402
+assert "pve.first_vmid;" in csvio.export_csv(model.merged({"pve": {"first_vmid": 500}}), full=True)
+root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+html, js = open(os.path.join(root, "static", "index.html")).read(), open(os.path.join(root, "static", "app.js")).read()
+assert 'id="pve_first"' in html and "first_vmid" in js
+print("OK  instelling First VM ID: leeg = automatisch, gevalideerd, in GUI en CSV")
