@@ -97,6 +97,8 @@ class H(BaseHTTPRequestHandler):
             f = {k: v[0] for k, v in parse_qs(body.decode()).items()}
             if not f.get("ostemplate", "").startswith(("local:vztmpl/",)) or f.get("vmid") in cts or f.get("vmid") in vms:
                 return self._send(None, 500, "bad ostemplate or vmid in use")
+            if f["ostemplate"] not in STATE["uploads"]:
+                return self._send(None, 500, f"unable to create CT {f['vmid']} - volume '{f['ostemplate']}' does not exist")
             if STATE.get("fail_ct_create"):
                 return self._send(None, 500, "ct create failed: simulated")
             cts[f["vmid"]] = {"vmid": int(f["vmid"]), "params": f, "status": "stopped"}
@@ -120,6 +122,17 @@ class H(BaseHTTPRequestHandler):
             if method == "PUT" and sub == "/config":
                 ct["params"].update({k: v[0] for k, v in parse_qs(body.decode()).items()})
                 return self._send(None)
+        if path == "/nodes/pve1/aplinfo" and method == "GET":         # appliance index (pveam available)
+            return self._send([{"template": x, "section": "system", "package": x.split("_")[0], "os": "debian"}
+                               for x in ("debian-12-standard_12.12-1_amd64.tar.zst", "debian-13-standard_13.0-1_amd64.tar.zst",
+                                         "debian-13-standard_13.1-2_amd64.tar.zst", "debian-13-standard_13.6-1_arm64.tar.zst",
+                                         "debian-13-turnkey-core_19.0.3_amd64.tar.gz")])     # real index: arm64 + turnkey too
+        if path == "/nodes/pve1/aplinfo" and method == "POST":        # pveam download <storage> <template>
+            if STATE.get("aplinfo_denied"):
+                return self._send(None, 403, "Permission check failed (/storage/local, Datastore.AllocateTemplate)")
+            f = {k: v[0] for k, v in parse_qs(body.decode()).items()}
+            STATE["uploads"][f"{f['storage']}:vztmpl/{f['template']}"] = b"tmpl"
+            return self._send(self._upid())
         m = re.fullmatch(r"/nodes/pve1/storage/([^/]+)/upload", path)
         if m and method == "POST":
             ctype = self.headers["Content-Type"]

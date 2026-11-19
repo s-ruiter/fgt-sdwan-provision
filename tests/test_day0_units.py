@@ -189,6 +189,12 @@ def test_pve_lxc():
         params = {"vmid": 130, "hostname": "wan-emu", "ostemplate": "local:vztmpl/debian-13.tar.zst", "tags": "fgt-sdwan",
                   "net0": "name=eth0,bridge=vmbr0,tag=106,ip=10.10.106.250/24,gw=10.10.106.1",
                   "ssh-public-keys": "ssh-ed25519 AAAA x"}
+        try:                                           # like Proxmox: the template volume must exist on the storage
+            p.wait_task("pve1", p.create_ct("pve1", params))
+            raise AssertionError("CT created without a template")
+        except PveError as e:
+            assert "does not exist" in str(e), e
+        fake_proxmox.STATE["uploads"]["local:vztmpl/debian-13.tar.zst"] = b"x"
         p.wait_task("pve1", p.create_ct("pve1", params))
         ct = fake_proxmox.STATE["cts"]["130"]
         assert ct["params"]["ostemplate"].startswith("local:vztmpl/") and ct["params"]["ssh-public-keys"] == "ssh-ed25519 AAAA x"
@@ -208,10 +214,52 @@ def test_pve_lxc():
     print("OK  Proxmox-client LXC: aanmaken, vinden op tag (los van VM's), config, start/stop/status, verwijderen")
 
 
+def test_ct_template():
+    """The CT template (fixed: debian-13-standard) is fetched from the Proxmox appliance index when the storage lacks it,
+    like `pveam download`; a newer/older local debian-13-standard is used as is; no rights = clear message."""
+    from app.wanemu.setup import WanEmuError, ensure_template
+    fake_proxmox.reset()
+    srv = fake_proxmox.start(8097)
+    try:
+        p = Pve("http://127.0.0.1:8097", "root@pam!t", "secret")
+        p.poll = 0.01
+        t = model.merged({}); t["pve"]["node"] = "pve1"
+        log = []
+        emit = lambda step, st, msg: log.append(msg)
+        vol = ensure_template(p, t, emit)
+        assert vol == "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst", vol     # newest debian-13 in the index
+        assert vol in fake_proxmox.STATE["uploads"] and t["wanemu"]["template"] == vol
+        assert any("downloading" in m for m in log), log
+        n = sum(1 for c in fake_proxmox.STATE["calls"] if c == ("POST", "/nodes/pve1/aplinfo"))
+        assert ensure_template(p, t, emit) == vol and n == 1 and \
+            sum(1 for c in fake_proxmox.STATE["calls"] if c == ("POST", "/nodes/pve1/aplinfo")) == 1   # present: no download
+
+        fake_proxmox.reset()                                           # only another debian-13-standard on the storage
+        fake_proxmox.STATE["uploads"]["local:vztmpl/debian-13-standard_13.0-1_amd64.tar.zst"] = b"x"
+        fake_proxmox.STATE["uploads"]["local:vztmpl/debian-13-standard_13.9-1_arm64.tar.zst"] = b"x"   # other arch: no
+        t = model.merged({}); t["pve"]["node"] = "pve1"
+        assert ensure_template(p, t, emit) == "local:vztmpl/debian-13-standard_13.0-1_amd64.tar.zst"
+        assert ("POST", "/nodes/pve1/aplinfo") not in fake_proxmox.STATE["calls"]
+
+        fake_proxmox.reset()
+        fake_proxmox.STATE["aplinfo_denied"] = True                    # token without Datastore.AllocateTemplate
+        t = model.merged({}); t["pve"]["node"] = "pve1"
+        try:
+            ensure_template(p, t, emit)
+            raise AssertionError("expected WanEmuError")
+        except WanEmuError as e:
+            assert "pveam download local debian-13-standard_13.1-2_amd64.tar.zst" in str(e) and \
+                "Datastore.AllocateTemplate" in str(e), e
+    finally:
+        srv.shutdown()
+    print("OK  CT-template: ontbreekt -> download uit de Proxmox-index (nieuwste debian-13), lokaal aanwezig -> gebruikt, geen rechten -> duidelijke melding")
+
+
 if __name__ == "__main__":
     test_images()
     test_cloudinit()
     test_pve_client()
     test_pve_lxc()
     test_pve_perm_warning()
+    test_ct_template()
     print("alle day-0 unit-tests geslaagd")

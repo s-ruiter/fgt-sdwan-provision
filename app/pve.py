@@ -181,6 +181,14 @@ class Pve:
                          params={"purge": 1, "destroy-unreferenced-disks": 1})
 
     # ---- LXC containers
+    def appliances(self, node):
+        """Proxmox appliance index (`pveam available`): [{template, section, package, ...}]."""
+        return self._req("GET", f"/nodes/{node}/aplinfo") or []
+
+    def download_appliance(self, node, storage, template):
+        """`pveam download <storage> <template>`: returns a task UPID (needs Datastore.AllocateTemplate)."""
+        return self._req("POST", f"/nodes/{node}/aplinfo", data={"storage": storage, "template": template})
+
     def create_ct(self, node, params):
         return self._req("POST", f"/nodes/{node}/lxc", data=params)
 

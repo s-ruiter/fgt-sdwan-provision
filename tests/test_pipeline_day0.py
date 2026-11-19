@@ -157,8 +157,9 @@ for name, raw in iso_seen.items():
 print("OK  Day-0 ISO per VM: label config-2, execute vm-license <eigen token> als laatste CLI-regel, wachtwoord, hostname, FMG, allowaccess fgfm, static/dhcp juist")
 
 # cleanup: no ISO / import left, drives ejected
-ups = list(fake_proxmox.STATE["uploads"])
+ups = [u for u in fake_proxmox.STATE["uploads"] if ":vztmpl/" not in u]      # the CT template stays (cached, like pveam)
 assert ups == [], ups
+assert "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst" in fake_proxmox.STATE["uploads"]   # downloaded once
 assert all(p.get("ide2") == "none,media=cdrom" for p in by.values()), {n: p.get("ide2") for n, p in by.items()}
 print("OK  opruimen: import-bestanden en alle Day-0 ISO's verwijderd van storage, ide2 geeject")
 
@@ -171,7 +172,7 @@ n_vm, n_calls = len(vms), len(fake_proxmox.STATE["calls"])
 events.clear()
 pipeline(t, cfg, Fmg(FMG, "admin", NEWPW), emit, boot())
 assert len(vms) == n_vm == 6 and fake_proxmox.STATE["creates"] == 6, fake_proxmox.STATE["creates"]
-assert any("exists" in m for _, _, m in events) and not list(fake_proxmox.STATE["uploads"])
+assert any("exists" in m for _, _, m in events) and not [u for u in fake_proxmox.STATE["uploads"] if ":vztmpl/" not in u]
 print("OK  2e run idempotent: bestaande VM's hergebruikt (geen nieuwe create/upload)")
 
 # ---------------------------------------------------------------- dry-run
@@ -195,6 +196,6 @@ except Exception as e:
     assert "create failed" in str(e), e
 left = {v["name"] for v in fake_proxmox.STATE["vms"].values()}
 assert left == {"fmg"}, left
-assert list(fake_proxmox.STATE["uploads"]) == [], list(fake_proxmox.STATE["uploads"])
+assert [u for u in fake_proxmox.STATE["uploads"] if ":vztmpl/" not in u] == [], list(fake_proxmox.STATE["uploads"])
 print("OK  rollback: mislukte FortiGate-batch verwijdert zijn VM's + ISO's/imports; FMG blijft staan")
 print("alle day-0 pipeline-tests geslaagd")
