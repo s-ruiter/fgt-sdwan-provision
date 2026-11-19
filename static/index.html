@@ -19,6 +19,7 @@
         <a href="#/wanemu" data-nav="wanemu">WAN emulation</a>
         <a href="#/fortiflex" data-nav="fortiflex">FortiFlex</a>
         <a href="#/servers" data-nav="servers">Servers</a>
+        <a href="#/cleanup" data-nav="cleanup">Cleanup</a>
         <a href="#/about" data-nav="about">About</a>
       </nav>
     </div>
@@ -264,6 +265,30 @@
       </div>
       <div class="card"><h2><span class="num">02</span>Saved images</h2><div id="img_list"></div>
         <div class="hint">Compare the sha256 with the checksum in the FortiCloud portal. Images are kept in the container; they only go to Proxmox when you deploy.</div></div>
+    </section>
+
+    <section id="v_cleanup" hidden>
+      <h1>Cleanup</h1>
+      <div id="cl_err"></div>
+      <div class="card">
+        <h2><span class="num">01</span>What will be deleted</h2>
+        <div class="hint">Deletes everything this tool deployed on Proxmox: the VMs and containers with tag <code>fgt-sdwan</code> (FortiManager, FortiGates, wan-emu, LAN clients) with their disks, and the tool's leftover Day-0 ISOs and image imports (<code>fgt-sdwan-*</code>). The deploy container itself is never deleted, nor are VMs or containers without the tag. Saved servers, FortiFlex settings and uploaded images stay in the tool.</div>
+        <div class="fields">
+          <div class="f"><label>Proxmox server</label><select id="cl_server"></select></div>
+          <div class="f"><label>Node</label><select id="cl_node"></select></div>
+        </div>
+        <div class="btnrow"><button id="cl_show">Show what will be deleted</button></div>
+        <div id="cl_list"></div>
+      </div>
+      <div class="card">
+        <h2><span class="num">02</span>Delete</h2>
+        <div class="inline"><input type="checkbox" id="cl_licences"><label for="cl_licences">Also stop the FortiFlex licences of this tool (otherwise the next deployment reuses them)</label></div>
+        <div class="fields">
+          <div class="f"><label>Type DELETE to confirm</label><input id="cl_confirm" autocomplete="off" spellcheck="false"></div>
+        </div>
+        <div class="actions"><button id="cl_run" class="primary danger">Delete everything</button></div>
+        <div id="cl_res"></div>
+      </div>
     </section>
 
     <section id="v_about" hidden>
