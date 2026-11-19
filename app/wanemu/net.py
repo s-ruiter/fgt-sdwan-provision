@@ -57,11 +57,28 @@ def _uplink_net(t):
     return ipaddress.ip_interface(t["wanemu"]["uplink"]["ip"]).network
 
 
+def fortigates(t):
+    """FortiGates in a fixed order (hubs, then branches): index n is used for forwards and LAN VLANs."""
+    return [(h, True) for h in t["hubs"]] + [(e, False) for e in t["edges"]]
+
+
+def forwards(t):
+    """Port forwards on wan-emu: FortiGate n -> its WAN1 address, HTTPS base+n -> 443, SSH base+n -> 22."""
+    w = t["wanemu"]
+    res = {r["name"]: r["ip"] for r in reservations(t) if r["seg"] == "a"}
+    out = []
+    for n, (d, hub) in enumerate(fortigates(t)):
+        ip = _ip(d["wan1_ip"]) if hub else res.get(d["name"])
+        if ip:
+            out.append({"name": d["name"], "ip": ip, "https": w["fwd_https_base"] + n, "ssh": w["fwd_ssh_base"] + n})
+    return out
+
+
 def agent_topology(t):
     """What the agent in the container needs: the links, the source subnets that get NAT towards eth0, and the
     destinations that do NOT (the lab subnet: FortiManager sees the real FortiGate addresses and routes back)."""
     return {"links": links(t), "nat": [t["wanemu"]["segments"][s]["subnet"] for s in SEGS],
-            "no_nat": [str(_uplink_net(t))]}
+            "no_nat": [str(_uplink_net(t))], "forwards": forwards(t)}
 
 
 def fmg_routes(t):

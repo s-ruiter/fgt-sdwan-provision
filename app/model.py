@@ -55,6 +55,10 @@ DEFAULTS = {
     "wanemu": {
         "vmid": None, "hostname": "wan-emu", "template": "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst",
         "storage": "local-lvm", "bridge": "vmbr0", "cores": 1, "memory_mb": 512, "disk_gb": 4, "agent_port": 8090,
+        # port forwarding on the uplink: FortiGate n (hubs, then branches) on <base>+n -> its WAN1 443 / 22
+        "fwd_https_base": 10443, "fwd_ssh_base": 10022,
+        # LAN VLANs: LAN1 of FortiGate n on lan_vlan_base+1+n, LAN2 on lan2_vlan_base+1+n
+        "lan_vlan_base": 3300, "lan2_vlan_base": 3400,
         "uplink": {"vlan": 106, "ip": "10.10.106.250/24", "gw": "10.10.106.1"},
         "segments": {
             "hub": {"name": "ISP-HUB", "vlan": 3200, "subnet": "100.127.200.0/24", "gw": "100.127.200.1"},
@@ -406,6 +410,19 @@ def validate_wanemu(t):
     vlans = [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]
     if any(not isinstance(v, int) or not 1 <= v <= 4094 for v in vlans) or len(set(vlans)) != len(vlans):
         err.append("WAN-emulatie: VLAN's moeten uniek zijn en 1-4094")
+    n_fgt = len(t.get("hubs", [])) + len(t.get("edges", []))
+    ranges = []
+    for key, lbl in (("fwd_https_base", "HTTPS"), ("fwd_ssh_base", "SSH")):
+        b = w.get(key)
+        if not isinstance(b, int) or not 1024 <= b <= 65535 - n_fgt:
+            err.append(f"WAN-emulatie: poort-forward {lbl}-basis moet 1024-{65535 - n_fgt} zijn")
+        else:
+            ranges.append((lbl, b, b + n_fgt - 1))
+    if len(ranges) == 2 and not (ranges[0][2] < ranges[1][1] or ranges[1][2] < ranges[0][1]):
+        err.append("WAN-emulatie: de poortbereiken voor HTTPS en SSH overlappen")
+    for lbl, lo, hi in ranges:
+        if lo <= w.get("agent_port", 8090) <= hi:
+            err.append(f"WAN-emulatie: {lbl}-poortbereik {lo}-{hi} bevat de agent-poort {w.get('agent_port', 8090)}")
     hub = seg.get("hub", {})
     hn = nets.get(hub.get("name", "hub"))
     for h in t.get("hubs", []):
