@@ -592,7 +592,7 @@ function wanCard(l) {
   return `<div class="card wan-card${st.down ? " down" : ""}" data-wl="${esc(l.id)}"><b>${esc(l.name)}</b> <span class="mono">${esc(l.ip)}</span> <small>${esc(l.id.split("-").pop())}</small>` +
     WAN_F.map(([k, lbl, unit, lo, hi, step]) => `<div class="wan-f"><label>${lbl} <output>${st[k]}</output> ${unit}</label><input type="range" data-wf="${k}" min="${lo}" max="${hi}" step="${step}" value="${st[k]}"></div>`).join("") +
     `<div class="wan-f"><label><input type="checkbox" data-wf="down" ${st.down ? "checked" : ""}> link down</label></div>` +
-    `<div class="btnrow"><button class="primary" data-wa="1">Toepassen</button><select data-wps><option value="">preset…</option>${Object.entries(WAN.presets).filter(([k]) => !/storing|weg/.test(k)).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select><span class="hint">RTT +${rtt} ms</span></div></div>`;
+    `<div class="btnrow"><button class="primary" data-wa="1">Toepassen</button><span class="hint">RTT +${rtt} ms</span></div></div>`;
 }
 async function wanApply(card) {
   const v = {};
@@ -616,7 +616,6 @@ $("#v_wanemu").addEventListener("input", (e) => {
   if (i.type === "range") i.previousElementSibling.querySelector("output").textContent = i.value;
 });
 $("#v_wanemu").addEventListener("change", (e) => {
-  const s = e.target.closest("[data-wps]"); if (s && s.value) return wanPreset(s.value, s.closest("[data-wl]").dataset.wl);
   const f = e.target.closest("[data-wf]");                     // slider released / "link down" toggled: apply at once
   if (f) wanApply(f.closest("[data-wl]"));
 });

@@ -43,7 +43,7 @@ db.put_secret(conn, "wanemu_agent_token", "geheimtoken123")
 db.put_secret(conn, "wanemu_addr", f"127.0.0.1:{port}")
 
 r = main.wanemu_links()
-assert len(r["links"]) == 7 and r["addr"] == f"127.0.0.1:{port}" and "slechte-4g" in r["presets"]
+assert len(r["links"]) == 7 and r["addr"] == f"127.0.0.1:{port}" and "isp-a-storing" in r["presets"]
 assert {l["seg"] for l in r["links"]} == {"hub", "a", "b"} and all("state" in l for l in r["links"])
 assert "geheimtoken123" not in json.dumps(r)
 r = main.wanemu_put("site1-1-wan1", {"delay_ms": 25, "loss_pct": 1})
@@ -53,8 +53,10 @@ assert code == 400 and "loss_pct" in msg
 r = main.wanemu_preset("isp-a-storing", None)
 down = sorted(k for k, v in app.state.items() if v.get("down"))
 assert down == ["site1-1-wan1", "site1-2-wan1", "site1-3-wan1"], down
-main.wanemu_preset("slechte-4g", "site1-3-wan2")
-assert app.state["site1-3-wan2"]["delay_ms"] == 60 and app.state.get("site1-1-wan2", {}).get("delay_ms", 0) == 0
+from app.wanemu import client as _cl  # noqa: E402
+assert set(_cl.PRESETS) == {"isp-a-storing", "isp-b-storing", "hub1-weg"}, _cl.PRESETS     # only the failure presets
+code, _ = err(main.wanemu_preset, "slechte-4g", None)
+assert code == 404
 main.wanemu_preset("hub1-weg", None)
 assert app.state["site1-H1-wan1"]["down"] is True
 code, _ = err(main.wanemu_preset, "bestaat-niet", None)

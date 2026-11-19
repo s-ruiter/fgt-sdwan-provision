@@ -1,14 +1,8 @@
 """The tool's side of the WAN-emulator agent: HTTP client and presets. The agent token never leaves the tool."""
 import requests
 
-# values per link, applied in both directions (so a delay counts twice in the round trip)
+# failure scenarios: several links down at once ("Alles neutraal" / reset clears them)
 PRESETS = {
-    "neutraal": {"label": "Neutraal", "values": {"delay_ms": 0, "jitter_ms": 0, "loss_pct": 0, "rate_kbit": 0, "down": False}},
-    "glasvezel": {"label": "Glasvezel", "values": {"delay_ms": 2, "jitter_ms": 0, "loss_pct": 0, "rate_kbit": 1000000, "down": False}},
-    "dsl": {"label": "DSL", "values": {"delay_ms": 15, "jitter_ms": 3, "loss_pct": 0.1, "rate_kbit": 50000, "down": False}},
-    "slechte-4g": {"label": "Slechte 4G", "values": {"delay_ms": 60, "jitter_ms": 25, "loss_pct": 3, "rate_kbit": 10000, "down": False}},
-    "satelliet": {"label": "Satelliet", "values": {"delay_ms": 300, "jitter_ms": 20, "loss_pct": 0.5, "rate_kbit": 20000, "down": False}},
-    "trans-atlantisch": {"label": "Trans-Atlantisch", "values": {"delay_ms": 45, "jitter_ms": 2, "loss_pct": 0, "rate_kbit": 0, "down": False}},
     "isp-a-storing": {"label": "ISP-A storing", "seg": "a", "values": {"down": True}},
     "isp-b-storing": {"label": "ISP-B storing", "seg": "b", "values": {"down": True}},
     "hub1-weg": {"label": "Hub 1 weg", "hub": 0, "values": {"down": True}},
@@ -22,14 +16,12 @@ class AgentError(Exception):
 
 
 def preset_changes(name, links, link=None):
-    """[(link_id, values)] for preset `name`; `link` limits a value preset to one link. KeyError if unknown."""
+    """[(link_id, values)] for failure preset `name` (`link` is accepted and ignored). KeyError if unknown."""
     p = PRESETS[name]
     if "seg" in p:
         targets = [l for l in links if l["seg"] == p["seg"]]
-    elif "hub" in p:
-        targets = [l for l in links if l["seg"] == "hub"][p["hub"]:p["hub"] + 1]
     else:
-        targets = [l for l in links if link in (None, l["id"])]
+        targets = [l for l in links if l["seg"] == "hub"][p["hub"]:p["hub"] + 1]
     return [(l["id"], dict(p["values"])) for l in targets]
 
 

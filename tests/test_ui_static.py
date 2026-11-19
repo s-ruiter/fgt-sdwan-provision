@@ -93,3 +93,6 @@ ch = ch[:ch.index("\n});") + 4]
 assert "wanApply(" in ch and "[data-wf]" in ch, "loslaten van een schuifje past de link direct toe"
 assert "wan-ok" in js and ".wan-ok" in open(os.path.join(root, "static", "style.css")).read()
 print("OK  UI: WAN-emulatie past een schuifje/link down direct toe bij loslaten, met bevestiging in de kaart")
+
+assert "data-wps" not in js, "geen preset-keuze per link meer (alleen de storing-presets bovenaan)"
+print("OK  UI: alleen storing-presets")
