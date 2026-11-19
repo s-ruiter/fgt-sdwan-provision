@@ -100,6 +100,9 @@ def nft_ruleset(topo, state):
     keep = ", ".join(topo.get("no_nat", []))             # lab subnet: real addresses, the FortiManager routes back
     if nat:
         lines.append(f'    oifname "eth0" ip saddr {{ {nat} }}' + (f" ip daddr != {{ {keep} }}" if keep else "") + " masquerade")
+    if topo.get("forwards"):                             # forwarded GUI/SSH: source = wan-emu in the segment, so the
+        segs = ", ".join(f'"{i}"' for i in _ifaces(topo))   # FortiGate answers on a connected subnet (a hub blackholes
+        lines.append(f"    ct status dnat oifname {{ {segs} }} masquerade")   # 10.0.0.0/8, which holds lab sources)
     lines.append("  }")
     fw = topo.get("forwards") or []
     if fw:                                               # FortiGate GUI/SSH from the lab: uplink port -> WAN1 443/22
