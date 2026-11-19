@@ -96,3 +96,19 @@ for bad in ("Lab/SD-WAN", "My Assets//x", "My Assets/" + "x" * 300):
         pass
 srv.shutdown()
 print("OK  asset folder: folderPath alleen bij aanmaken, leeg = standaard; pad moet onder 'My Assets' liggen")
+
+# asset folders via the Asset Management API v3 (separate OAuth client 'assetmanagement')
+srv = fake.start()
+URL = f"http://127.0.0.1:{srv.server_address[1]}"
+ff.ASSET_BASE = URL + "/ES/api/registration/v3"
+c = ff.Client(fake.USER, fake.PASSWORD, auth_url=URL + "/api/v1/oauth/token/", base=URL + "/ES/api/fortiflex/v2")
+fake.reset()
+assert c.programs()                                          # flexvm token first, then the folder list gets its own
+f = c.asset_folders(account_id=1)
+assert f == [{"id": 1, "path": "My Assets/Lab"}, {"id": 2, "path": "My Assets/Lab/SD-WAN"}], f
+assert fake.STATE["folder_list_bodies"][-1] == {"accountId": 1}
+logins = [b["client_id"] for p_, b in fake.STATE["calls"] if "oauth" in p_]
+assert logins == ["flexvm", "assetmanagement"], logins
+assert all(ff.check_folder(x["path"]) == x["path"] for x in f)
+srv.shutdown()
+print("OK  asset folders: eigen login (assetmanagement), accountId mee, paden als 'My Assets/...'")

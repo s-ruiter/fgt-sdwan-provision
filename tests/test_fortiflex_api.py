@@ -148,3 +148,13 @@ j = main.deploy(deploy_req(False))
 assert fake.STATE["folders"] and set(fake.STATE["folders"].values()) == {"My Assets/Lab"}, fake.STATE["folders"]
 srv.shutdown()
 print("OK  asset folder: opgeslagen, ongeldig pad geweigerd, nieuwe licenties in die folder")
+
+srv = fake.start()
+URL = f"http://127.0.0.1:{srv.server_address[1]}"
+ff.AUTH_URL, ff.BASE, ff.ASSET_BASE = URL + "/api/v1/oauth/token/", URL + "/ES/api/fortiflex/v2", URL + "/ES/api/registration/v3"
+fake.reset()
+r = main.fortiflex_folders(main.FlexFoldersReq(program="ELAVMS0000001234"))
+assert [x["path"] for x in r["folders"]] == ["My Assets/Lab", "My Assets/Lab/SD-WAN"]
+assert fake.STATE["folder_list_bodies"][-1] == {"accountId": 1}                # accountId of the chosen program
+srv.shutdown()
+print("OK  API: asset folders van het account van het gekozen programma")

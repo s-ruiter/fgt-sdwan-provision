@@ -600,7 +600,13 @@ async function ffPrograms(creds) {
   if (!r.ok) { $("#ff_res").textContent = ""; return ffErr(errList(j).join(" · ")); }
   ffErr(""); $("#ff_res").textContent = `✓ ingelogd, ${j.programs.length} programma('s)`;
   setSel("#ff_program", j.programs.map((p) => p.serialNumber), FLEX.program || (j.programs[0] || {}).serialNumber);
-  await ffConfigs();
+  await ffConfigs(); await ffFolders();
+}
+async function ffFolders() {           // Asset Management folders as suggestions; typing a path stays possible
+  const prog = $("#ff_program").value; if (!prog) return;
+  const r = await post("/api/fortiflex/folders", { program: prog, user: $("#ff_user").value.trim(), password: $("#ff_pw").value }), j = await json(r);
+  if (!r.ok) { $("#ff_folders").innerHTML = ""; $("#ff_res").textContent += " · asset folders niet leesbaar: " + errList(j).join(" "); return; }
+  $("#ff_folders").innerHTML = j.folders.map((f) => `<option value="${esc(f.path)}">`).join("");
 }
 let FF_CONFIGS = [];
 async function ffConfigs() {
@@ -634,7 +640,7 @@ async function ffList() {
     : '<div class="hint">Nog geen licenties van deze tool in de gekozen configuraties.</div>';
 }
 $("#ff_test").onclick = () => ffPrograms({ user: $("#ff_user").value.trim(), password: $("#ff_pw").value });
-$("#ff_program").onchange = ffConfigs;
+$("#ff_program").onchange = async () => { await ffConfigs(); await ffFolders(); };
 $("#ff_fmg").onchange = ffParams; $("#ff_fgt").onchange = ffParams;
 $("#ff_save").onclick = ffSave;
 $("#ff_list").addEventListener("click", async (e) => {

@@ -502,6 +502,18 @@ def fortiflex_configs(c: FlexConfigsReq):
             for x in _flex_call(lambda: cl.configs(c.program))]
 
 
+class FlexFoldersReq(FlexCreds):
+    program: str = ""
+
+
+@app.post("/api/fortiflex/folders")
+def fortiflex_folders(c: FlexFoldersReq):
+    """Asset folders of the account that owns the chosen program (Asset Management API v3)."""
+    cl = _flex_client(c.user.strip(), c.password)
+    acc = next((p.get("accountId") for p in _flex_call(cl.programs) if p.get("serialNumber") == c.program), None)
+    return {"folders": _flex_call(lambda: cl.asset_folders(acc))}
+
+
 def _tool_licenses(cl, cfg):
     from .fortiflex import PREFIX
     out = []

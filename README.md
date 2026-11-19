@@ -66,8 +66,8 @@ Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool
 
 Op de pagina **FortiFlex** vul je een FortiCloud API-gebruiker in (IAM, rechten op FortiFlex; aanmaken vraagt
 ReadWrite) en kies je het programma en de configuratie voor de FortiManager en voor de FortiGates. Het wachtwoord
-staat in de tool-database (0600) en wordt nooit teruggetoond. Optioneel geef je een **asset folder** op (bv.
-`My Assets/Lab/SD-WAN`; moet al bestaan in Asset Management): nieuw aangemaakte licenties komen daarin. Staat
+staat in de tool-database (0600) en wordt nooit teruggetoond. Optioneel kies je een **asset folder** (lijst uit de Asset Management API; de API-gebruiker heeft daarvoor ook
+rechten op Asset Management nodig) of typ je een pad zoals `My Assets/Lab/SD-WAN`: nieuw aangemaakte licenties komen daarin. Staat
 *FortiFlex gebruiken bij de uitrol* aan, dan:
 
 - haalt de tool bij het starten van de uitrol per device (FortiManager en/of FortiGates, alleen als ze in deze uitrol

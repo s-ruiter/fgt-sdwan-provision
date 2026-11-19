@@ -7,6 +7,7 @@ import requests
 
 AUTH_URL = "https://customerapiauth.fortinet.com/api/v1/oauth/token/"
 BASE = "https://support.fortinet.com/ES/api/fortiflex/v2"
+ASSET_BASE = "https://support.fortinet.com/ES/api/registration/v3"   # Asset Management API v3 (folders)
 PREFIX = "fgt-sdwan"
 PLACEHOLDER = {"fgt": "FGVMNEWLIC{:06d}", "fmg": "FMGVMNEWLC{:06d}"}   # dry-run / check: no license yet (unique)
 USABLE = ("ACTIVE", "PENDING")
@@ -35,12 +36,12 @@ class Client:
     def __init__(self, user, password, auth_url=None, base=None, timeout=30):
         self.user, self.password, self.timeout = user, password, timeout
         self.auth_url, self.base = auth_url or AUTH_URL, base or BASE        # module values: tests point them elsewhere
-        self._token = None
+        self._tokens = {}                                  # per OAuth client: flexvm (FortiFlex), assetmanagement
 
-    def _login(self):
+    def _login(self, client_id="flexvm"):
         try:
             r = requests.post(self.auth_url, json={"username": self.user, "password": self.password,
-                                                   "client_id": "flexvm", "grant_type": "password"}, timeout=self.timeout)
+                                                   "client_id": client_id, "grant_type": "password"}, timeout=self.timeout)
         except requests.RequestException as e:
             raise FlexError(f"FortiFlex: inloggen mislukt, geen verbinding met {self.auth_url}: {type(e).__name__}") from None
         if r.status_code != 200 or "access_token" not in (r.json() if r.content else {}):
@@ -48,16 +49,17 @@ class Client:
                 why = r.json().get("error_description") or r.json().get("error") or ""
             except ValueError:
                 why = ""
-            raise FlexError(f"FortiFlex: inloggen geweigerd (HTTP {r.status_code}) {why}".strip()
-                            + " - controleer API-gebruiker en wachtwoord op de pagina FortiFlex")
-        self._token = r.json()["access_token"]
+            what = "FortiFlex" if client_id == "flexvm" else "Asset Management"
+            raise FlexError(f"{what}: inloggen geweigerd (HTTP {r.status_code}) {why}".strip()
+                            + " - controleer API-gebruiker, wachtwoord en de rechten van de API-gebruiker")
+        self._tokens[client_id] = r.json()["access_token"]
 
-    def call(self, path, body=None):
-        if not self._token:
-            self._login()
+    def call(self, path, body=None, base=None, client_id="flexvm"):
+        if client_id not in self._tokens:
+            self._login(client_id)
         try:
-            r = requests.post(self.base + path, json=body or {}, timeout=self.timeout,
-                              headers={"Authorization": f"Bearer {self._token}"})
+            r = requests.post((base or self.base) + path, json=body or {}, timeout=self.timeout,
+                              headers={"Authorization": f"Bearer {self._tokens[client_id]}"})
         except requests.RequestException as e:
             raise FlexError(f"FortiFlex {path}: geen verbinding ({type(e).__name__})") from None
         try:
@@ -97,6 +99,19 @@ class Client:
 
     def update(self, sn, config_id, description):
         return self._one("/entitlements/update", {"serialNumber": sn, "configId": int(config_id), "description": description})
+
+    def asset_folders(self, account_id=None):
+        """Asset Management folders as FortiFlex folderPath values ('My Assets/<path>'), sorted."""
+        body = {"accountId": int(account_id)} if account_id else {}
+        rows = self.call("/folders/list", body, base=ASSET_BASE, client_id="assetmanagement").get("assetFolders") or []
+        out = []
+        for f in rows:
+            p = str(f.get("folderPath") or "").strip("/")
+            if p and not p.startswith("My Assets"):
+                p = "My Assets/" + p
+            if p:
+                out.append({"id": f.get("folderId"), "path": p})
+        return sorted(out, key=lambda x: x["path"].lower())
 
     def stop(self, sn):
         return self._one("/entitlements/stop", {"serialNumber": sn})
