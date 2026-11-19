@@ -739,6 +739,65 @@ def _licenses(topo, r, dry):
     return log
 
 
+# ---- cleanup: everything the tool deployed on Proxmox (never the deploy container) ---------------------------------
+class CleanupReq(BaseModel):
+    server_id: int
+    node: str
+    confirm: str = ""
+    stop_licences: bool = False
+
+
+def _cleanup_pve(c):
+    from .provision_vms import make_pve
+    row = db.get_server(db.connect(DATA_DIR), c.server_id)
+    if row is None:
+        raise HTTPException(404, detail="Proxmox server not found")
+    return make_pve({"url": row["url"], "token_id": row["token_id"], "verify_tls": bool(row["verify_tls"])},
+                    row["token_secret"])
+
+
+@app.post("/api/cleanup/plan")
+def cleanup_plan(c: CleanupReq):
+    from . import cleanup
+    from .pve import PveError
+    try:
+        return {"items": cleanup.plan(_cleanup_pve(c), c.node)}
+    except PveError as e:
+        raise HTTPException(502, detail=str(e))
+
+
+@app.post("/api/cleanup")
+def cleanup_run(c: CleanupReq):
+    from . import cleanup
+    from .pve import PveError
+    if c.confirm != "DELETE":
+        raise HTTPException(422, detail=["type DELETE to confirm"])
+    if any(j.get("state") == "running" for j in JOBS.values()):
+        raise HTTPException(409, detail=["a deployment is running: wait until it is done"])
+    pve, log = _cleanup_pve(c), []
+    try:
+        results = cleanup.run(pve, c.node, cleanup.plan(pve, c.node), log.append)
+    except PveError as e:
+        raise HTTPException(502, detail=str(e))
+    conn = db.connect(DATA_DIR)
+    for k in ("wanemu_addr", "wanemu_forwards"):         # the WAN emulation page no longer points at a deleted wan-emu
+        db.put_secret(conn, k, "")
+    if c.stop_licences:
+        _, cfg = _flex_cfg()
+        try:
+            cl = _flex_client()
+            for e in _tool_licenses(cl, cfg):
+                if e.get("status") in ("ACTIVE", "PENDING"):
+                    try:
+                        cl.stop(e["serialNumber"])
+                        results.append({"name": f"licence {e['serialNumber']} ({e['description']})", "kind": "licence", "ok": True})
+                    except Exception as x:
+                        results.append({"name": f"licence {e['serialNumber']}", "kind": "licence", "ok": False, "error": str(x)})
+        except HTTPException as x:
+            results.append({"name": "FortiFlex licences", "kind": "licence", "ok": False, "error": str(x.detail)})
+    return {"results": results}
+
+
 @app.post("/api/deploy")
 def deploy(r: DeployReq):
     topo = model.merged(r.topology)

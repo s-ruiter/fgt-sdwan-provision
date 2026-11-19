@@ -130,6 +130,10 @@ class H(BaseHTTPRequestHandler):
                 return self._send(None, 400, "bad content")
             STATE["uploads"][f"{m.group(1)}:{content}/{fname}"] = payload
             return self._send(self._upid())
+        m = re.fullmatch(r"/nodes/pve1/storage/([^/]+)/content", path)
+        if m and method == "GET":
+            pre = f"{m.group(1)}:{q.get('content')}/"
+            return self._send([{"volid": k, "size": len(v)} for k, v in STATE["uploads"].items() if k.startswith(pre)])
         m = re.fullmatch(r"/nodes/pve1/storage/([^/]+)/content/(.+)", path)
         if m and method == "DELETE":
             STATE["uploads"].pop(m.group(2), None)
@@ -154,10 +158,12 @@ class H(BaseHTTPRequestHandler):
             if vm is None:
                 return self._send(None, 500, "no such VM")
             if method == "DELETE" and not sub:
+                if STATE.get("fail_delete") == vmid:
+                    return self._send(None, 500, "delete failed: simulated")
                 vms.pop(vmid)
                 return self._send(self._upid())
-            if method == "POST" and sub == "/status/start":
-                vm["status"] = "running"
+            if method == "POST" and sub in ("/status/start", "/status/stop"):
+                vm["status"] = "running" if sub.endswith("start") else "stopped"
                 return self._send(self._upid())
             if method == "PUT" and sub == "/config":
                 vm["params"].update({k: v[0] for k, v in parse_qs(body.decode()).items()})

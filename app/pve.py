@@ -156,6 +156,12 @@ class Pve:
     def start_vm(self, node, vmid):
         return self._req("POST", f"/nodes/{node}/qemu/{vmid}/status/start")
 
+    def stop_vm(self, node, vmid):
+        return self._req("POST", f"/nodes/{node}/qemu/{vmid}/status/stop")
+
+    def list_content(self, node, storage, content):
+        return self._req("GET", f"/nodes/{node}/storage/{storage}/content", params={"content": content}) or []
+
     def delete_vm(self, node, vmid):
         return self._req("DELETE", f"/nodes/{node}/qemu/{vmid}",
                          params={"purge": 1, "destroy-unreferenced-disks": 1})
