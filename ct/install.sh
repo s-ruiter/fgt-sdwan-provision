@@ -2,6 +2,7 @@
 # Runs INSIDE the LXC (Debian 12). Idempotent: re-run to update. Data in /var/lib/fgt-sdwan is never touched.
 #   APP_LOCAL=<tgz>   install the app from a tarball (private repo / local code)
 #   GITHUB_TOKEN=...  read access token when cloning/pulling a private repo
+#   PORT=<n>          web port (new install: 80; an update keeps the port of the existing service unless PORT is set)
 set -Eeuo pipefail
 
 APP_REPO="${APP_REPO:-https://github.com/s-ruiter/fgt-sdwan-provision.git}"
@@ -14,6 +15,12 @@ ORCH_REPO="${ORCH_REPO:-https://github.com/fortinet-solutions-cse/sdwan-advpn-re
 ORCH_COMMIT="${ORCH_COMMIT:-252f9c1f6cc2c8d5fc87682c046d16468baee123}"
 ORCH_DIR=/opt/sdwan-advpn-reference
 DATA_DIR=/var/lib/fgt-sdwan          # uploaded KVM images + saved Proxmox servers live here
+UNIT=/etc/systemd/system/fgt-sdwan.service
+if [[ -z "${PORT:-}" && -f "$UNIT" ]]; then
+  PORT="$(sed -n 's/^ExecStart=.*--port \([0-9][0-9]*\).*/\1/p' "$UNIT" | head -1)"
+fi
+PORT="${PORT:-80}"
+[[ "$PORT" =~ ^[0-9]+$ && "$PORT" -ge 1 && "$PORT" -le 65535 ]] || { echo "ERROR: PORT must be 1-65535" >&2; exit 1; }
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -45,7 +52,7 @@ python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q --upgrade pip
 "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
-cat >/etc/systemd/system/fgt-sdwan.service <<EOF
+cat >"$UNIT" <<EOF
 [Unit]
 Description=FGT SD-WAN provisioning tool
 After=network-online.target
@@ -55,7 +62,7 @@ Wants=network-online.target
 WorkingDirectory=$APP_DIR
 Environment=ORCH_DIR=$ORCH_DIR
 Environment=DATA_DIR=$DATA_DIR
-ExecStart=$APP_DIR/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+ExecStart=$APP_DIR/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $PORT
 Restart=on-failure
 User=root
 
@@ -67,7 +74,7 @@ systemctl enable --now fgt-sdwan.service
 systemctl restart fgt-sdwan.service
 
 for _ in $(seq 1 30); do
-  curl -fsS http://127.0.0.1:8000/api/about >/dev/null 2>&1 && { echo "fgt-sdwan is up on :8000"; exit 0; }
+  curl -fsS "http://127.0.0.1:${PORT}/api/about" >/dev/null 2>&1 && { echo "fgt-sdwan is up on :${PORT}"; exit 0; }
   sleep 1
 done
 journalctl -u fgt-sdwan -n 30 --no-pager

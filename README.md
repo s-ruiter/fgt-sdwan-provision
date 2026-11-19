@@ -29,8 +29,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/s-ruiter/fgt-sdwan-provi
 
 **Privé-repo zonder checkout:** `GITHUB_TOKEN=ghp_xxx bash -c "$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/s-ruiter/fgt-sdwan-provision/main/ct/deploy.sh)"` (token met leesrechten op de repo).
 
-Het script toont eerst een samenvatting (CTID, storage, netwerk) en vraagt om bevestiging (`--yes` of `YES=1` slaat dat over). Storages worden automatisch gekozen (eerste actieve met `rootdir`/`vztmpl`). Overrides via environment: `CTID`, `CT_HOSTNAME`, `STORAGE`, `TEMPLATE_STORAGE`, `BRIDGE`, `VLAN`, `CT_IP` (`dhcp` of `a.b.c.d/nn`), `CT_GW`, `CT_DNS`, `CORES`, `MEMORY`, `DISK_GB` (standaard 12).
-Daarna: `http://<ct-ip>:8000`.
+Het script toont eerst een samenvatting (CTID, storage, netwerk) en vraagt om bevestiging (`--yes` of `YES=1` slaat dat over). Storages worden automatisch gekozen (eerste actieve met `rootdir`/`vztmpl`). Overrides via environment: `CTID`, `CT_HOSTNAME`, `STORAGE`, `TEMPLATE_STORAGE`, `BRIDGE`, `VLAN`, `CT_IP` (`dhcp` of `a.b.c.d/nn`), `CT_GW`, `CT_DNS`, `CORES`, `MEMORY`, `DISK_GB` (standaard 12), `PORT` (webpoort, standaard 80).
+Daarna: `http://<ct-ip>`. De webtool heeft geen login; root in de container heeft geen wachtwoord (shell via `pct enter <id>`). Een update houdt de bestaande poort aan (een oudere installatie blijft dus op :8000), tenzij je `PORT=` meegeeft.
 
 **Updaten** (data en opgeslagen servers blijven staan): `UPDATE=1 CTID=<id> bash /root/fgt-sdwan-provision/ct/deploy.sh` (met een verse checkout), of voor een GitHub-installatie `pct exec <id> -- bash /opt/fgt-sdwan-provision/ct/install.sh`.
 
