@@ -81,6 +81,9 @@ def fgt_network_lines(dev, topo):
     return lines
 
 
+FMG_ROUTE_SEQ = 11                             # FortiManager routes to the WAN emulator segments: 11, 12, 13
+
+
 def fmg_network_lines(topo, ip_last=True):
     """FortiManager hostname, DNS, port1 and default route.
     port1 is put in `mode static` explicitly: a new FortiManager VM can come up with DHCP on port1, and `set ip` alone
@@ -96,7 +99,12 @@ def fmg_network_lines(topo, ip_last=True):
     if topo.get("dns_secondary"):
         lines.append(f"set secondary {topo['dns_secondary']}")
     lines.append("end")
-    route = ["config system route", "edit 1", f'set device "{port}"', f"set gateway {f['gateway'].strip()}", "next", "end"]
+    route = ["config system route", "edit 1", f'set device "{port}"', f"set gateway {f['gateway'].strip()}", "next"]
+    if topo.get("wanemu"):                     # FortiGates behind the WAN emulator: reach their real addresses via it
+        from .wanemu.net import fmg_routes
+        for n, (dst, msk, gw) in enumerate(fmg_routes(topo), start=FMG_ROUTE_SEQ):
+            route += [f"edit {n}", f'set device "{port}"', f"set dst {dst} {msk}", f"set gateway {gw}", "next"]
+    route.append("end")
     iface = ["config system interface", f'edit "{port}"', "set allowaccess ping https ssh", "set mode static",
              f"set ip {ip} {mask}", "next", "end"]
     return lines + (route + iface if ip_last else iface + route)

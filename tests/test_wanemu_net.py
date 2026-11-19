@@ -77,3 +77,16 @@ print("OK  LXC: nesting=1 (anders falen /tmp, /run/lock en mqueue onder systemd 
 p = net.ct_params(model.merged({}), 130, "k")
 assert p["nameserver"] == "1.1.1.1 8.8.8.8"   # not the PVE host's DNS (unreachable from the uplink VLAN)
 print("OK  LXC: DNS uit de topologie (1.1.1.1 8.8.8.8), niet die van de PVE-host")
+
+# FortiManager sees the real FortiGate addresses: no NAT towards the uplink subnet, routes on the FMG via wan-emu
+t = model.merged({}); t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
+at = net.agent_topology(t)
+assert at["no_nat"] == ["10.10.106.0/24"], at
+assert net.fmg_routes(t) == [("100.127.200.0", "255.255.255.0", "10.10.106.250"), ("100.127.201.0", "255.255.255.0", "10.10.106.250"),
+                             ("100.127.202.0", "255.255.255.0", "10.10.106.250")]
+t2 = model.merged({}); t2["fmgr"].update(ip="10.20.0.5/24", gateway="10.20.0.1")
+assert net.fmg_routes(t2) == []                       # FMG not in the uplink subnet: the lab router must route
+from app import bootstrap as bs  # noqa: E402
+fl = bs.fmg_network_lines(t)
+assert "edit 11" in fl and 'set dst 100.127.201.0 255.255.255.0' in fl and "set gateway 10.10.106.250" in fl
+print("OK  FMG: geen NAT naar het lab-subnet, routes naar ISP-HUB/A/B via wan-emu (Day-0); niet als FMG elders staat")

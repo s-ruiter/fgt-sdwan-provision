@@ -197,7 +197,39 @@ def _pve_vms(topo, boot, which, step, emit, state):
     emit(step, "ok", "VM('s) aangemaakt en gestart")
 
 
-def _wanemu(topo, boot, emit, step="pve_wan"):
+def _fmg_routes(fmg, topo, emit, step="pve_wan"):
+    """Routes on the FortiManager to the WAN emulator segments (also an existing FortiManager). Idempotent."""
+    from .bootstrap import FMG_ROUTE_SEQ
+    from .wanemu.net import fmg_routes
+    want = fmg_routes(topo)
+    if not want:
+        emit(step, "running", "FortiManager staat niet in het uplink-subnet: de lab-router moet 100.127.200.0/22 naar "
+                              f"{topo['wanemu']['uplink']['ip'].split('/')[0]} routeren")
+        return
+    port = topo["fmgr"].get("port", "port1")
+    cli = "config system route / " + " / ".join(f"edit {n} / set device {port} / set dst {d} {m} / set gateway {g} / next"
+                                               for n, (d, m, g) in enumerate(want, start=FMG_ROUTE_SEQ)) + " / end"
+    try:
+        have = fmg.call("get", "/cli/global/system/route").get("data") or []
+        have = have if isinstance(have, list) else [have]
+        dsts = {tuple(r.get("dst") or []) for r in have}
+        used = {int(r.get("seq_num", 0)) for r in have if str(r.get("seq_num", "")).isdigit()}
+        new, seq = [], FMG_ROUTE_SEQ
+        for d, m, g in want:
+            if (d, m) in dsts:
+                continue
+            while seq in used:
+                seq += 1
+            new.append({"seq_num": seq, "device": port, "dst": [d, m], "gateway": g})
+            used.add(seq)
+        if new:
+            fmg.call("add", "/cli/global/system/route", new)
+            emit(step, "running", "FortiManager: routes naar " + ", ".join(r["dst"][0] for r in new) + f" via {want[0][2]}")
+    except FmgError as e:
+        emit(step, "warn", f"FortiManager-routes niet gezet ({e}). Zet ze met de hand: {cli}")
+
+
+def _wanemu(topo, boot, emit, step="pve_wan", fmg=None):
     """WAN emulator (always with Day-0 FortiGates): the LXC that routes ISP-HUB / ISP-A / ISP-B and does DHCP."""
     from . import provision_vms as pv
     from .wanemu import net, setup
@@ -218,6 +250,9 @@ def _wanemu(topo, boot, emit, step="pve_wan"):
                                 waiter=boot.get("waiter"))
     except setup.WanEmuError as e:
         raise FmgError(str(e)) from e
+    fmg = fmg or boot.get("fmg")
+    if fmg is not None and not fmg.dry:
+        _fmg_routes(fmg, topo, emit, step)
     segs = ", ".join(f"{g['name']} {g['subnet']}" for g in w["segments"].values())
     emit(step, "ok" if r["internet"] else "warn",       # no internet: keep the step on warning (licences will fail)
          f"{w['hostname']} (CT {r['vmid']}{', nieuw' if r['created'] else ''}) klaar: {segs}"
@@ -597,7 +632,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     # real FortiGates (Alles / Alleen FortiGates): VM + Day-0 (hub static wan1, licence, FMG link), register, online
     names = [d["name"] for d, _ in devices]
     if m_fgt == "day0":
-        _wanemu(topo, boot, emit)
+        _wanemu(topo, boot, emit, fmg=fmg)
         _pve_vms(topo, boot, "fgt", "pve_fgt", emit, state)
         emit("bootstrap_fgt", "running", "wachten tot de FortiGates gelicenseerd zijn en zich bij FortiManager melden")
         offline = wait_online(fmg, adom, names, boot.get("fgt_boot_timeout", 900), emit, "bootstrap_fgt",

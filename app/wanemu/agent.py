@@ -97,8 +97,9 @@ def nft_ruleset(topo, state):
     lines = ["table inet wanemu", "delete table inet wanemu", "table inet wanemu {",
              "  chain forward {", "    type filter hook forward priority 0; policy accept;", *drops, "  }",
              "  chain postrouting {", "    type nat hook postrouting priority 100; policy accept;"]
+    keep = ", ".join(topo.get("no_nat", []))             # lab subnet: real addresses, the FortiManager routes back
     if nat:
-        lines.append(f'    oifname "eth0" ip saddr {{ {nat} }} masquerade')
+        lines.append(f'    oifname "eth0" ip saddr {{ {nat} }}' + (f" ip daddr != {{ {keep} }}" if keep else "") + " masquerade")
     lines += ["  }", "}"]
     return "\n".join(lines) + "\n"
 

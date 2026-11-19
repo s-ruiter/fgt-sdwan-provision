@@ -43,6 +43,15 @@ class H(BaseHTTPRequestHandler):
                         res = {"status": {"code": -2, "message": "Object already exists"}, "url": p["url"]}
                         break
                     ifs.append(dict(i))
+        elif url == "cli/global/system/route":
+            rt = STATE.setdefault("routes", [])
+            if m == "get":
+                res = ok(list(rt))
+            elif m == "add":
+                if STATE.get("refuse_route"):
+                    res = {"status": {"code": -10, "message": "The data is invalid for selected url"}, "url": p["url"]}
+                else:
+                    rt.extend(dict(x) for x in p.get("data") or [])
         elif url.startswith("cli/global/"):
             cli = STATE.setdefault("cli", {}).setdefault(url, {})
             if m == "get":
