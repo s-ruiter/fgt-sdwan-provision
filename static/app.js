@@ -809,3 +809,13 @@ $("#cl_licences").addEventListener("change", () => { if (CL_SHOWN) clShow(); });
 $("#cl_server").addEventListener("change", clNodes);
 $("#cl_show").onclick = clShow;
 $("#cl_run").onclick = clRun;
+
+
+// ---- theme: light / dark, remembered per browser (otherwise the system setting, applied in index.html) ------------
+function themeSet(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("fgt-sdwan-theme", t); } catch (_) {}
+  $("#theme_btn").title = t === "dark" ? "Light mode" : "Dark mode";
+}
+$("#theme_btn").title = document.documentElement.dataset.theme === "dark" ? "Light mode" : "Dark mode";
+$("#theme_btn").onclick = () => themeSet(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
