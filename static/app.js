@@ -771,31 +771,41 @@ async function clNodes() {
   if (!r.ok) return clErr(errList(j).join(" · "));
   setSel("#cl_node", j.nodes, $("#pve_node").value || j.nodes[0]);
 }
+let CL_SHOWN = null;
 async function clShow() {
-  clErr(""); $("#cl_list").innerHTML = '<div class="hint">looking at Proxmox…</div>';
-  const r = await post("/api/cleanup/plan", { server_id: +$("#cl_server").value, node: $("#cl_node").value }), j = await json(r);
-  if (!r.ok) { $("#cl_list").innerHTML = ""; return clErr(errList(j).join(" · ")); }
+  clErr(""); $("#cl_list").innerHTML = '<div class="hint">looking at Proxmox…</div>'; CL_SHOWN = null;
+  const r = await post("/api/cleanup/plan", { server_id: +$("#cl_server").value, node: $("#cl_node").value, stop_licences: $("#cl_licences").checked }), j = await json(r);
+  if (!r.ok) { $("#cl_list").innerHTML = ""; clErr(errList(j).join(" · ")); return null; }
   const kind = { vm: "VM", ct: "Container", file: "File" };
-  $("#cl_list").innerHTML = j.items.length ? `<table class="tbl"><thead><tr><th>Type</th><th>ID</th><th>Name</th><th>Status</th></tr></thead><tbody>` +
+  $("#cl_list").innerHTML = (j.items.length ? `<table class="tbl"><thead><tr><th>Type</th><th>ID</th><th>Name</th><th>Status</th></tr></thead><tbody>` +
     j.items.map((i) => `<tr><td>${kind[i.kind]}</td><td class="mono">${i.vmid ?? ""}</td><td class="mono">${esc(i.name)}</td><td>${esc(i.status || "")}</td></tr>`).join("") + "</tbody></table>"
-    : '<div class="hint">Nothing of this tool found on this node.</div>';
-  return j.items;
+    : '<div class="hint">Nothing of this tool found on this node.</div>') +
+    (j.licences.length ? `<div class="hint">FortiFlex licences that will be stopped: ${j.licences.map((l) => esc(`${l.serialNumber} (${l.description})`)).join(", ")}</div>` : "");
+  CL_SHOWN = j;
+  return j;
 }
 async function clRun() {
   clErr(""); $("#cl_res").innerHTML = "";
   if ($("#cl_confirm").value !== "DELETE") return clErr("Type DELETE to confirm");
-  const items = await clShow(); if (!items) return;
-  if (!items.length && !$("#cl_licences").checked) return;
-  if (!confirm(`Delete ${items.length} item(s) on ${$("#cl_node").value}? This cannot be undone.`)) return;
+  const j = await clShow(); if (!j) return;
+  if (!j.items.length && !j.licences.length) return clErr("Nothing to delete on this node");
+  if (!confirm(`Delete ${j.items.length} item(s) on ${$("#cl_node").value}` + (j.licences.length ? ` and stop ${j.licences.length} licence(s)` : "") + "? This cannot be undone.")) return;
   const btn = $("#cl_run"); btn.disabled = true; $("#cl_res").innerHTML = '<div class="hint">deleting… (stopping and deleting VMs can take a minute)</div>';
-  const r = await post("/api/cleanup", { server_id: +$("#cl_server").value, node: $("#cl_node").value, confirm: $("#cl_confirm").value, stop_licences: $("#cl_licences").checked }), j = await json(r);
-  btn.disabled = false; $("#cl_confirm").value = "";
-  if (!r.ok) { $("#cl_res").innerHTML = ""; return clErr(errList(j).join(" · ")); }
-  const bad = j.results.filter((x) => !x.ok).length;
-  $("#cl_res").innerHTML = `<div class="${bad ? "error" : "ok"}">${bad ? `✕ ${bad} item(s) failed` : "✔ Everything deleted"}</div><table class="tbl"><tbody>` +
-    j.results.map((x) => `<tr><td>${x.ok ? "✔" : "✕"}</td><td class="mono">${esc(x.name)}</td><td>${esc(x.error || "")}</td></tr>`).join("") + "</tbody></table>";
-  await clShow();
+  try {
+    const r = await post("/api/cleanup", { server_id: +$("#cl_server").value, node: $("#cl_node").value, confirm: $("#cl_confirm").value,
+      stop_licences: $("#cl_licences").checked, only: j.items.map((i) => i.name) }), res = await json(r);
+    if (!r.ok) { $("#cl_res").innerHTML = ""; return clErr(errList(res).join(" · ")); }
+    const bad = res.results.filter((x) => !x.ok).length;
+    $("#cl_res").innerHTML = `<div class="${bad ? "error" : "ok"}">${bad ? `✕ ${bad} item(s) failed` : "✔ Everything deleted"}</div><table class="tbl"><tbody>` +
+      res.results.map((x) => `<tr><td>${x.ok ? "✔" : "✕"}</td><td class="mono">${esc(x.name)}</td><td>${esc(x.error || "")}</td></tr>`).join("") + "</tbody></table>";
+    await clShow();
+  } catch (e) {
+    clErr("The request was interrupted (" + e.message + "); deleting may still be going on: press 'Show what will be deleted' again in a minute");
+  } finally {
+    btn.disabled = false; $("#cl_confirm").value = "";
+  }
 }
+$("#cl_licences").addEventListener("change", () => { if (CL_SHOWN) clShow(); });
 $("#cl_server").addEventListener("change", clNodes);
 $("#cl_show").onclick = clShow;
 $("#cl_run").onclick = clRun;

@@ -71,9 +71,11 @@ class H(BaseHTTPRequestHandler):
         if path == "/nodes/pve1/storage" and method == "GET":
             allst = [("local", "iso,vztmpl,import,backup", 1, 90e9), ("local-lvm", "images,rootdir", 1, 400e9),
                      ("old", "images", 0, 0)]
+            if STATE.get("shared_iso"):                       # optional: a shared (NFS) ISO storage
+                allst.append(("nfs", "iso", 1, 1e9))
             want = q.get("content")
-            return self._send([{"storage": n, "content": c, "active": a, "avail": av} for n, c, a, av in allst
-                               if want in c.split(",")])
+            return self._send([{"storage": n, "content": c, "active": a, "avail": av, "shared": int(n == "nfs")}
+                               for n, c, a, av in allst if want in c.split(",")])
         if path == "/nodes/pve1/network":
             return self._send([{"iface": "vmbr0"}, {"iface": "vmbr1"}])
         if path == "/cluster/nextid":
@@ -99,6 +101,8 @@ class H(BaseHTTPRequestHandler):
             if ct is None:
                 return self._send(None, 500, "no such CT")
             if method == "DELETE" and not sub:
+                if STATE.get("fail_delete_ct") == m.group(1):
+                    return self._send(None, 500, "CT is locked (simulated)")
                 STATE["ct_delete_params"] = q
                 cts.pop(m.group(1))
                 return self._send(self._upid())
@@ -165,6 +169,8 @@ class H(BaseHTTPRequestHandler):
             if method == "POST" and sub in ("/status/start", "/status/stop"):
                 vm["status"] = "running" if sub.endswith("start") else "stopped"
                 return self._send(self._upid())
+            if method == "GET" and sub == "/status/current":
+                return self._send({"status": vm["status"]})
             if method == "PUT" and sub == "/config":
                 vm["params"].update({k: v[0] for k, v in parse_qs(body.decode()).items()})
                 return self._send(None)
