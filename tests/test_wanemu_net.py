@@ -74,3 +74,6 @@ assert specs[0]["nics"][0]["vlan"] == 3200 and specs[2]["nics"][1]["vlan"] == 32
 print("OK  FortiGate-NIC's: hub port1 -> ISP-HUB, spoke port1/port2 -> ISP-A/ISP-B met vaste MAC; LAN-poorten ongewijzigd")
 assert net.ct_params(model.merged({}), 130, "k")["features"] == "nesting=1"     # Debian 13 / systemd 257 in a CT
 print("OK  LXC: nesting=1 (anders falen /tmp, /run/lock en mqueue onder systemd 257)")
+p = net.ct_params(model.merged({}), 130, "k")
+assert p["nameserver"] == "1.1.1.1 8.8.8.8"   # not the PVE host's DNS (unreachable from the uplink VLAN)
+print("OK  LXC: DNS uit de topologie (1.1.1.1 8.8.8.8), niet die van de PVE-host")

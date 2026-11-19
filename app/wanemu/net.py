@@ -84,6 +84,8 @@ def ct_params(t, vmid, ssh_pubkey):
          "unprivileged": 0 if WANEMU_PRIVILEGED else 1, "onboot": 1, "start": 0, "tags": TAG_VM,
          # Debian 13 (systemd 257) in a CT: without nesting /tmp, /run/lock and mqueue fail to mount (spike on PVE01)
          "features": "nesting=1",
+         # DNS of the topology: without it the CT inherits the PVE host's resolvers, which the uplink VLAN may not reach
+         "nameserver": " ".join(x for x in (t.get("dns_primary"), t.get("dns_secondary")) if x),
          "ssh-public-keys": ssh_pubkey,
          "net0": f"name=eth0,bridge={w['bridge']},tag={up['vlan']},ip={up['ip']},gw={up['gw']}"}
     for i, s in enumerate(SEGS, start=1):
