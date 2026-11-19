@@ -60,7 +60,7 @@ PVE_SETTINGS = [
     ("wanemu.vmid", "WAN emulator CT id (empty = automatic)", "optint"),
     ("wanemu.storage", "WAN emulator storage", "str"),
     ("wanemu.bridge", "WAN emulator bridge", "str"),
-    ("wanemu.uplink.vlan", "WAN emulator uplink VLAN", "int"), ("wanemu.uplink.ip", "WAN emulator uplink IP/prefix", "str"),
+    ("wanemu.uplink.vlan", "WAN emulator uplink VLAN", "optint"), ("wanemu.uplink.ip", "WAN emulator uplink IP/prefix", "str"),
     ("wanemu.uplink.gw", "WAN emulator uplink gateway", "str"),
 ] + [(f"wanemu.segments.{s}.{k}", f"{n} {lbl}", kind)
      for s, n in (("hub", "ISP-HUB"), ("a", "ISP-A"), ("b", "ISP-B"))

@@ -2,6 +2,7 @@
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import csvio, model
+import labuplink  # noqa: E402,F401  (fills in the lab uplink: it has no default)
 
 
 def topo(multi):

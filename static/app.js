@@ -108,20 +108,21 @@ function pveFill(p) {
   setSel("#pve_istore", names(PVE_OPT.import_storages), p.import_storage);
   setSel("#pve_isostore", names(PVE_OPT.iso_storages), p.iso_storage);
   setSel("#pve_br", PVE_OPT.bridges, p.default_bridge);
-  setSel("#fmg_br", PVE_OPT.bridges, p.fmg.bridge, "(standaard bridge)");
+  setSel("#fmg_br", PVE_OPT.bridges, p.fmg.bridge, "(default bridge)");
   $("#pve_cpu").value = p.cpu_type; $("#pve_first").value = p.first_vmid ?? "";
   $("#fgt_cores").value = p.fgt.cores; $("#fgt_mem").value = p.fgt.memory_mb;
   $("#fmg_cores").value = p.fmg.cores; $("#fmg_mem").value = p.fmg.memory_mb; $("#fmg_disk").value = p.fmg.data_disk_gb; $("#fmg_vlan").value = p.fmg.vlan ?? "";
-  const opt = (v) => `<option value="">(standaard bridge)</option>` + [...new Set([...PVE_OPT.bridges, ...(v ? [v] : [])])].map((x) => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
-  $("#ports").innerHTML = "<thead><tr><th>Port</th><th>Bridge</th><th>VLAN</th></tr></thead><tbody>" +
-    Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td></tr>`).join("") + "</tbody>";
+  const opt = (v) => `<option value="">(default bridge)</option>` + [...new Set([...PVE_OPT.bridges, ...(v ? [v] : [])])].map((x) => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
+  $("#ports").innerHTML = "<thead><tr><th>Port</th><th>Bridge</th><th>VLAN</th><th>Set by the tool</th></tr></thead><tbody>" +
+    Object.entries(p.ports).map(([k, v]) => `<tr data-p="${k}"><td class="mono">${k}</td><td><select data-f="bridge">${opt(v.bridge)}</select></td><td><input data-f="vlan" type="number" value="${v.vlan ?? ""}"></td><td class="hint" data-fix></td></tr>`).join("") + "</tbody>";
+  portsFixed();
   if (T && T.wanemu) setSel("#wan-bridge", PVE_OPT.bridges, $("#wan-bridge").value || T.wanemu.bridge);   // bridges of this node
 }
 const WAN_SEGS = ["hub", "a", "b"];
 function wanFill(w) {
   $("#wan-vmid").value = w.vmid ?? ""; $("#wan-storage").value = w.storage;
   setSel("#wan-bridge", PVE_OPT.bridges, w.bridge);
-  $("#wan-uplink-vlan").value = w.uplink.vlan; $("#wan-uplink-ip").value = w.uplink.ip; $("#wan-uplink-gw").value = w.uplink.gw;
+  $("#wan-uplink-vlan").value = w.uplink.vlan ?? ""; $("#wan-uplink-ip").value = w.uplink.ip; $("#wan-uplink-gw").value = w.uplink.gw;
   WAN_SEGS.forEach((k) => {
     const g = w.segments[k];
     $(`#wan-seg-${k}-vlan`).value = g.vlan; $(`#wan-seg-${k}-subnet`).value = g.subnet; $(`#wan-seg-${k}-gw`).value = g.gw;
@@ -720,12 +721,12 @@ function topoSvg(t, sc) {
     lines.map((l, i) => `<text x="${x + 8}" y="${y + 33 + i * 14}" class="tp-txt">${esc(l)}</text>`).join("") + "</g>";
   const line = (x1, y1, x2, y2, on = true, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="tp-line"${dash ? ' stroke-dasharray="4 3"' : ""}${dim(on)}/>`;
   const bar = (y, name, vlan, subnet, on) => `<g${dim(on)}><line x1="${L}" y1="${y}" x2="${W - 10}" y2="${y}" class="tp-bar"/>` +
-    `<text x="10" y="${y - 3}" class="tp-title">${esc(name)}</text><text x="10" y="${y + 11}" class="tp-txt">VLAN ${vlan} · ${esc(subnet)}</text></g>`;
+    `<text x="10" y="${y - 3}" class="tp-title">${esc(name)}</text><text x="10" y="${y + 11}" class="tp-txt">${vlan ? "VLAN " + vlan : "untagged"} · ${esc(subnet || "(not set)")}</text></g>`;
   const yLab = 92, yHub = 170, yA = 205, yB = 240, yF = 290, yLan = 395, yCli = 470;
   let o = "";
   o += bar(yLab, "Lab / uplink", w.uplink.vlan, w.uplink.ip.replace(/\.\d+\/(\d+)$/, ".0/$1"), true);
   o += box(L, 14, 200, 56, "FortiManager", [`${(t.fmgr.ip || "").split("/")[0] || "(IP)"}`, fmgNew ? "new VM (Day-0)" : "existing"], "", !lanOnly) + line(L + 100, 70, L + 100, yLab);
-  o += box(L + 230, 14, 230, 56, "wan-emu (LXC)", [`${w.uplink.ip.split("/")[0]} · NAT, DHCP, tc`, "forwards :" + w.fwd_https_base + "+ / :" + w.fwd_ssh_base + "+"], "tp-emu", fgtOn) + line(L + 345, 70, L + 345, yLab, fgtOn);
+  o += box(L + 230, 14, 230, 56, "wan-emu (LXC)", [`${w.uplink.ip.split("/")[0] || "(uplink IP)"} · NAT, DHCP, tc`, "forwards :" + w.fwd_https_base + "+ / :" + w.fwd_ssh_base + "+"], "tp-emu", fgtOn) + line(L + 345, 70, L + 345, yLab, fgtOn);
   o += line(L + 345, yLab, L + 345, yB, fgtOn);
   o += bar(yHub, seg.hub.name, seg.hub.vlan, seg.hub.subnet, fgtOn) + bar(yA, seg.a.name, seg.a.vlan, seg.a.subnet, fgtOn) + bar(yB, seg.b.name, seg.b.vlan, seg.b.subnet, fgtOn);
   fgts.forEach(([d, hub], n) => {
@@ -748,10 +749,36 @@ function topoSvg(t, sc) {
   o += `<text x="${L}" y="${yCli + 70}" class="tp-txt">IPsec overlay: every spoke WAN → WAN1 of every hub · BGP on loopbacks · ${t.region.multi_vrf === false ? "single VRF (VRF 0)" : "multi-VRF"}</text>`;
   return `<svg viewBox="0 0 ${W} ${yCli + 84}" width="100%" role="img" aria-label="Topology" xmlns="http://www.w3.org/2000/svg">${o}</svg>`;
 }
+// FortiGate ports whose VLAN the tool sets itself (same rules as provision_vms.fgt_nics): hub wan1 -> ISP-HUB, spoke
+// wan1/wan2 -> ISP-A/ISP-B, LAN1/LAN2 -> lan(2)_vlan_base+1+n. {port: {txt: [...], all: true when every FortiGate}}
+function portRoles(t) {
+  const w = t.wanemu, seg = w.segments, fgts = [...t.hubs.map((d) => [d, true]), ...t.edges.map((d) => [d, false])], out = {};
+  const add = (port, key, txt) => { const o = (out[port] ||= { m: new Map(), n: new Set() }); if (!o.m.has(key)) o.m.set(key, []); o.m.get(key).push(txt); };
+  fgts.forEach(([d, hub], n) => {
+    const wans = hub ? { [d.wan1_intf]: "hub" } : { [d.wan1_intf]: "a", ...(d.wan2_intf ? { [d.wan2_intf]: "b" } : {}) };
+    Object.entries(wans).forEach(([p, s]) => { if (p && p !== "undefined") { add(p, s, seg[s].vlan); out[p].n.add(n); } });
+    (d.lans || []).slice(0, 2).forEach((l, k) => {
+      if (l.intf && !(l.intf in wans)) { add(l.intf, "lan" + (k + 1), (k ? w.lan2_vlan_base : w.lan_vlan_base) + 1 + n); out[l.intf].n.add(n); }
+    });
+  });
+  const name = { hub: `${seg.hub.name} (hubs)`, a: `${seg.a.name} (spokes)`, b: `${seg.b.name} (spokes)`, lan1: "LAN1", lan2: "LAN2" };
+  return Object.fromEntries(Object.entries(out).map(([p, o]) => [p, {
+    txt: [...o.m].map(([k, v]) => { const u = [...new Set(v)], lo = Math.min(...u), hi = Math.max(...u); return `${name[k]} VLAN ${lo === hi ? lo : lo + "–" + hi}`; }),
+    all: o.n.size === fgts.length,
+  }]));
+}
+function portsFixed() {
+  let r = {}; try { r = portRoles(collect()); } catch (e) { /* form not complete yet */ }
+  document.querySelectorAll("#ports [data-p]").forEach((tr) => {
+    const f = r[tr.dataset.p], cell = tr.querySelector("[data-fix]");
+    cell.textContent = f ? f.txt.join(" · ") + (f.all ? "" : " · other FortiGates: as set here") : "";
+    tr.querySelectorAll("select, input").forEach((el) => { el.disabled = !!(f && f.all); el.title = f && f.all ? "set by the tool: " + f.txt.join(", ") : ""; });
+  });
+}
 let TOPO_T = null;
 function topoDraw() {
   clearTimeout(TOPO_T);
-  TOPO_T = setTimeout(() => { try { $("#topo").innerHTML = topoSvg(collect(), scope()); } catch (e) { $("#topo").innerHTML = ""; } }, 150);
+  TOPO_T = setTimeout(() => { try { $("#topo").innerHTML = topoSvg(collect(), scope()); } catch (e) { $("#topo").innerHTML = ""; } portsFixed(); }, 150);
 }
 $("#v_deploy").addEventListener("input", (e) => { if (!e.target.closest("#topo")) topoDraw(); });
 

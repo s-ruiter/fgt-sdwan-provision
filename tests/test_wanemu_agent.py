@@ -9,6 +9,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import model  # noqa: E402
+import labuplink  # noqa: E402,F401  (fills in the lab uplink: it has no default)
 from app.wanemu import agent, net  # noqa: E402
 
 topo = net.agent_topology(model.merged({}))

@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import cloudinit, images, model
+import labuplink  # noqa: E402,F401  (fills in the lab uplink: it has no default)
 from app.pve import Pve, PveError
 from tests import fake_proxmox
 

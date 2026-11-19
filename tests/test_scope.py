@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import HTTPException
 
 from app import fmgtemplates, main, model
+import labuplink  # noqa: E402,F401  (fills in the lab uplink: it has no default)
 from app.fmg import Fmg, FmgError, pipeline
 from tests import fake_proxmox, mock_fmg
 from tests.test_day0_units import fake_qcow2, topo as base_topo
