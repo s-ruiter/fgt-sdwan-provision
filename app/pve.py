@@ -119,7 +119,8 @@ class Pve:
         """Active storages per content type (with free space) and bridges of one node."""
         def st(content):
             rows = self._req("GET", f"/nodes/{node}/storage", params={"content": content}) or []
-            return [{"name": s["storage"], "avail": s.get("avail")} for s in rows if s.get("active", 1)]
+            return [{"name": s["storage"], "avail": s.get("avail"), "shared": bool(s.get("shared"))}
+                    for s in rows if s.get("active", 1)]
         return {"image_storages": st("images"), "import_storages": st("import"), "iso_storages": st("iso"),
                 "bridges": self.bridges(node)}
 
@@ -155,6 +156,15 @@ class Pve:
 
     def start_vm(self, node, vmid):
         return self._req("POST", f"/nodes/{node}/qemu/{vmid}/status/start")
+
+    def vm_status(self, node, vmid):
+        return (self._req("GET", f"/nodes/{node}/qemu/{vmid}/status/current") or {}).get("status")
+
+    def stop_vm(self, node, vmid):
+        return self._req("POST", f"/nodes/{node}/qemu/{vmid}/status/stop")
+
+    def list_content(self, node, storage, content):
+        return self._req("GET", f"/nodes/{node}/storage/{storage}/content", params={"content": content}) or []
 
     def delete_vm(self, node, vmid):
         return self._req("DELETE", f"/nodes/{node}/qemu/{vmid}",

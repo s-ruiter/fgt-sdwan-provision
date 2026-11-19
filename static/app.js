@@ -17,7 +17,7 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 // ---- routing ----------------------------------------------------------------
 function route() {
   const [r, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
-  const VIEWS = ["deploy", "progress", "wanemu", "fortiflex", "images", "servers", "about"];
+  const VIEWS = ["deploy", "progress", "wanemu", "fortiflex", "images", "servers", "cleanup", "about"];
   const view = VIEWS.includes(r) ? r : "deploy";
   for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
@@ -25,6 +25,7 @@ function route() {
   if (view === "progress") progressOpen(arg);
   if (view === "deploy") { bannerLoad(); flexApply(); }
   if (view === "fortiflex") ffLoad();
+  if (view === "cleanup") clLoad();
   clearInterval(WAN_TIMER); WAN_TIMER = null;
   if (view === "wanemu") { wanLoad(); wanFwdLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
 }
@@ -753,3 +754,58 @@ function topoDraw() {
   TOPO_T = setTimeout(() => { try { $("#topo").innerHTML = topoSvg(collect(), scope()); } catch (e) { $("#topo").innerHTML = ""; } }, 150);
 }
 $("#v_deploy").addEventListener("input", (e) => { if (!e.target.closest("#topo")) topoDraw(); });
+
+
+// ---- cleanup: everything the tool deployed on Proxmox (never the deploy container) ---------------------------------
+const clErr = (m) => showErr(m ? [m] : [], "#cl_err");
+async function clLoad() {
+  clErr(""); $("#cl_list").innerHTML = ""; $("#cl_res").innerHTML = ""; $("#cl_confirm").value = "";
+  setSel("#cl_server", SERVERS.map((x) => String(x.id)), $("#pve_server").value || (SERVERS[0] ? String(SERVERS[0].id) : ""));
+  $("#cl_server").querySelectorAll("option").forEach((o) => { const x = SERVERS.find((s) => String(s.id) === o.value); if (x) o.textContent = x.name; });
+  if (!SERVERS.length) return clErr("No Proxmox server saved yet (Servers page)");
+  await clNodes();
+}
+async function clNodes() {
+  const sid = $("#cl_server").value; if (!sid) return;
+  const r = await post(`/api/servers/${sid}/test`, {}), j = await json(r);
+  if (!r.ok) return clErr(errList(j).join(" · "));
+  setSel("#cl_node", j.nodes, $("#pve_node").value || j.nodes[0]);
+}
+let CL_SHOWN = null;
+async function clShow() {
+  clErr(""); $("#cl_list").innerHTML = '<div class="hint">looking at Proxmox…</div>'; CL_SHOWN = null;
+  const r = await post("/api/cleanup/plan", { server_id: +$("#cl_server").value, node: $("#cl_node").value, stop_licences: $("#cl_licences").checked }), j = await json(r);
+  if (!r.ok) { $("#cl_list").innerHTML = ""; clErr(errList(j).join(" · ")); return null; }
+  const kind = { vm: "VM", ct: "Container", file: "File" };
+  $("#cl_list").innerHTML = (j.items.length ? `<table class="tbl"><thead><tr><th>Type</th><th>ID</th><th>Name</th><th>Status</th></tr></thead><tbody>` +
+    j.items.map((i) => `<tr><td>${kind[i.kind]}</td><td class="mono">${i.vmid ?? ""}</td><td class="mono">${esc(i.name)}</td><td>${esc(i.status || "")}</td></tr>`).join("") + "</tbody></table>"
+    : '<div class="hint">Nothing of this tool found on this node.</div>') +
+    (j.licences.length ? `<div class="hint">FortiFlex licences that will be stopped: ${j.licences.map((l) => esc(`${l.serialNumber} (${l.description})`)).join(", ")}</div>` : "");
+  CL_SHOWN = j;
+  return j;
+}
+async function clRun() {
+  clErr(""); $("#cl_res").innerHTML = "";
+  if ($("#cl_confirm").value !== "DELETE") return clErr("Type DELETE to confirm");
+  const j = await clShow(); if (!j) return;
+  if (!j.items.length && !j.licences.length) return clErr("Nothing to delete on this node");
+  if (!confirm(`Delete ${j.items.length} item(s) on ${$("#cl_node").value}` + (j.licences.length ? ` and stop ${j.licences.length} licence(s)` : "") + "? This cannot be undone.")) return;
+  const btn = $("#cl_run"); btn.disabled = true; $("#cl_res").innerHTML = '<div class="hint">deleting… (stopping and deleting VMs can take a minute)</div>';
+  try {
+    const r = await post("/api/cleanup", { server_id: +$("#cl_server").value, node: $("#cl_node").value, confirm: $("#cl_confirm").value,
+      stop_licences: $("#cl_licences").checked, only: j.items.map((i) => i.name) }), res = await json(r);
+    if (!r.ok) { $("#cl_res").innerHTML = ""; return clErr(errList(res).join(" · ")); }
+    const bad = res.results.filter((x) => !x.ok).length;
+    $("#cl_res").innerHTML = `<div class="${bad ? "error" : "ok"}">${bad ? `✕ ${bad} item(s) failed` : "✔ Everything deleted"}</div><table class="tbl"><tbody>` +
+      res.results.map((x) => `<tr><td>${x.ok ? "✔" : "✕"}</td><td class="mono">${esc(x.name)}</td><td>${esc(x.error || "")}</td></tr>`).join("") + "</tbody></table>";
+    await clShow();
+  } catch (e) {
+    clErr("The request was interrupted (" + e.message + "); deleting may still be going on: press 'Show what will be deleted' again in a minute");
+  } finally {
+    btn.disabled = false; $("#cl_confirm").value = "";
+  }
+}
+$("#cl_licences").addEventListener("change", () => { if (CL_SHOWN) clShow(); });
+$("#cl_server").addEventListener("change", clNodes);
+$("#cl_show").onclick = clShow;
+$("#cl_run").onclick = clRun;

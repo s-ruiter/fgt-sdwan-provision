@@ -739,8 +739,95 @@ def _licenses(topo, r, dry):
     return log
 
 
+# ---- cleanup: everything the tool deployed on Proxmox (never the deploy container) ---------------------------------
+class CleanupReq(BaseModel):
+    server_id: int
+    node: str
+    confirm: str = ""
+    stop_licences: bool = False
+    only: Optional[list] = None                 # names from the overview the user saw: nothing else is deleted
+
+
+_CLEANUP_LOCK = threading.Lock()                # one cleanup at a time, and never during a deployment
+
+
+def _cleanup_pve(c):
+    from .provision_vms import make_pve
+    row = db.get_server(db.connect(DATA_DIR), c.server_id)
+    if row is None:
+        raise HTTPException(404, detail="Proxmox server not found")
+    return make_pve({"url": row["url"], "token_id": row["token_id"], "verify_tls": bool(row["verify_tls"])},
+                    row["token_secret"])
+
+
+def _licences_for(names):
+    """Tool licences (ACTIVE/PENDING) of exactly these devices ('fgt-sdwan <ADOM> <name>'), so another deployment's
+    licences are never stopped."""
+    _, cfg = _flex_cfg()
+    if not (db.get_secret(db.connect(DATA_DIR), "fortiflex_password") and cfg["user"]):
+        return None, []
+    cl = _flex_client()
+    return cl, [e for e in _tool_licenses(cl, cfg) if e.get("status") in ("ACTIVE", "PENDING")
+                and str(e.get("description", "")).split(" ")[-1] in names]
+
+
+@app.post("/api/cleanup/plan")
+def cleanup_plan(c: CleanupReq):
+    from . import cleanup
+    from .pve import PveError
+    try:
+        items = cleanup.plan(_cleanup_pve(c), c.node)
+    except PveError as e:
+        raise HTTPException(502, detail=str(e))
+    lic = []
+    if c.stop_licences:
+        _, lic = _licences_for({i["name"] for i in items if i["kind"] == "vm"})
+    return {"items": items, "licences": [{k: e.get(k) for k in ("serialNumber", "description", "status")} for e in lic]}
+
+
+@app.post("/api/cleanup")
+def cleanup_run(c: CleanupReq):
+    from . import cleanup
+    from .pve import PveError
+    if c.confirm != "DELETE":
+        raise HTTPException(422, detail=["type DELETE to confirm"])
+    if any(j.get("state") == "running" and not j.get("dry_run") for j in JOBS.values()):
+        raise HTTPException(409, detail=["a deployment is running: wait until it is done"])
+    if not _CLEANUP_LOCK.acquire(blocking=False):
+        raise HTTPException(409, detail=["a cleanup is already running"])
+    try:
+        pve, log = _cleanup_pve(c), []
+        try:
+            results = cleanup.run(pve, c.node, cleanup.plan(pve, c.node), log.append,
+                                  only=set(c.only) if c.only is not None else None)
+        except PveError as e:
+            raise HTTPException(502, detail=str(e))
+        if any(r["kind"] == "ct" and r["name"] == "wan-emu" and r["ok"] for r in results):
+            conn = db.connect(DATA_DIR)                      # the WAN emulation page no longer points at a deleted wan-emu
+            for k in ("wanemu_addr", "wanemu_forwards"):
+                db.put_secret(conn, k, "")
+        if c.stop_licences:                                  # only the licences of devices that are really gone now
+            gone = {r["name"] for r in results if r["kind"] == "vm" and r["ok"]}
+            try:
+                cl, lic = _licences_for(gone)
+                for e in lic:
+                    name = f"licence {e.get('serialNumber')} ({e.get('description', '')})"
+                    try:
+                        cl.stop(e["serialNumber"])
+                        results.append({"name": name, "kind": "licence", "ok": True})
+                    except Exception as x:
+                        results.append({"name": name, "kind": "licence", "ok": False, "error": str(x)})
+            except HTTPException as x:
+                results.append({"name": "FortiFlex licences", "kind": "licence", "ok": False, "error": str(x.detail)})
+        return {"results": results}
+    finally:
+        _CLEANUP_LOCK.release()
+
+
 @app.post("/api/deploy")
 def deploy(r: DeployReq):
+    if _CLEANUP_LOCK.locked():
+        raise HTTPException(409, detail=["a cleanup is running: wait until it is done"])
     topo = model.merged(r.topology)
     sid = topo["pve"].get("server_id")
     if sid:                                    # saved server: url/token-id/secret come from the database

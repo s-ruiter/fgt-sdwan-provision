@@ -145,3 +145,13 @@ try:
 except FileNotFoundError:
     pass
 print("OK  UI: keuze 'LAN clients only' (FortiManager-kaart weg, geen FMG/FGT, clients niet gedimd in de topologie)")
+
+# Cleanup page: server/node, show what will be deleted, type DELETE, optional licence stop
+assert 'href="#/cleanup" data-nav="cleanup"' in html and 'id="v_cleanup"' in html
+for i in ("cl_server", "cl_node", "cl_show", "cl_list", "cl_confirm", "cl_licences", "cl_run", "cl_res", "cl_err"):
+    assert f'id="{i}"' in html, i
+assert '"cleanup"' in js[js.index("const VIEWS"):js.index("const VIEWS") + 160]
+for f in ("clLoad", "clShow", "clRun"):
+    assert re.search(rf"(async\s+)?function\s+{f}\b", js), f
+assert "/api/cleanup/plan" in js and '"/api/cleanup"' in js and '"DELETE"' in js
+print("OK  UI: pagina Cleanup (overzicht eerst, verwijderen alleen na het typen van DELETE)")
