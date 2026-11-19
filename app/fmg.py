@@ -554,7 +554,19 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         ensure_allow_vm(fmg, emit)
     for d, kind in devices:
         if not fmg.dry and fmg.exists(f"/dvmdb/adom/{adom}/device/{d['name']}"):
-            emit("devices", "running", f"{d['name']}: bestaat al")
+            url = f"/dvmdb/adom/{adom}/device/{d['name']}"
+            old = str((fmg.call("get", url).get("data") or {}).get("sn") or "").strip()
+            new = d["serial"].strip()
+            if old and new and old.upper() != new.upper():        # e.g. a new FortiFlex license for this device
+                try:
+                    fmg.call("update", url, {"sn": new})
+                except FmgError as e:
+                    raise FmgError(f"{d['name']}: model device heeft serienummer {old}, deze uitrol gebruikt {new}, en "
+                                   f"FortiManager weigert dat te wijzigen ({e}). Verwijder model device {d['name']} in "
+                                   f"ADOM {adom} en start de uitrol opnieuw") from None
+                emit("devices", "running", f"{d['name']}: bestaat al, serienummer {old} -> {new}")
+            else:
+                emit("devices", "running", f"{d['name']}: bestaat al")
             continue
         r = fmg.call("exec", "/dvm/cmd/add/device", {
             "adom": adom, "flags": ["create_task", "nonblocking"],

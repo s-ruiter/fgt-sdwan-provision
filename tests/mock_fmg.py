@@ -57,9 +57,17 @@ class H(BaseHTTPRequestHandler):
         elif url == "dvmdb/adom" and m == "add":
             STATE["adoms"].add(p["data"][0]["name"])
         elif m == "get" and len(parts) == 5 and parts[3] == "device":
-            res = ok({"name": parts[4], "conn_status": 1}) if parts[4] in STATE["devices"] else MISSING(p["url"])
+            sn = STATE.setdefault("device_sn", {}).get(parts[4], "")
+            res = ok({"name": parts[4], "conn_status": 1, "sn": sn}) if parts[4] in STATE["devices"] else MISSING(p["url"])
+        elif m == "update" and len(parts) == 5 and parts[3] == "device":
+            if STATE.get("refuse_sn_update"):
+                res = {"status": {"code": -6, "message": "Invalid value"}, "url": p["url"]}
+            else:
+                STATE.setdefault("device_sn", {})[parts[4]] = p["data"]["sn"]
+                STATE.setdefault("sn_updates", []).append((parts[4], p["data"]["sn"]))
         elif url == "dvm/cmd/add/device":
             STATE["devices"].add(p["data"]["device"]["name"])
+            STATE.setdefault("device_sn", {})[p["data"]["device"]["name"]] = p["data"]["device"]["sn"]
             res = ok({"taskid": 101})
         elif m == "get" and len(parts) == 5 and parts[3] == "script":
             hit = [s for s in STATE["scripts"] if s["name"] == parts[4]]

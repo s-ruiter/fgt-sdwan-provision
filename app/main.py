@@ -51,6 +51,7 @@ def _get_job(jid):
         return db.load_job(_jobdb(), jid)
 
 STEPS = [
+    ("licenses", "Licenties", "FortiFlex: per device een bestaande licentie hergebruiken (nieuw token) of een nieuwe aanmaken; serienummer en token gaan naar de uitrol"),
     ("pve_fmg", "FortiManager-VM", "Image naar Proxmox, VM + datadisk + Day-0 config-drive (cloud-init) aanmaken en starten"),
     ("bootstrap_fmg", "FortiManager ZTP", "Vast IP, route, DNS en FortiFlex-licentie: via Day-0 (wachten) of via SSH (execute vm-license)"),
     ("preflight", "Preflight", "Verbinding en FortiManager-versie (8.0.x) controleren"),
@@ -421,6 +422,177 @@ def wanemu_reset():
     return {"links": _agent_call(a.reset)}
 
 
+# ---- FortiFlex: credentials + chosen configurations (tool database, 0600); licenses per device at deployment ------
+class FlexCreds(BaseModel):
+    user: str = ""
+    password: str = ""                          # empty = the stored password
+
+
+class FlexSettings(FlexCreds):
+    enabled: bool = False
+    program: str = ""
+    fmg_config: Optional[int] = None
+    fgt_config: Optional[int] = None
+
+
+def _flex_cfg():
+    conn = db.connect(DATA_DIR)
+    cfg = json.loads(db.get_secret(conn, "fortiflex_cfg") or "{}")
+    return conn, {"user": db.get_secret(conn, "fortiflex_user") or "", "enabled": bool(cfg.get("enabled")),
+                  "program": cfg.get("program", ""), "fmg_config": cfg.get("fmg_config"), "fgt_config": cfg.get("fgt_config")}
+
+
+def _flex_client(user="", password=""):
+    from .fortiflex import Client
+    conn, cfg = _flex_cfg()
+    user, password = user or cfg["user"], password or db.get_secret(conn, "fortiflex_password") or ""
+    if not user or not password:
+        raise HTTPException(400, detail="FortiFlex: API-gebruiker en wachtwoord zijn nog niet ingesteld (pagina FortiFlex)")
+    return Client(user, password)
+
+
+def _flex_call(fn):
+    from .fortiflex import FlexError
+    try:
+        return fn()
+    except FlexError as e:
+        raise HTTPException(400, detail=str(e))
+
+
+@app.get("/api/fortiflex")
+def fortiflex_get():
+    conn, cfg = _flex_cfg()
+    return dict(cfg, has_password=bool(db.get_secret(conn, "fortiflex_password")))
+
+
+@app.put("/api/fortiflex")
+def fortiflex_put(f: FlexSettings):
+    conn = db.connect(DATA_DIR)
+    db.put_secret(conn, "fortiflex_user", f.user.strip())
+    if f.password:
+        db.put_secret(conn, "fortiflex_password", f.password)
+    db.put_secret(conn, "fortiflex_cfg", json.dumps({"enabled": f.enabled, "program": f.program.strip(),
+                                                     "fmg_config": f.fmg_config, "fgt_config": f.fgt_config}))
+    return fortiflex_get()
+
+
+@app.post("/api/fortiflex/test")
+def fortiflex_test(c: FlexCreds):
+    cl = _flex_client(c.user.strip(), c.password)
+    return {"programs": _flex_call(cl.programs)}
+
+
+class FlexConfigsReq(FlexCreds):
+    program: str
+
+
+@app.post("/api/fortiflex/configs")
+def fortiflex_configs(c: FlexConfigsReq):
+    cl = _flex_client(c.user.strip(), c.password)          # typed (not yet saved) credentials, else the stored ones
+    return [{"id": x["id"], "name": x["name"], "status": x.get("status"), "product": (x.get("productType") or {}).get("name", ""),
+             "parameters": {p["name"]: p["value"] for p in x.get("parameters") or []}}
+            for x in _flex_call(lambda: cl.configs(c.program))]
+
+
+def _tool_licenses(cl, cfg):
+    from .fortiflex import PREFIX
+    out = []
+    for cid in {cfg["fmg_config"], cfg["fgt_config"]} - {None}:
+        for e in _flex_call(lambda cid=cid: cl.entitlements(cid)):
+            if str(e.get("description", "")).startswith(PREFIX + " "):
+                out.append({k: e.get(k) for k in ("serialNumber", "description", "configId", "status", "tokenStatus",
+                                                   "startDate", "endDate")})
+    return sorted(out, key=lambda e: e["description"])
+
+
+@app.get("/api/fortiflex/entitlements")
+def fortiflex_entitlements():
+    _, cfg = _flex_cfg()
+    return {"entitlements": _tool_licenses(_flex_client(), cfg)}
+
+
+@app.post("/api/fortiflex/stop/{sn}")
+def fortiflex_stop(sn: str):
+    _, cfg = _flex_cfg()
+    cl = _flex_client()
+    if sn not in {e["serialNumber"] for e in _tool_licenses(cl, cfg)}:
+        raise HTTPException(404, detail=f"{sn} is geen licentie van deze tool (omschrijving 'fgt-sdwan ...')")
+    e = _flex_call(lambda: cl.stop(sn))
+    return {"serialNumber": e.get("serialNumber"), "status": e.get("status")}     # never the token
+
+
+def _flex_devices(topo, r, cfg):
+    """Devices that need a FortiFlex token in this run: the FortiManager (method day0/ssh) and the FortiGates (idem)."""
+    _apply_scope(r)
+    mf, mg = _method(r.bootstrap.fmg), _method(r.bootstrap.fgt)
+    devs = []
+    if mf in ("day0", "ssh") and cfg["fmg_config"]:
+        devs.append({"name": topo["fmgr"].get("name") or "fmg", "serial": "", "config_id": cfg["fmg_config"], "role": "fmg"})
+    if mg in ("day0", "ssh") and cfg["fgt_config"]:
+        devs += [{"name": d["name"], "serial": d.get("serial", ""), "config_id": cfg["fgt_config"], "role": "fgt"}
+                 for d in topo["hubs"] + topo["edges"]]
+    return devs
+
+
+def _flex_plan(topo, r):
+    from .fortiflex import plan
+    _, cfg = _flex_cfg()
+    if not cfg["enabled"]:
+        return None, []
+    devs = _flex_devices(topo, r, cfg)
+    if not devs:
+        return None, []
+    cl = _flex_client()
+    ents = {cid: _flex_call(lambda cid=cid: cl.entitlements(cid)) for cid in {d["config_id"] for d in devs}}
+    return cl, plan(devs, ents, topo["adom"])
+
+
+@app.post("/api/fortiflex/check")
+def fortiflex_check(r: DeployReq):
+    from .fortiflex import ACTION_TEXT, resolve
+    topo = model.merged(r.topology)
+    cl, rows = _flex_plan(topo, r)
+    res = resolve(cl, rows, dry=True) if rows else {}
+    return {"devices": [{"name": x["name"], "serial": res[x["name"]]["serial"], "action": x["action"],
+                         "text": ACTION_TEXT[x["action"]]} for x in rows]}
+
+
+_FLEX_LOCK = threading.Lock()
+_NOLOCK = __import__("contextlib").nullcontext()                   # two deploys at once must not both create / regenerate a license
+DRY_TOKEN = "FORTIFLEXDRYRUN000000"             # placeholder: lets validation pass without touching FortiFlex
+
+
+def _licenses(topo, r, dry):
+    """Serial numbers into the topology, tokens into the job secrets. Returns [(status, message)] for the 'licenses'
+    step. dry=True: lookup only, placeholder serials for new licenses and placeholder tokens (used to validate the
+    whole request first; nothing is created or regenerated)."""
+    from .fortiflex import ACTION_TEXT, FlexError, resolve
+    with _FLEX_LOCK if not dry else _NOLOCK:
+        cl, rows = _flex_plan(topo, r)
+        if not rows:
+            return []
+        try:
+            res = resolve(cl, rows, dry=dry)
+        except FlexError as e:
+            raise HTTPException(422, detail=[str(e)])
+    if dry:
+        for v in res.values():
+            v["token"] = DRY_TOKEN
+    log = []
+    fmg_name = topo["fmgr"].get("name") or "fmg"
+    for d in topo["hubs"] + topo["edges"]:
+        if d["name"] in res:
+            d["serial"] = res[d["name"]]["serial"]
+            if res[d["name"]]["token"]:
+                r.secrets.fgt_tokens[d["name"]] = res[d["name"]]["token"]
+    if fmg_name in res and res[fmg_name]["token"]:
+        r.secrets.fmg_token = res[fmg_name]["token"]
+    for x in rows:
+        log.append(("running", f"{x['name']}: {res[x['name']]['serial']} - {ACTION_TEXT[x['action']]}"
+                               + (" (dry-run: niets aangemaakt)" if dry else "")))
+    return log
+
+
 @app.post("/api/deploy")
 def deploy(r: DeployReq):
     topo = model.merged(r.topology)
@@ -432,8 +604,15 @@ def deploy(r: DeployReq):
         topo["pve"].update(url=row["url"], token_id=row["token_id"], verify_tls=bool(row["verify_tls"]))
         r.secrets.pve_token_secret = row["token_secret"]
     _apply_scope(r)
-    _, _, cfg = _render(topo, create_psk=True, devices=r.scope not in ("fmg", "tpl"), fmg_vm=r.scope in ("all", "fmg"))
+    # FortiFlex: first validate the whole request with placeholders (lookup only), and only then create / reactivate /
+    # regenerate licenses, so a refused request never costs points or invalidates a running device's token
+    lic = _licenses(topo, r, dry=True)
+    render = lambda: _render(topo, create_psk=True, devices=r.scope not in ("fmg", "tpl"), fmg_vm=r.scope in ("all", "fmg"))
+    _, _, cfg = render()
     _check_bootstrap(topo, r)
+    if lic and not r.dry_run:
+        lic = _licenses(topo, r, dry=False)    # real serials + tokens (under a lock), then render with the real serials
+        _, _, cfg = render()
     if sid:                                    # remember this server's choices for the next run
         db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"])
     s = r.secrets
@@ -457,6 +636,12 @@ def deploy(r: DeployReq):
     job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [], "created": time.strftime("%Y-%m-%d %H:%M:%S"),
            "title": f"Uitrol van {topo['adom']}" + SCOPE_TITLE[r.scope] + (" (dry-run)" if r.dry_run else ""),
            "steps": {i: "pending" for i, _, _ in STEPS}}
+    now = time.strftime("%H:%M:%S")
+    for st, m in lic:
+        job["events"].append({"t": now, "step": "licenses", "status": st, "msg": mask(m)})
+    job["events"].append({"t": now, "step": "licenses", "status": "ok" if lic else "skipped",
+                          "msg": f"{len(lic)} licentie(s) via FortiFlex" if lic else "FortiFlex niet gebruikt (pagina FortiFlex)"})
+    job["steps"]["licenses"] = "ok" if lic else "skipped"
     JOBS[jid] = job
     _persist(job)
     threading.Thread(target=_run, args=(job, topo, cfg, r.fmg, r.dry_run, boot, mask), daemon=True).start()

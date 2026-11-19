@@ -219,6 +219,24 @@ except FmgError:
     pass
 print("OK  alles (standaard): ongewijzigd; onbekende keuze geweigerd")
 
+# ---------------------------------------------------------------- existing model device with another serial (FortiFlex)
+import copy as _c
+t_sn = _c.deepcopy(t)
+t_sn["hubs"][0]["serial"] = "FGVMELTM26990001"
+ev = []
+pipeline(t_sn, cfg, Fmg(FMG, "admin", PW), lambda s_, st, m: ev.append((s_, st, m)), boot(scope="dev", fgt_tokens={}, images={}))
+assert ("site1-H1", "FGVMELTM26990001") in mock_fmg.STATE["sn_updates"], mock_fmg.STATE.get("sn_updates")
+assert any("serienummer" in m and "FGVMELTM26990001" in m for _, _, m in ev)
+mock_fmg.STATE["refuse_sn_update"] = True
+t_sn["hubs"][0]["serial"] = "FGVMELTM26990002"
+try:
+    pipeline(t_sn, cfg, Fmg(FMG, "admin", PW), lambda *a: None, boot(scope="dev", fgt_tokens={}, images={}))
+    raise AssertionError("moest falen")
+except FmgError as e:
+    assert "verwijder" in str(e).lower() and "site1-H1" in str(e), e
+mock_fmg.STATE["refuse_sn_update"] = False
+print("OK  model device met ander serienummer: bijgewerkt; weigert FortiManager dat, dan duidelijke fout")
+
 # ---------------------------------------------------------------- API: scope overrides the methods + validation
 def req(scope, **sec):
     s = {"fgt_tokens": {}, "fgt_new_pw": "", **sec}
