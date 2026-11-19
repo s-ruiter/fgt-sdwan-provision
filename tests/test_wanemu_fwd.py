@@ -73,3 +73,11 @@ assert len(fake_proxmox.STATE["cts"]) == 3 and not any(x["created"] for x in r2)
 assert "ip=10.0.22.10/24,gw=10.0.22.1" in cts["client-site1-2"]["params"]["net0"]
 srv.shutdown()
 print("OK  LAN-clients: client-<spoke> op het LAN1-VLAN, .10 met de spoke als gateway; hergebruik met nieuwe netwerkconfig")
+
+# review: dry run with a spoke without LAN does not crash the 'clients' step
+from app import fmg as fmgmod  # noqa: E402
+t = model.merged({}); t["edges"][1]["lans"] = []
+ev = []
+fmgmod._clients(t, {"dry": True}, lambda *a: ev.append(a))
+assert [st for s_, st, _ in ev if s_ == "clients"][-1] == "ok" and not any("client-site1-2" in m for _, _, m in ev), ev
+print("OK  LAN-clients dry-run: spoke zonder LAN wordt overgeslagen")

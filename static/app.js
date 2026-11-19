@@ -545,28 +545,35 @@ function termOpen(name) {
   TERM_NAME = name; $("#term_title").textContent = `SSH naar ${name}`;
   $("#term_overlay").hidden = false; $("#term_form").hidden = false; $("#term_box").innerHTML = ""; $("#term_pw").focus();
 }
+let TERM_FIT = null, TERM_BUSY = false;
+const termResize = () => TERM && TERM_FIT && TERM_FIT.fit();
+window.addEventListener("resize", termResize);                  // one listener for every session
 async function termStart() {
+  if (TERM_BUSY || TERM) return;                                // Enter twice while loading: one session only
+  TERM_BUSY = true;
   try {
     await loadOnce("link", { rel: "stylesheet", href: XTERM + "css/xterm.css" });
     await loadOnce("script", { src: XTERM + "lib/xterm.js" }); await loadOnce("script", { src: XFIT + "lib/xterm-addon-fit.js" });
-  } catch (e) { return wanErr(e.message + " (heeft de browser internet?)"); }
+  } catch (e) { TERM_BUSY = false; $("#term_box").innerHTML = `<div class="error">✕ ${esc(e.message)} (heeft de browser internet?)</div>`; return; }
   const user = $("#term_user").value.trim() || "admin", pw = $("#term_pw").value;
   $("#term_pw").value = "";                                     // not kept in the page
   $("#term_form").hidden = true;
   TERM = new window.Terminal({ cursorBlink: true, fontSize: 13 });
-  const fit = new window.FitAddon.FitAddon(); TERM.loadAddon(fit); TERM.open($("#term_box")); fit.fit();
-  TERM_WS = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/term/${encodeURIComponent(TERM_NAME)}`);
-  TERM_WS.onopen = () => TERM_WS.send(JSON.stringify({ user, password: pw, cols: TERM.cols, rows: TERM.rows }));
-  TERM_WS.onmessage = (e) => TERM.write(e.data);
-  TERM_WS.onclose = () => TERM && TERM.write("\r\n[verbinding gesloten]\r\n");
-  TERM.onData((d) => TERM_WS.readyState === 1 && TERM_WS.send(JSON.stringify({ data: d })));
-  TERM.onResize(({ cols, rows }) => TERM_WS.readyState === 1 && TERM_WS.send(JSON.stringify({ resize: [cols, rows] })));
-  window.addEventListener("resize", () => TERM && fit.fit());
-  TERM.focus();
+  $("#term_box").innerHTML = "";
+  TERM_FIT = new window.FitAddon.FitAddon(); TERM.loadAddon(TERM_FIT); TERM.open($("#term_box")); TERM_FIT.fit();
+  TERM_BUSY = false;
+  const term = TERM, ws = TERM_WS = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/term/${encodeURIComponent(TERM_NAME)}`);
+  ws.onopen = () => ws.send(JSON.stringify({ user, password: pw, cols: term.cols, rows: term.rows }));
+  ws.onmessage = (e) => term.write(e.data);                     // bound to this session's terminal, not a later one
+  ws.onclose = () => { if (TERM === term) term.write("\r\n[verbinding gesloten]\r\n"); };
+  term.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ data: d })));
+  term.onResize(({ cols, rows }) => ws.readyState === 1 && ws.send(JSON.stringify({ resize: [cols, rows] })));
+  term.focus();
 }
 function termClose() {
   if (TERM_WS) { try { TERM_WS.close(); } catch (_) {} TERM_WS = null; }
-  if (TERM) { TERM.dispose(); TERM = null; }
+  if (TERM) { TERM.dispose(); TERM = null; TERM_FIT = null; }
+  TERM_BUSY = false;
   $("#term_pw").value = ""; $("#term_overlay").hidden = true;
 }
 $("#wanemu-fgts").addEventListener("click", (e) => { const b = e.target.closest("[data-ssh]"); if (b) termOpen(b.dataset.ssh); });

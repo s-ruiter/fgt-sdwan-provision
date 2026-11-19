@@ -444,7 +444,11 @@ def _term_connect(host, port, user, password, cols, rows):
     except Exception as e:
         c.close()
         raise TermError(f"geen SSH-verbinding met {host}:{port} ({type(e).__name__})") from None
-    chan = c.invoke_shell(term="xterm", width=cols, height=rows)
+    try:
+        chan = c.invoke_shell(term="xterm", width=cols, height=rows)
+    except Exception as e:
+        c.close()
+        raise TermError(f"geen shell op {host}:{port} ({type(e).__name__})") from None
     return chan, c.close
 
 
@@ -454,53 +458,75 @@ TERM_CONNECT = _term_connect
 @app.websocket("/api/term/{name}")
 async def term(ws: WebSocket, name: str):
     await ws.accept()
-    say = lambda m: ws.send_text(f"\r\n\x1b[31m[{m}]\x1b[0m\r\n")
+
+    async def say(m):
+        try:
+            await ws.send_text(f"\r\n\x1b[31m[{m}]\x1b[0m\r\n")
+        except Exception:                                            # browser already gone
+            pass
+
+    async def close():
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    chan = closer = None
     try:
-        auth = json.loads(await ws.receive_text())
+        try:
+            auth = json.loads(await ws.receive_text())
+            cols, rows = int(auth.get("cols") or 80), int(auth.get("rows") or 24)
+        except (ValueError, TypeError, AttributeError):
+            await say("ongeldig startbericht")
+            return await close()
         raw = db.get_secret(db.connect(DATA_DIR), "wanemu_forwards")
         fw = json.loads(raw) if raw else {"forwards": []}
         f = next((x for x in fw["forwards"] if x["name"] == name), None)
         if not f:
             await say(f"onbekend device {name}: rol eerst de FortiGates uit")
-            return await ws.close()
-        cols, rows = int(auth.get("cols") or 80), int(auth.get("rows") or 24)
+            return await close()
         try:
             chan, closer = await asyncio.to_thread(TERM_CONNECT, fw["host"], f["ssh"], auth.get("user") or "admin",
                                                    auth.get("password") or "", cols, rows)
         except TermError as e:
             await say(str(e))
-            return await ws.close()
+            return await close()
         auth = None                                                   # the password is not kept
+        import codecs
+        dec = codecs.getincrementaldecoder("utf-8")(errors="replace")   # UTF-8 split over chunks
 
         async def out():
             while not chan.exit_status_ready():
                 if chan.recv_ready():
-                    await ws.send_text(chan.recv(65536).decode(errors="replace"))
+                    await ws.send_text(dec.decode(chan.recv(65536)))
                 else:
                     await asyncio.sleep(0.02)
             while chan.recv_ready():
-                await ws.send_text(chan.recv(65536).decode(errors="replace"))
+                await ws.send_text(dec.decode(chan.recv(65536)))
 
         async def inp():
             while True:
                 m = json.loads(await ws.receive_text())
-                if "data" in m:
-                    chan.send(str(m["data"]).encode())
+                if "data" in m:                                       # sendall in a thread: no partial writes, and
+                    await asyncio.to_thread(chan.sendall, str(m["data"]).encode())   # a full window never blocks the loop
                 elif "resize" in m:
                     chan.resize_pty(width=int(m["resize"][0]), height=int(m["resize"][1]))
 
-        tasks = [asyncio.create_task(out()), asyncio.create_task(inp())]
-        try:
-            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            for x in tasks:
-                x.cancel()
-            chan.close()
-            closer()
-        await say("sessie beëindigd")
-        await ws.close()
-    except (WebSocketDisconnect, RuntimeError):
+        t_out, t_in = asyncio.create_task(out()), asyncio.create_task(inp())
+        done, _ = await asyncio.wait([t_out, t_in], return_when=asyncio.FIRST_COMPLETED)
+        for x in (t_out, t_in):
+            x.cancel()
+        await asyncio.gather(t_out, t_in, return_exceptions=True)    # retrieve, never "exception was never retrieved"
+        if t_out in done:                                             # the FortiGate ended the session: tell the browser
+            await say("sessie beëindigd")
+            await close()
+    except Exception:                                                 # disconnects and anything else: just clean up
         pass
+    finally:
+        if chan is not None:
+            chan.close()
+        if closer is not None:
+            closer()
 
 
 @app.post("/api/wanemu/reset")

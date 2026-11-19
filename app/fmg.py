@@ -674,6 +674,8 @@ def _clients(topo, boot, emit, step="clients"):
     from .wanemu import net, setup
     if boot.get("dry"):
         for e in topo["edges"]:
+            if not (e.get("lans") or [{}])[0].get("ip"):            # same rule as deploy_clients: no LAN, no client
+                continue
             p = net.client_params(topo, e, 0, "")
             emit(step, "running", f"[dry-run] {p['hostname']}: {p['net0']}")
         emit(step, "ok", "dry-run: geen clients aangemaakt")

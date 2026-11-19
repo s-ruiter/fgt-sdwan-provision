@@ -28,7 +28,10 @@ class Chan:                                       # fake paramiko channel: echoe
     def recv(self, n):
         return self.buf.pop(0) if self.buf else b""
 
-    def send(self, data):
+    def send(self, data):                         # review: partial writes -> the tool must use sendall
+        raise AssertionError("send() kan gedeeltelijk schrijven: gebruik sendall()")
+
+    def sendall(self, data):
         self.buf.append(b"echo:" + data)
         if data == b"exit\r":
             self.closed = True
@@ -48,13 +51,24 @@ def fake_connect(host, port, user, password, cols, rows):
     if password != "goed":
         raise main.TermError("inloggen geweigerd")
     seen["chan"] = Chan()
-    return seen["chan"], lambda: None
+    return seen["chan"], lambda: seen.update(closed_client=True)
 
 
 main.TERM_CONNECT = fake_connect
 t = model.merged({})
 conn = db.connect(os.environ["DATA_DIR"])
 db.put_secret(conn, "wanemu_forwards", json.dumps({"host": "10.10.106.250", "forwards": net.forwards(t)}))
+import logging  # noqa: E402
+srv_errors = []
+
+
+class _H(logging.Handler):
+    def emit(self, record):
+        srv_errors.append(record.getMessage() + (logging.Formatter().formatException(record.exc_info) if record.exc_info else ""))
+
+
+for name in ("uvicorn.error", "asyncio"):
+    logging.getLogger(name).addHandler(_H())
 s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
 srv = uvicorn.Server(uvicorn.Config(main.app, host="127.0.0.1", port=port, log_level="warning"))
 threading.Thread(target=srv.run, daemon=True).start()
@@ -81,6 +95,13 @@ with connect(f"ws://127.0.0.1:{port}/api/term/site1-1") as ws:
     ws.send(json.dumps({"resize": [100, 40]}))
     time.sleep(0.3)
     assert seen["chan"].size == (100, 40)
+for _ in range(40):                                                     # browser closed: SSH client closed too
+    if seen.get("closed_client"):
+        break
+    time.sleep(0.05)
+assert seen.get("closed_client") and seen["chan"].closed
+errors = [r for r in srv_errors if "Traceback" in r or "exception" in r.lower()]
+assert not errors, errors                                               # review: no traceback on a normal close
 with connect(f"ws://127.0.0.1:{port}/api/term/site1-1") as ws:          # wrong password: message, then closed
     ws.send(json.dumps({"user": "admin", "password": "fout", "cols": 80, "rows": 24}))
     msg = ws.recv(timeout=3)
