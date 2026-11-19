@@ -72,3 +72,5 @@ t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
 specs = pv.build_specs(t, "pw", "pw", {d["name"]: "T" * 20 for d in t["hubs"] + t["edges"]}, "", "fgt")
 assert specs[0]["nics"][0]["vlan"] == 3200 and specs[2]["nics"][1]["vlan"] == 3202
 print("OK  FortiGate-NIC's: hub port1 -> ISP-HUB, spoke port1/port2 -> ISP-A/ISP-B met vaste MAC; LAN-poorten ongewijzigd")
+assert net.ct_params(model.merged({}), 130, "k")["features"] == "nesting=1"     # Debian 13 / systemd 257 in a CT
+print("OK  LXC: nesting=1 (anders falen /tmp, /run/lock en mqueue onder systemd 257)")

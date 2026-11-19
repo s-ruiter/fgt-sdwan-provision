@@ -89,3 +89,26 @@ assert app2.state["site1-1-wan1"]["loss_pct"] == 2
 assert req("POST", "/reset")[0] == 200 and json.load(open(os.path.join(d, "links.json"))) == {}
 srv.shutdown()
 print("OK  agent-API: token verplicht, PUT past toe en bewaart, ongeldige waarde 400 zonder wijziging, herstart leest terug, reset")
+
+# start-up: the uplink address may not exist yet when systemd starts the agent (errno 99) -> wait, don't crash
+tries = []
+
+
+class Srv:
+    pass
+
+
+def mk(host, port):
+    tries.append(1)
+    if len(tries) < 3:
+        raise OSError(99, "Cannot assign requested address")
+    return Srv()
+
+
+assert isinstance(agent.bind_retry(mk, "10.10.106.250", 8090, timeout=5, delay=0), Srv) and len(tries) == 3
+try:
+    agent.bind_retry(lambda h, p: (_ for _ in ()).throw(OSError(98, "in use")), "x", 1, timeout=5, delay=0)
+    raise SystemExit("andere OSError hoort door te gaan")
+except OSError as e:
+    assert e.errno == 98
+print("OK  agent wacht bij opstarten op zijn uplink-adres (errno 99) in plaats van te crashen")

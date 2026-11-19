@@ -82,6 +82,8 @@ def ct_params(t, vmid, ssh_pubkey):
     p = {"vmid": vmid, "hostname": w["hostname"], "ostemplate": w["template"], "storage": w["storage"],
          "rootfs": f"{w['storage']}:{w['disk_gb']}", "cores": w["cores"], "memory": w["memory_mb"], "swap": 0,
          "unprivileged": 0 if WANEMU_PRIVILEGED else 1, "onboot": 1, "start": 0, "tags": TAG_VM,
+         # Debian 13 (systemd 257) in a CT: without nesting /tmp, /run/lock and mqueue fail to mount (spike on PVE01)
+         "features": "nesting=1",
          "ssh-public-keys": ssh_pubkey,
          "net0": f"name=eth0,bridge={w['bridge']},tag={up['vlan']},ip={up['ip']},gw={up['gw']}"}
     for i, s in enumerate(SEGS, start=1):

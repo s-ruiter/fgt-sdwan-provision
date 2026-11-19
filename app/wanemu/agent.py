@@ -219,6 +219,19 @@ class App:
         return ThreadingHTTPServer((host, port), H)
 
 
+def bind_retry(make_server, host, port, timeout=120, delay=2):
+    """At boot systemd can start the agent before the uplink address exists (EADDRNOTAVAIL, errno 99): wait for it."""
+    import time
+    end = time.monotonic() + timeout
+    while True:
+        try:
+            return make_server(host, port)
+        except OSError as e:
+            if e.errno != 99 or time.monotonic() > end:
+                raise
+            time.sleep(delay)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--conf", default="/etc/wan-emu")
@@ -229,7 +242,7 @@ def main():
         token = f.read().strip()
     app = App(a.conf, token)
     app.apply()                                                 # restore the saved state after a (re)start
-    app.make_server(a.listen, a.port).serve_forever()
+    bind_retry(app.make_server, a.listen, a.port).serve_forever()
 
 
 if __name__ == "__main__":

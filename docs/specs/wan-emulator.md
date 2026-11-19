@@ -57,8 +57,13 @@ niet lukt.
 ### Host-voorwaarde
 
 `sch_netem` en `ifb` moeten op PVE01 geladen zijn (`/etc/modules-load.d/wan-emu.conf`). De tool controleert dit en
-meldt het; hij laadt geen modules op de host. Open punt: kan een unprivileged container zelf een `ifb`-device maken?
-Zo niet, dan wordt de container privileged of komt de ingress-shaping op de host-veth (zie plan, stap 1).
+meldt het; hij laadt geen modules op de host.
+
+Getest op PVE01 (PVE 9, Debian 13-template) in een **unprivileged** CT: `ifb`-devices aanmaken, htb, netem, ingress
+met matchall + mirred, u32-filters en nftables met NAT werken allemaal; de container blijft dus unprivileged. Verder
+gevonden: zonder `features: nesting=1` falen onder systemd 257 de mounts van /tmp, /run/lock en mqueue (de tool zet
+nesting aan); `sysctl --system` faalt in de CT, `sysctl -p` van het eigen bestand werkt; bij het opstarten bestaat het
+uplink-IP soms nog niet, dus de agent wacht daarop; na een herstart staan forwarding, de linkstand en de NAT weer goed.
 
 ## DHCP
 
