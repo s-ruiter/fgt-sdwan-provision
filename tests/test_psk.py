@@ -23,11 +23,11 @@ print("OK  PSK: willekeurig, stabiel per ADOM, placeholder in previews, db 0600;
 c2 = db.connect(tempfile.mkdtemp())
 for i in (1, 2):
     c2.execute("INSERT INTO servers(id,name,url,token_id,token_secret) VALUES(?,?,?,?,?)", (i, f"pve{i}", "https://x:8006", "a@pam!b", "s"))
-up = {"vlan": 106, "ip": "10.10.106.250/24", "gw": "10.10.106.1"}
-db.save_last_used(c2, 1, {"node": "pve01"}, {"uplink": up})
-assert db.get_last_used(c2, 1) == {"node": "pve01", "wanemu_uplink": up}, db.get_last_used(c2, 1)
+up = {"bridge": "vmbr0", "vlan": 106, "ip": "10.10.106.250/24", "gw": "10.10.106.1"}
+db.save_last_used(c2, 1, {"node": "pve01"}, {"uplink": up, "bridge": "vmbr5"})
+assert db.get_last_used(c2, 1) == {"node": "pve01", "wanemu_uplink": up, "wanemu_bridge": "vmbr5"}, db.get_last_used(c2, 1)
 db.save_last_used(c2, 2, {"node": "pve02"}, {"uplink": {"vlan": None, "ip": "", "gw": ""}})
 assert db.get_last_used(c2, 2) == {"node": "pve02"}
 db.save_last_used(c2, 1, {"node": "pve01"})                       # a run without wan-emu keeps the remembered uplink
-assert db.get_last_used(c2, 1)["wanemu_uplink"] == up
+assert db.get_last_used(c2, 1)["wanemu_uplink"] == up and db.get_last_used(c2, 1)["wanemu_bridge"] == "vmbr5"
 print("OK  last-used: WAN-emulator uplink per server onthouden")

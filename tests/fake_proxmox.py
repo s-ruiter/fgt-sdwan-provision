@@ -80,7 +80,9 @@ class H(BaseHTTPRequestHandler):
             return self._send([{"storage": n, "content": c, "active": a, "avail": av, "shared": int(n == "nfs")}
                                for n, c, a, av in allst if want in c.split(",")])
         if path == "/nodes/pve1/network":
-            return self._send([{"iface": "vmbr0"}, {"iface": "vmbr1"}])
+            return self._send(STATE.get("bridges") or [{"iface": "vmbr0", "type": "bridge", "bridge_ports": "eno1"},
+                                                       {"iface": "vmbr1", "type": "bridge", "bridge_ports": "eno2",
+                                                        "bridge_vlan_aware": 1}])
         if path == "/cluster/nextid":
             used = {int(v) for v in vms} | {int(c) for c in STATE["cts"]}     # PVE: VMs and CTs share the id space
             n = STATE["nextid"]                                               # PVE: the LOWEST free id from 100

@@ -68,6 +68,61 @@ def lan_vlans(t):
     return {d["name"]: (w["lan_vlan_base"] + 1 + n, w["lan2_vlan_base"] + 1 + n) for n, (d, _) in enumerate(fortigates(t))}
 
 
+def bridge_needs(t, fgts=True, clients=True):
+    """{bridge: {VLAN ids}} this run puts on each Proxmox bridge: wan-emu uplink + segments and every FortiGate NIC
+    (fgts), the LAN client of each spoke (clients). A bridge with an empty set is used untagged."""
+    from ..provision_vms import fgt_nics
+    w, need = t["wanemu"], {}
+    add = lambda b, v: need.setdefault(b, set()).update([v] if v else [])
+    if fgts:
+        up = w["uplink"]
+        add(up.get("bridge") or w["bridge"], up.get("vlan"))
+        for s in SEGS:
+            add(w["bridge"], w["segments"][s]["vlan"])
+        for n, (d, hub) in enumerate(fortigates(t)):
+            for nic in fgt_nics(d, t["pve"], w, hub, index=n):
+                add(nic["bridge"], nic.get("vlan"))
+    if clients:
+        lv = lan_vlans(t)
+        for e in t["edges"]:
+            if (e.get("lans") or [{}])[0].get("ip"):
+                add(w["bridge"], lv[e["name"]][0])
+    return need
+
+
+def _vids(text):
+    out = set()
+    for part in str(text).replace(",", " ").split():
+        lo, _, hi = part.partition("-")
+        if lo.isdigit() and (not hi or hi.isdigit()):
+            out.update(range(int(lo), int(hi or lo) + 1))
+    return out
+
+
+def bridge_problems(need, info):
+    """Messages for VLANs a bridge cannot carry. info: {iface: row of GET /nodes/{node}/network}. A VLAN-aware bridge
+    only passes its bridge-vids (default 2-4094); a bridge that is not VLAN-aware gets vmbrXvY from Proxmox, which needs
+    a physical port."""
+    out = []
+    for b, vlans in sorted(need.items()):
+        row = info.get(b)
+        if row is None:
+            out.append(f"bridge {b} is not on this Proxmox node")
+            continue
+        if not vlans:
+            continue
+        if int(row.get("bridge_vlan_aware") or 0):
+            vids = str(row.get("bridge_vids") or "2-4094")
+            miss = sorted(vlans - _vids(vids))
+            if miss:
+                out.append(f"bridge {b} is VLAN-aware but only allows VLANs {vids}; this deployment needs "
+                           f"{', '.join(map(str, miss))} (add them to bridge-vids, or choose another bridge)")
+        elif not str(row.get("bridge_ports") or "").strip() or row.get("bridge_ports") == "none":
+            out.append(f"bridge {b} has no physical port and is not VLAN-aware, so Proxmox cannot tag VLANs "
+                       f"{', '.join(map(str, sorted(vlans)))} on it (make it VLAN-aware, or choose another bridge)")
+    return out
+
+
 def forwards(t):
     """Port forwards on wan-emu: FortiGate n -> its WAN1 address, HTTPS base+n -> 443, SSH base+n -> 22."""
     w = t["wanemu"]
@@ -137,7 +192,7 @@ def ct_params(t, vmid, ssh_pubkey):
          # DNS of the topology: without it the CT inherits the PVE host's resolvers, which the uplink VLAN may not reach
          "nameserver": " ".join(x for x in (t.get("dns_primary"), t.get("dns_secondary")) if x),
          "ssh-public-keys": ssh_pubkey,
-         "net0": f"name=eth0,bridge={w['bridge']}" + (f",tag={up['vlan']}" if up.get("vlan") else "")
+         "net0": f"name=eth0,bridge={up.get('bridge') or w['bridge']}" + (f",tag={up['vlan']}" if up.get("vlan") else "")
                  + f",ip={up['ip']},gw={up['gw']}"}
     for i, s in enumerate(SEGS, start=1):
         g = seg[s]

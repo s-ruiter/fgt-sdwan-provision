@@ -60,7 +60,7 @@ DEFAULTS = {
         "fwd_https_base": 10443, "fwd_ssh_base": 10022,
         # LAN VLANs: LAN1 of FortiGate n on lan_vlan_base+1+n, LAN2 on lan2_vlan_base+1+n
         "lan_vlan_base": 3300, "lan2_vlan_base": 3400,
-        "uplink": {"vlan": None, "ip": "", "gw": ""},   # lab-specific: filled in by the user (VLAN empty = untagged)
+        "uplink": {"bridge": "", "vlan": None, "ip": "", "gw": ""},   # bridge "" = the WAN emulator bridge;   # lab-specific: filled in by the user (VLAN empty = untagged)
         "segments": {
             "hub": {"name": "ISP-HUB", "vlan": 3200, "subnet": "100.127.200.0/24", "gw": "100.127.200.1"},
             "a": {"name": "ISP-A", "vlan": 3201, "subnet": "100.127.201.0/24", "gw": "100.127.201.1",
@@ -380,6 +380,9 @@ def validate_wanemu(t):
     seg, up = w.get("segments", {}), w.get("uplink", {})
     n_fgt = len(t.get("hubs", [])) + len(t.get("edges", []))
     nets = {}
+    for lbl, b in (("bridge", w.get("bridge")), ("uplink bridge", up.get("bridge") or w.get("bridge"))):
+        if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", str(b or "")):
+            err.append(f"WAN emulation: {lbl} missing or invalid")
     for key in ("hub", "a", "b"):
         g = seg.get(key, {})
         name = g.get("name", key)
