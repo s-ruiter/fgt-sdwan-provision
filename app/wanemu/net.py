@@ -139,3 +139,19 @@ def ct_params(t, vmid, ssh_pubkey):
         prefix = ipaddress.ip_network(g["subnet"], strict=False).prefixlen
         p[f"net{i}"] = f"name={SEG_IFACE[s]},bridge={w['bridge']},tag={g['vlan']},ip={g['gw']}/{prefix}"
     return p
+
+
+def client_params(t, spoke, vmid, password):
+    """Body for POST /nodes/{node}/lxc: LAN client of one spoke on its LAN1 VLAN, .10 in the LAN (.11 when the spoke
+    itself is .10), gateway = the spoke's LAN1 address."""
+    w = t["wanemu"]
+    lan = ipaddress.ip_interface(spoke["lans"][0]["ip"])
+    host = lan.network.network_address + 10
+    if host == lan.ip:
+        host += 1
+    return {"vmid": vmid, "hostname": f"client-{spoke['name']}", "ostemplate": w["template"], "storage": w["storage"],
+            "rootfs": f"{w['storage']}:2", "cores": 1, "memory": 256, "swap": 0, "unprivileged": 1,
+            "features": "nesting=1", "onboot": 1, "start": 0, "tags": TAG_VM, "password": password,
+            "nameserver": " ".join(x for x in (t.get("dns_primary"), t.get("dns_secondary")) if x),
+            "net0": f"name=eth0,bridge={w['bridge']},tag={lan_vlans(t)[spoke['name']][0]},"
+                    f"ip={host}/{lan.network.prefixlen},gw={lan.ip}"}

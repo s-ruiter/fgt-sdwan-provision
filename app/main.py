@@ -63,6 +63,7 @@ STEPS = [
     ("pve_fgt", "FortiGate-VM's", "Image naar Proxmox, per FortiGate een VM met Day-0 ISO (wan1: hub vast IP + gateway, branch DHCP; DNS, FMG-koppeling, FortiFlex-licentie) starten"),
     ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wachten tot ze gelicenseerd online zijn in FMG; of via SSH op bestaande VM's"),
     ("install", "Install", "Quick install (device settings) per device, daarna Re-install policy per rol; echte FortiGates pas als ze online zijn"),
+    ("clients", "LAN-clients", "Per spoke een container op het LAN1-VLAN (.10, spoke als gateway) om verkeer te testen; bediening via de Proxmox-console"),
 ]
 
 

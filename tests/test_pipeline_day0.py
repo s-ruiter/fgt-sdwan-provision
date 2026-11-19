@@ -93,7 +93,9 @@ for s, st, m in events:
 print({k: v for k, v in last.items()})
 order = [s for s, st, _ in events if st != "info"]
 assert last["pve_wan"] == "ok" and order.index("templates") < order.index("pve_wan") < order.index("pve_fgt"), order
-assert len(fake_proxmox.STATE["cts"]) == 1 and next(iter(fake_proxmox.STATE["cts"].values()))["status"] == "running"
+hosts = sorted(c["params"]["hostname"] for c in fake_proxmox.STATE["cts"].values())
+assert hosts == ["client-site1-1", "client-site1-2", "client-site1-3", "wan-emu"], hosts
+assert last["clients"] == "ok" and order.index("install") < order.index("clients"), order
 assert all("agenttoken" not in m and "PRIVATE KEY" not in m for _, _, m in events)
 print("OK  WAN-emulator: stap pve_wan na de templates en vóór de FortiGate-VM's, CT draait, geen secrets in events")
 assert all(v == "ok" for v in last.values()), last
@@ -169,7 +171,8 @@ events.clear()
 b = boot(dry=True, pve_secret="")
 pipeline(t, cfg, Fmg("http://127.0.0.1:1", dry_run=True), emit, b)
 assert any("[dry-run]" in m and "Day-0 ISO" in m for _, _, m in events) and fake_proxmox.STATE["creates"] == 6
-assert any("[dry-run] wan-emu net2: name=eth2,bridge=vmbr0,tag=3201" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 1
+assert any("[dry-run] wan-emu net2: name=eth2,bridge=vmbr0,tag=3201" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 4
+assert any("[dry-run] client-site1-1" in m for _, _, m in events)
 print("OK  dry-run: plan per VM gelogd, niets naar Proxmox")
 
 # ---------------------------------------------------------------- rollback

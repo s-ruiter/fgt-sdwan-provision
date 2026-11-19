@@ -584,6 +584,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         n = apply_plan(fmg, topo, configs, emit, devices=False)
         emit("templates", "ok", f"{n} FortiManager-aanroepen uitgevoerd; waarden per device volgen bij 'Alleen FortiGates'")
         emit("install", "skipped", f"{why[scope]}: rol daarna de FortiGates uit met 'Alleen FortiGates'")
+        emit("clients", "skipped", why_fgt)
         return
 
     emit("devices", "running", f"{len(devices)} model devices toevoegen")
@@ -658,7 +659,35 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     # role); real FortiGates only once they are online
     if scope == "dev":
         install_devices(fmg, adom, configs, devices, emit)
+        emit("clients", "skipped", why_fgt)
         return
+    _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt)
+    if m_fgt == "day0":
+        _clients(topo, boot, emit)
+    else:
+        emit("clients", "skipped", why_fgt if m_fgt == "none" else "overgeslagen (alleen bij FortiGate-VM's via Day-0)")
+
+
+def _clients(topo, boot, emit, step="clients"):
+    """One LAN client CT per branch, on its LAN1 VLAN (after the install: the branch LAN exists now)."""
+    from . import provision_vms as pv
+    from .wanemu import net, setup
+    if boot.get("dry"):
+        for e in topo["edges"]:
+            p = net.client_params(topo, e, 0, "")
+            emit(step, "running", f"[dry-run] {p['hostname']}: {p['net0']}")
+        emit(step, "ok", "dry-run: geen clients aangemaakt")
+        return
+    pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
+    try:
+        out = setup.deploy_clients(pve, topo, boot.get("fgt_new_pw") or "", emit, step)
+    except Exception as e:                                    # a client is a convenience: never fail the deployment
+        emit(step, "warn", f"LAN-clients niet (volledig) aangemaakt: {e}")
+        return
+    emit(step, "ok", f"{len(out)} LAN-client(s); bediening via de Proxmox-console (root, FortiGate-admin-wachtwoord)")
+
+
+def _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt):
     emit("install", "running", "wachten tot de FortiGates online zijn in FortiManager")
     wait = boot.get("online_timeout", 600 if m_fgt != "none" else 30)
     offline = wait_online(fmg, adom, names, wait, emit, "install", boot.get("poll", 5))
@@ -669,3 +698,4 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         emit("install", "warn", "geen enkel device online: install overgeslagen; draai de uitrol opnieuw zodra ze online zijn")
         return
     install_devices(fmg, adom, configs, online, emit, pending=offline)
+

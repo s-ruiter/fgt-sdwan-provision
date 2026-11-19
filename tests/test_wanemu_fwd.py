@@ -44,3 +44,32 @@ assert [s["nics"][4]["vlan"] for s in specs] == [3301, 3302, 3303, 3304, 3305]
 bad = model.merged({"wanemu": {"lan_vlan_base": 3199}})              # 3200..3204 hits ISP-HUB/A/B
 assert any("LAN-VLAN" in e for e in model.validate_wanemu(bad)), model.validate_wanemu(bad)
 print("OK  LAN-VLAN's: LAN1 3301+n, LAN2 3401+n per FortiGate; andere poorten volgen de poortentabel; botsing gevalideerd")
+
+# LAN client per spoke: CT client-<spoke> on the LAN1 VLAN, .10 in the LAN, gateway = spoke LAN IP
+t = model.merged({})
+p = net.client_params(t, t["edges"][0], 140, "Geheim-123")
+assert p["hostname"] == "client-site1-1" and p["vmid"] == 140 and p["password"] == "Geheim-123"
+assert p["net0"] == "name=eth0,bridge=vmbr0,tag=3303,ip=10.0.1.10/24,gw=10.0.1.1", p["net0"]
+assert p["nameserver"] == "1.1.1.1 8.8.8.8" and p["unprivileged"] == 1 and p["features"] == "nesting=1" and "fgt-sdwan" in p["tags"]
+t2 = model.merged({}); t2["edges"][0]["lans"][0]["ip"] = "10.0.1.10/24"                 # spoke itself on .10 -> client .11
+assert "ip=10.0.1.11/24,gw=10.0.1.10" in net.client_params(t2, t2["edges"][0], 1, "x")["net0"]
+
+from app.pve import Pve  # noqa: E402
+from app.wanemu import setup  # noqa: E402
+from tests import fake_proxmox  # noqa: E402
+fake_proxmox.reset()
+srv = fake_proxmox.start(8091)
+pve = Pve("http://127.0.0.1:8091", "root@pam!t", "secret", poll=0)
+t = model.merged({"pve": {"node": "pve1"}})
+ev = []
+r = setup.deploy_clients(pve, t, "Geheim-123", lambda *a: ev.append(a))
+cts = {c["params"]["hostname"]: c for c in fake_proxmox.STATE["cts"].values()}
+assert set(cts) == {"client-site1-1", "client-site1-2", "client-site1-3"} and all(c["status"] == "running" for c in cts.values())
+assert [x["name"] for x in r] == ["client-site1-1", "client-site1-2", "client-site1-3"] and all(x["created"] for x in r)
+assert all("Geheim-123" not in m for _, _, m in ev)
+t["edges"][1]["lans"][0]["ip"] = "10.0.22.1/24"                                           # changed LAN: reused, reconfigured
+r2 = setup.deploy_clients(pve, t, "Geheim-123", lambda *a: ev.append(a))
+assert len(fake_proxmox.STATE["cts"]) == 3 and not any(x["created"] for x in r2)
+assert "ip=10.0.22.10/24,gw=10.0.22.1" in cts["client-site1-2"]["params"]["net0"]
+srv.shutdown()
+print("OK  LAN-clients: client-<spoke> op het LAN1-VLAN, .10 met de spoke als gateway; hergebruik met nieuwe netwerkconfig")
