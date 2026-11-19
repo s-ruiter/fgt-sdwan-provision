@@ -591,7 +591,7 @@ async function ffLoad() {
   ffErr("");
   FLEX = await (await fetch("/api/fortiflex")).json();
   $("#ff_user").value = FLEX.user; $("#ff_pw").value = ""; $("#ff_pw").placeholder = FLEX.has_password ? "(opgeslagen; leeg laten = behouden)" : "";
-  $("#ff_enabled").checked = FLEX.enabled;
+  $("#ff_enabled").checked = FLEX.enabled; $("#ff_folder").value = FLEX.folder || "";
   $("#ff_program").innerHTML = FLEX.program ? `<option>${esc(FLEX.program)}</option>` : "";
   if (FLEX.user && FLEX.has_password) { await ffPrograms(); await ffList(); }
 }
@@ -600,7 +600,13 @@ async function ffPrograms(creds) {
   if (!r.ok) { $("#ff_res").textContent = ""; return ffErr(errList(j).join(" · ")); }
   ffErr(""); $("#ff_res").textContent = `✓ ingelogd, ${j.programs.length} programma('s)`;
   setSel("#ff_program", j.programs.map((p) => p.serialNumber), FLEX.program || (j.programs[0] || {}).serialNumber);
-  await ffConfigs();
+  await ffConfigs(); await ffFolders();
+}
+async function ffFolders() {           // Asset Management folders as suggestions; typing a path stays possible
+  const prog = $("#ff_program").value; if (!prog) return;
+  const r = await post("/api/fortiflex/folders", { program: prog, user: $("#ff_user").value.trim(), password: $("#ff_pw").value }), j = await json(r);
+  if (!r.ok) { $("#ff_folders").innerHTML = ""; $("#ff_res").textContent += " · asset folders niet leesbaar: " + errList(j).join(" "); return; }
+  $("#ff_folders").innerHTML = j.folders.map((f) => `<option value="${esc(f.path)}">`).join("");
 }
 let FF_CONFIGS = [];
 async function ffConfigs() {
@@ -618,7 +624,7 @@ function ffParams() {
 }
 async function ffSave() {
   const n = (v) => (v ? +v : null);
-  const body = { user: $("#ff_user").value.trim(), password: $("#ff_pw").value, enabled: $("#ff_enabled").checked, program: $("#ff_program").value || "", fmg_config: n($("#ff_fmg").value), fgt_config: n($("#ff_fgt").value) };
+  const body = { user: $("#ff_user").value.trim(), password: $("#ff_pw").value, enabled: $("#ff_enabled").checked, program: $("#ff_program").value || "", fmg_config: n($("#ff_fmg").value), fgt_config: n($("#ff_fgt").value), folder: $("#ff_folder").value.trim() };
   if (body.enabled && !body.fgt_config && !body.fmg_config) return ffErr("Kies minstens één configuratie voordat je FortiFlex aanzet");
   const r = await fetch("/api/fortiflex", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const j = await json(r);
@@ -634,7 +640,7 @@ async function ffList() {
     : '<div class="hint">Nog geen licenties van deze tool in de gekozen configuraties.</div>';
 }
 $("#ff_test").onclick = () => ffPrograms({ user: $("#ff_user").value.trim(), password: $("#ff_pw").value });
-$("#ff_program").onchange = ffConfigs;
+$("#ff_program").onchange = async () => { await ffConfigs(); await ffFolders(); };
 $("#ff_fmg").onchange = ffParams; $("#ff_fgt").onchange = ffParams;
 $("#ff_save").onclick = ffSave;
 $("#ff_list").addEventListener("click", async (e) => {

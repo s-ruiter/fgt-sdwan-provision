@@ -25,7 +25,7 @@ def err(fn, *a):
 
 
 assert main.fortiflex_get() == {"user": "", "has_password": False, "enabled": False, "program": "", "fmg_config": None,
-                                "fgt_config": None}
+                                "fgt_config": None, "folder": ""}
 code, msg = err(main.fortiflex_test, main.FlexCreds(user=fake.USER, password="fout"))
 assert code == 400 and "geweigerd" in msg
 r = main.fortiflex_test(main.FlexCreds(user=fake.USER, password=fake.PASSWORD))
@@ -132,3 +132,29 @@ th.join(10)
 assert not th.is_alive() and len(changing()) > n0
 srv.shutdown()
 print("OK  review: dry-run met FortiFlex werkt, ongeldige uitrol maakt niets aan, licenties onder een lock, stop zonder token")
+
+# asset folder setting reaches the created licenses; an invalid path is refused when saving
+srv = fake.start()
+URL = f"http://127.0.0.1:{srv.server_address[1]}"
+ff.AUTH_URL, ff.BASE = URL + "/api/v1/oauth/token/", URL + "/ES/api/fortiflex/v2"
+fake.reset()
+code, msg = err(main.fortiflex_put, main.FlexSettings(user=fake.USER, enabled=True, program="ELAVMS0000001234",
+                                                     fmg_config=20, fgt_config=10, folder="Lab"))
+assert code == 422 and "My Assets" in msg
+main.fortiflex_put(main.FlexSettings(user=fake.USER, enabled=True, program="ELAVMS0000001234", fmg_config=20,
+                                     fgt_config=10, folder="My Assets/Lab"))
+assert main.fortiflex_get()["folder"] == "My Assets/Lab"
+j = main.deploy(deploy_req(False))
+assert fake.STATE["folders"] and set(fake.STATE["folders"].values()) == {"My Assets/Lab"}, fake.STATE["folders"]
+srv.shutdown()
+print("OK  asset folder: opgeslagen, ongeldig pad geweigerd, nieuwe licenties in die folder")
+
+srv = fake.start()
+URL = f"http://127.0.0.1:{srv.server_address[1]}"
+ff.AUTH_URL, ff.BASE, ff.ASSET_BASE = URL + "/api/v1/oauth/token/", URL + "/ES/api/fortiflex/v2", URL + "/ES/api/registration/v3"
+fake.reset()
+r = main.fortiflex_folders(main.FlexFoldersReq(program="ELAVMS0000001234"))
+assert [x["path"] for x in r["folders"]] == ["My Assets/Lab", "My Assets/Lab/SD-WAN"]
+assert fake.STATE["folder_list_bodies"][-1] == {"accountId": 1}                # accountId of the chosen program
+srv.shutdown()
+print("OK  API: asset folders van het account van het gekozen programma")

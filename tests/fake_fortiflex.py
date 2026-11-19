@@ -45,9 +45,17 @@ class H(BaseHTTPRequestHandler):
         path = self.path
         STATE["calls"].append((path, body))
         if path == "/api/v1/oauth/token/":
-            if body.get("username") == USER and body.get("password") == PASSWORD and body.get("client_id") == "flexvm":
-                return self._send(200, {"access_token": "AT123", "expires_in": 3600, "token_type": "Bearer"})
+            tok = {"flexvm": "AT123", "assetmanagement": "AM456"}.get(body.get("client_id"))
+            if body.get("username") == USER and body.get("password") == PASSWORD and tok:
+                return self._send(200, {"access_token": tok, "expires_in": 3600, "token_type": "Bearer"})
             return self._send(401, {"error": "invalid_grant", "error_description": "Invalid credentials given."})
+        if path == "/ES/api/registration/v3/folders/list":            # Asset Management API v3: its own OAuth client
+            if self.headers.get("Authorization") != "Bearer AM456":
+                return self._send(401, {"status": -1, "message": "Unauthorized", "error": "Unauthorized"})
+            STATE.setdefault("folder_list_bodies", []).append(body)
+            return self._send(200, {"status": 0, "message": "", "version": "3.0", "assetFolders": [
+                {"folderId": 1, "parentFolderId": 0, "folderName": "Lab", "folderPath": "/Lab"},
+                {"folderId": 2, "parentFolderId": 1, "folderName": "SD-WAN", "folderPath": "/Lab/SD-WAN"}]})
         if self.headers.get("Authorization") != "Bearer AT123":
             return self._send(401, {"status": -1, "message": "Unauthorized", "error": "Unauthorized"})
         p = path.replace("/ES/api/fortiflex/v2", "")
@@ -72,6 +80,7 @@ class H(BaseHTTPRequestHandler):
             e[sn] = {"serialNumber": sn, "configId": body["configId"], "description": body.get("description", ""),
                      "status": "PENDING", "tokenStatus": "NOTUSED", "token": f"NEW{STATE['seq']:04d}BBBBBBBBBBBBB",
                      "accountId": 1, "endDate": "2027-12-31 00:00:00"}
+            STATE.setdefault("folders", {})[sn] = body.get("folderPath")
             return self._send(200, dict(ok, entitlements=[_ent(sn)]))
         sn = body.get("serialNumber")
         if sn not in e:
