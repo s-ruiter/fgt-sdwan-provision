@@ -17,6 +17,7 @@
         <a href="#/progress" data-nav="progress">Voortgang</a>
         <a href="#/images" data-nav="images">Images</a>
         <a href="#/wanemu" data-nav="wanemu">WAN-emulatie</a>
+        <a href="#/fortiflex" data-nav="fortiflex">FortiFlex</a>
         <a href="#/servers" data-nav="servers">Servers</a>
         <a href="#/about" data-nav="about">Over</a>
       </nav>
@@ -153,7 +154,9 @@
         <div class="btnrow">
           <button id="btn_render">Templates genereren</button>
           <span class="only-vm"><select id="d0_dev" style="width:auto"></select> <button id="btn_d0">Day-0 preview</button></span>
+          <span class="only-vm"><button id="btn_flexcheck">Licenties controleren</button></span>
         </div>
+        <div id="flex_check" hidden></div>
         <pre class="cfg" id="d0_out" hidden></pre>
         <div id="preview" hidden><div class="tabs" id="tabs"></div><pre class="cfg" id="cfg"></pre></div>
       </div>
@@ -202,6 +205,36 @@
         <div class="btnrow" id="wanemu-presets"></div>
       </div>
       <div class="wan-cols" id="wanemu-links"></div>
+    </section>
+
+    <section id="v_fortiflex" hidden>
+      <h1>FortiFlex</h1>
+      <div id="ff_err"></div>
+      <div class="card">
+        <h2><span class="num">01</span>API-gebruiker</h2>
+        <div class="hint">Maak in FortiCloud IAM een API-gebruiker met rechten op FortiFlex (aanmaken van licenties vraagt ReadWrite). Het wachtwoord wordt bewaard in de container (database met rechten 0600) en nooit teruggetoond.</div>
+        <div class="fields">
+          <div class="f"><label>API-gebruiker (username)</label><input id="ff_user" autocomplete="off" spellcheck="false"></div>
+          <div class="f"><label>Wachtwoord</label><input id="ff_pw" type="password" autocomplete="new-password"></div>
+        </div>
+        <div class="btnrow"><button id="ff_test">Testen</button><span class="hint" id="ff_res"></span></div>
+      </div>
+      <div class="card">
+        <h2><span class="num">02</span>Configuraties</h2>
+        <div class="fields">
+          <div class="f"><label>Programma</label><select id="ff_program"></select></div>
+          <div class="f"><label>FortiManager</label><select id="ff_fmg"></select></div>
+          <div class="f"><label>FortiGates (hubs en spokes)</label><select id="ff_fgt"></select></div>
+        </div>
+        <div class="hint" id="ff_params"></div>
+        <div class="inline"><input type="checkbox" id="ff_enabled"><label for="ff_enabled">FortiFlex gebruiken bij de uitrol: serienummers en tokens worden per device opgehaald (bestaande licentie hergebruiken, anders een nieuwe aanmaken &ndash; dat kost punten)</label></div>
+        <div class="actions"><button id="ff_save" class="primary">Opslaan</button></div>
+      </div>
+      <div class="card">
+        <h2><span class="num">03</span>Licenties van deze tool <small>(omschrijving &lsquo;fgt-sdwan &hellip;&rsquo;)</small></h2>
+        <div id="ff_list"></div>
+        <div class="hint">De tool stopt nooit zelf een licentie. Een gestopte licentie wordt bij een volgende uitrol van dat device weer geactiveerd.</div>
+      </div>
     </section>
 
     <section id="v_images" hidden>

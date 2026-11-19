@@ -234,3 +234,6 @@ input.bad { border-color: var(--bad) !important; box-shadow: 0 0 0 2px rgb(218 4
 .wan-f label { display: block; font-size: 13px; }
 .wan-f input[type=range] { width: 100%; }
 .wan-card select { width: auto; }
+
+/* FortiFlex: fields filled by the tool */
+input.flex[readonly] { background: var(--line); color: var(--muted, #888); }

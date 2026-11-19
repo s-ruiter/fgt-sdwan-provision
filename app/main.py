@@ -482,12 +482,16 @@ def fortiflex_test(c: FlexCreds):
     return {"programs": _flex_call(cl.programs)}
 
 
-@app.get("/api/fortiflex/configs")
-def fortiflex_configs(program: str):
-    cl = _flex_client()
-    return [{"id": c["id"], "name": c["name"], "status": c.get("status"), "product": (c.get("productType") or {}).get("name", ""),
-             "parameters": {p["name"]: p["value"] for p in c.get("parameters") or []}}
-            for c in _flex_call(lambda: cl.configs(program))]
+class FlexConfigsReq(FlexCreds):
+    program: str
+
+
+@app.post("/api/fortiflex/configs")
+def fortiflex_configs(c: FlexConfigsReq):
+    cl = _flex_client(c.user.strip(), c.password)          # typed (not yet saved) credentials, else the stored ones
+    return [{"id": x["id"], "name": x["name"], "status": x.get("status"), "product": (x.get("productType") or {}).get("name", ""),
+             "parameters": {p["name"]: p["value"] for p in x.get("parameters") or []}}
+            for x in _flex_call(lambda: cl.configs(c.program))]
 
 
 def _tool_licenses(cl, cfg):

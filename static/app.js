@@ -17,18 +17,19 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 // ---- routing ----------------------------------------------------------------
 function route() {
   const [r, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
-  const VIEWS = ["deploy", "progress", "wanemu", "images", "servers", "about"];
+  const VIEWS = ["deploy", "progress", "wanemu", "fortiflex", "images", "servers", "about"];
   const view = VIEWS.includes(r) ? r : "deploy";
   for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
   window.scrollTo(0, 0);
   if (view === "progress") progressOpen(arg);
-  if (view === "deploy") bannerLoad();
+  if (view === "deploy") { bannerLoad(); flexApply(); }
+  if (view === "fortiflex") ffLoad();
   clearInterval(WAN_TIMER); WAN_TIMER = null;
   if (view === "wanemu") { wanLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
 }
 window.addEventListener("hashchange", route);
-let WAN_TIMER = null, WAN = { links: [], presets: {} };
+let WAN_TIMER = null, WAN = { links: [], presets: {} }, FLEX = { enabled: false };
 
 // ---- IP format checks ---------------------------------------------------------
 // kinds: "ip" = a.b.c.d, "cidr" = a.b.c.d/nn (host address + prefix). Empty is allowed here; required-ness is checked by the server.
@@ -158,7 +159,7 @@ function draw() {
   $("#vrfs").innerHTML = "<thead><tr><th>VRF-id</th><th>LAN-summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
-  d0Opts();
+  d0Opts(); flexFields();
 }
 // Day-0 preview: only the VMs the chosen deploy option creates
 function d0Opts() {
@@ -355,7 +356,7 @@ function scopeApply() {
   const s = scope();
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
-  if (T) { d0Opts(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
+  if (T) { d0Opts(); flexFields(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
   try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
 }
 document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
@@ -551,4 +552,92 @@ $("#v_wanemu").addEventListener("click", async (e) => {
     if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
     await wanLoad();
   }
+});
+
+
+// ---- FortiFlex: credentials + configurations (page), licenses at deployment ---------------------------------------
+const ffErr = (m) => showErr(m ? [m] : [], "#ff_err");
+async function flexApply() {          // deploy page: serial + token fields come from FortiFlex when it is on
+  try { FLEX = await (await fetch("/api/fortiflex")).json(); } catch (_) { FLEX = { enabled: false }; }
+  flexFields();
+}
+function flexFields() {               // sync: after draw() and on a scope change; FortiFlex only where a token is needed
+  const sc = typeof scope === "function" ? scope() : "all";
+  const fgtOn = !!(FLEX.enabled && FLEX.fgt_config && ["all", "fgt"].includes(sc));
+  const fmgOn = !!(FLEX.enabled && FLEX.fmg_config && ["all", "fmg"].includes(sc));
+  const set = (i, on) => {
+    i.readOnly = on; i.placeholder = on ? "via FortiFlex" : ""; i.classList.toggle("flex", on);
+    if (on && i.dataset.f !== "serial") i.value = "";           // a typed serial stays: it is the hint to reuse that license
+  };
+  document.querySelectorAll('#v_deploy [data-f="serial"], #v_deploy [data-tok]').forEach((i) => set(i, fgtOn));
+  set($("#fm_token"), fmgOn);
+  $("#btn_flexcheck").hidden = !(fgtOn || fmgOn);
+  if (!(fgtOn || fmgOn)) $("#flex_check").hidden = true;
+}
+$("#btn_flexcheck").onclick = async () => {
+  const sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";
+  $("#flex_check").hidden = false; $("#flex_check").innerHTML = '<div class="hint">licenties opzoeken bij FortiFlex&hellip;</div>';
+  const r = await post("/api/fortiflex/check", { topology: collect(), fmg: fmgCfg(), dry_run: true, scope: sc, bootstrap: { fmg: mf, fgt: mg } });
+  const j = await json(r);
+  if (!r.ok) { $("#flex_check").innerHTML = `<div class="error">✕ ${esc(errList(j).join(" · "))}</div>`; return; }
+  $("#flex_check").innerHTML = j.devices.length ? `<table class="tbl"><thead><tr><th>Device</th><th>Serienummer</th><th>Actie</th></tr></thead><tbody>` +
+    j.devices.map((d) => `<tr><td>${esc(d.name)}</td><td class="mono">${esc(d.serial)}</td><td>${d.action === "create" ? "<b>" + esc(d.text) + "</b>" : esc(d.text)}</td></tr>`).join("") + "</tbody></table>"
+    : '<div class="hint">Bij deze keuze is geen FortiFlex-licentie nodig.</div>';
+};
+async function ffLoad() {
+  ffErr("");
+  FLEX = await (await fetch("/api/fortiflex")).json();
+  $("#ff_user").value = FLEX.user; $("#ff_pw").value = ""; $("#ff_pw").placeholder = FLEX.has_password ? "(opgeslagen; leeg laten = behouden)" : "";
+  $("#ff_enabled").checked = FLEX.enabled;
+  $("#ff_program").innerHTML = FLEX.program ? `<option>${esc(FLEX.program)}</option>` : "";
+  if (FLEX.user && FLEX.has_password) { await ffPrograms(); await ffList(); }
+}
+async function ffPrograms(creds) {
+  const r = await post("/api/fortiflex/test", creds || {}), j = await json(r);
+  if (!r.ok) { $("#ff_res").textContent = ""; return ffErr(errList(j).join(" · ")); }
+  ffErr(""); $("#ff_res").textContent = `✓ ingelogd, ${j.programs.length} programma('s)`;
+  setSel("#ff_program", j.programs.map((p) => p.serialNumber), FLEX.program || (j.programs[0] || {}).serialNumber);
+  await ffConfigs();
+}
+let FF_CONFIGS = [];
+async function ffConfigs() {
+  const prog = $("#ff_program").value; if (!prog) return;
+  const r = await post("/api/fortiflex/configs", { program: prog, user: $("#ff_user").value.trim(), password: $("#ff_pw").value }), j = await json(r);
+  if (!r.ok) return ffErr(errList(j).join(" · "));
+  FF_CONFIGS = j;
+  const opts = (want, cur) => '<option value="">(geen)</option>' + j.filter((c) => c.product.includes(want)).map((c) => `<option value="${c.id}"${c.id === cur ? " selected" : ""}>${esc(c.name)} (${esc(c.status || "")})</option>`).join("");
+  $("#ff_fmg").innerHTML = opts("FortiManager", FLEX.fmg_config); $("#ff_fgt").innerHTML = opts("FortiGate", FLEX.fgt_config);
+  ffParams();
+}
+function ffParams() {
+  const show = (id, lbl) => { const c = FF_CONFIGS.find((x) => String(x.id) === $(id).value); return c ? `${lbl}: ` + (Object.entries(c.parameters).map(([k, v]) => `${k} ${v}`).join(", ") || "geen parameters") : ""; };
+  $("#ff_params").textContent = [show("#ff_fmg", "FortiManager"), show("#ff_fgt", "FortiGates")].filter(Boolean).join(" · ");
+}
+async function ffSave() {
+  const n = (v) => (v ? +v : null);
+  const body = { user: $("#ff_user").value.trim(), password: $("#ff_pw").value, enabled: $("#ff_enabled").checked, program: $("#ff_program").value || "", fmg_config: n($("#ff_fmg").value), fgt_config: n($("#ff_fgt").value) };
+  if (body.enabled && !body.fgt_config && !body.fmg_config) return ffErr("Kies minstens één configuratie voordat je FortiFlex aanzet");
+  const r = await fetch("/api/fortiflex", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await json(r);
+  if (!r.ok) return ffErr(errList(j).join(" · "));
+  FLEX = j; $("#ff_pw").value = ""; $("#ff_pw").placeholder = j.has_password ? "(opgeslagen; leeg laten = behouden)" : "";
+  ffErr(""); $("#ff_res").textContent = "✓ opgeslagen"; await ffList();
+}
+async function ffList() {
+  const r = await fetch("/api/fortiflex/entitlements"), j = await json(r);
+  if (!r.ok) { $("#ff_list").innerHTML = ""; return ffErr(errList(j).join(" · ")); }
+  $("#ff_list").innerHTML = j.entitlements.length ? `<table class="tbl"><thead><tr><th>Omschrijving</th><th>Serienummer</th><th>Status</th><th>Token</th><th>Einddatum</th><th></th></tr></thead><tbody>` +
+    j.entitlements.map((e) => `<tr><td>${esc(e.description)}</td><td class="mono">${esc(e.serialNumber)}</td><td>${esc(e.status)}</td><td>${esc(e.tokenStatus || "")}</td><td>${esc((e.endDate || "").slice(0, 10))}</td><td>${e.status === "STOPPED" || e.status === "EXPIRED" ? "" : `<button data-ffstop="${esc(e.serialNumber)}">Stop</button>`}</td></tr>`).join("") + "</tbody></table>"
+    : '<div class="hint">Nog geen licenties van deze tool in de gekozen configuraties.</div>';
+}
+$("#ff_test").onclick = () => ffPrograms({ user: $("#ff_user").value.trim(), password: $("#ff_pw").value });
+$("#ff_program").onchange = ffConfigs;
+$("#ff_fmg").onchange = ffParams; $("#ff_fgt").onchange = ffParams;
+$("#ff_save").onclick = ffSave;
+$("#ff_list").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ffstop]"); if (!b) return;
+  if (!confirm(`Licentie ${b.dataset.ffstop} stoppen? De FortiGate/FortiManager met dit serienummer verliest zijn licentie.`)) return;
+  const r = await fetch("/api/fortiflex/stop/" + encodeURIComponent(b.dataset.ffstop), { method: "POST" }), j = await json(r);
+  if (!r.ok) return ffErr(errList(j).join(" · "));
+  await ffList();
 });

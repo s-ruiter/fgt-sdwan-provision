@@ -37,7 +37,8 @@ assert g["has_password"] and g["enabled"] and g["fgt_config"] == 10 and fake.PAS
 main.fortiflex_put(main.FlexSettings(user=fake.USER, password="", enabled=True, program="ELAVMS0000001234",
                                      fmg_config=20, fgt_config=10))          # empty password = keep the stored one
 assert main.fortiflex_test(main.FlexCreds())["programs"]
-cf = main.fortiflex_configs("ELAVMS0000001234")
+cf = main.fortiflex_configs(main.FlexConfigsReq(program="ELAVMS0000001234"))
+assert main.fortiflex_configs(main.FlexConfigsReq(program="ELAVMS0000001234", user=fake.USER, password=fake.PASSWORD)) == cf
 assert [(c["id"], c["product"]) for c in cf] == [(10, "FortiGate VM"), (11, "FortiGate VM"), (20, "FortiManager VM")]
 lic = main.fortiflex_entitlements()["entitlements"]
 assert {e["serialNumber"] for e in lic} == {"FGVMELTM26000001", "FGVMELTM26000003", "FGVMELTM26000004", "FMGVMSTM26000001"}

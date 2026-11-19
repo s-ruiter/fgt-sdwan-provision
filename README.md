@@ -62,6 +62,24 @@ Per product (FortiManager / FortiGates) kies je een **methode**: `day0` (de tool
 10. **FortiGate ZTP** – day0: wachten tot ze gelicenseerd online zijn in FMG, daarna ISO's opruimen · ssh: zie hieronder
 11. **Install** – per device een **Quick install** (device settings), daarna per rol een **Re-install policy** (policy package). Bij *Alleen model devices* direct naar de device-database; bij echte FortiGates (*Alles*, *Alleen FortiGates*) pas als ze online zijn (offline = waarschuwing, geen fout).
 
+## FortiFlex-licenties
+
+Op de pagina **FortiFlex** vul je een FortiCloud API-gebruiker in (IAM, rechten op FortiFlex; aanmaken vraagt
+ReadWrite) en kies je het programma en de configuratie voor de FortiManager en voor de FortiGates. Het wachtwoord
+staat in de tool-database (0600) en wordt nooit teruggetoond. Staat *FortiFlex gebruiken bij de uitrol* aan, dan:
+
+- haalt de tool bij het starten van de uitrol per device (FortiManager en/of FortiGates, alleen als ze in deze uitrol
+  een token nodig hebben) een licentie op: eerst het serienummer dat al in het formulier staat, dan de licentie met
+  omschrijving `fgt-sdwan <ADOM> <device>`. Ongebruikt token: gebruiken; gebruikt: nieuw token; gestopt: opnieuw
+  activeren; niets gevonden: nieuwe licentie (kost punten);
+- komen serienummer en token automatisch in de uitrol (de velden zijn dan alleen-lezen); de eerste stap
+  **Licenties** toont per device wat er gebeurd is;
+- werkt de tool het serienummer van een bestaand model device in FortiManager bij als het afwijkt;
+- toont **Licenties controleren** (en een dry-run) per device het serienummer en de actie, zonder iets aan te maken.
+
+De tool stopt nooit zelf een licentie; dat kan per licentie op de pagina FortiFlex. Bij *Alleen model devices* en
+*Alleen templates* wordt FortiFlex niet gebruikt.
+
 ## WAN-emulatie
 
 Bij FortiGate-VM's (methode `day0`) zitten de FortiGates niet in het lab-netwerk maar achter een gesimuleerde provider,
