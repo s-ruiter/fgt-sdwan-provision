@@ -85,7 +85,9 @@ class Spy(dict):
 fake_proxmox.STATE["uploads"] = Spy()
 
 # ---------------------------------------------------------------- run 1
+fake_proxmox.STATE["vms"]["102"] = {"vmid": 102, "name": "someone-else", "params": {"tags": ""}, "status": "running"}
 pipeline(t, cfg, Fmg(FMG, "admin", NEWPW), emit, boot())
+fake_proxmox.STATE["vms"].pop("102")
 last = {}
 for s, st, m in events:
     if st != "info":           # same rule as main.emit: info lines never change a step's status
@@ -96,6 +98,10 @@ assert last["pve_wan"] == "ok" and order.index("templates") < order.index("pve_w
 hosts = sorted(c["params"]["hostname"] for c in fake_proxmox.STATE["cts"].values())
 assert hosts == ["client-site1-1", "client-site1-2", "client-site1-3", "wan-emu"], hosts
 assert last["clients"] == "ok" and order.index("install") < order.index("clients"), order
+ids = {v["name"]: int(k) for k, v in fake_proxmox.STATE["vms"].items()}
+ids.update({c["params"]["hostname"]: int(k) for k, c in fake_proxmox.STATE["cts"].items()})
+seq = ["fmg", "wan-emu", "site1-H1", "site1-H2", "site1-1", "site1-2", "site1-3", "client-site1-1", "client-site1-2", "client-site1-3"]
+assert [ids[n] for n in seq] == list(range(ids["fmg"], ids["fmg"] + 10)), ids                # one block, in this order
 assert all(c["params"].get("password") == "Client-pw1" for c in fake_proxmox.STATE["cts"].values()
            if c["params"]["hostname"].startswith("client-")), "LAN clients get their own root password"
 assert all("agenttoken" not in m and "PRIVATE KEY" not in m for _, _, m in events)

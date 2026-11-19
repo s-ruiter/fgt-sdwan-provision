@@ -121,7 +121,7 @@ def internet_check(sh, t):
     return sh.run(f"ping -c2 -W2 -I {shlex.quote(src)} 1.1.1.1")[0] == 0
 
 
-def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=None):
+def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=None, vmids=None):
     """Create or reuse + provision the container. Returns {'vmid', 'created', 'internet'}."""
     from ..bootstrap import wait_tcp
     node, w = t["pve"]["node"], t["wanemu"]
@@ -141,7 +141,8 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
             pve.wait_task(node, pve.stop_ct(node, vmid))
         pve.set_ct_config(node, vmid, params)
     else:
-        vmid = int(w.get("vmid") or pve.next_vmid())
+        from ..provision_vms import pick_vmid
+        vmid = int(w.get("vmid") or pick_vmid(pve, vmids, w["hostname"]))
         emit(step, "running", f"{w['hostname']}: creating CT {vmid} ({w['template'].split('/')[-1]})")
         pve.wait_task(node, pve.create_ct(node, net.ct_params(t, vmid, public_key(secrets["ssh_key"]))))
     try:
@@ -176,7 +177,7 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
     return {"vmid": vmid, "created": created, "internet": internet}
 
 
-def deploy_clients(pve, t, password, emit, step="clients"):
+def deploy_clients(pve, t, password, emit, step="clients", vmids=None):
     """One LAN client CT per branch (client-<name>), reused by name + tag (network config updated). Returns
     [{name, vmid, created, ip}]. No packages are installed: Proxmox cannot run commands in a CT."""
     node = t["pve"]["node"]
@@ -194,7 +195,8 @@ def deploy_clients(pve, t, password, emit, step="clients"):
             pve.set_ct_config(node, vmid, p)
             created = False
         else:
-            vmid = pve.next_vmid()
+            from ..provision_vms import pick_vmid
+            vmid = pick_vmid(pve, vmids, name)
             pve.wait_task(node, pve.create_ct(node, net.client_params(t, e, vmid, password)))
             created = True
         pve.wait_task(node, pve.start_ct(node, vmid))

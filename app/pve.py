@@ -131,6 +131,11 @@ class Pve:
         rows = self._req("GET", "/cluster/resources", params={"type": "vm"}) or []   # qemu VMs and LXC containers
         return [r for r in rows if r.get("type", "qemu") == kind and tag in str(r.get("tags", "")).split(";")]
 
+    def used_vmids(self):
+        """Every VM and container id in the cluster (they share one id space)."""
+        rows = self._req("GET", "/cluster/resources", params={"type": "vm"}) or []
+        return {int(r["vmid"]) for r in rows}
+
     def find_vms(self, tag):
         return self._tagged(tag, "qemu")
 
