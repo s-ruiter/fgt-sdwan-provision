@@ -358,7 +358,8 @@ def _deep(base, over):
 # Not configurable (always the same in our deployments). Enforced here so no client can override them.
 FIXED = {"platform": "FortiGate-VM64", "dns_primary": "1.1.1.1", "dns_secondary": "8.8.8.8",
          "wan1_access": "ping https ssh fgfm", "lo_summary": "10.200.0.0/14",
-         "region": {"name": "West", "bgp_as": 65001, "lo_summary": "10.200.1.0/24"}}
+         "region": {"name": "West", "bgp_as": 65001, "lo_summary": "10.200.1.0/24"},
+         "wanemu": {"template": DEFAULTS["wanemu"]["template"]}}   # CT template: not a user choice
 
 
 def merged(user):

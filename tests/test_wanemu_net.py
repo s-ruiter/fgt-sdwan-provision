@@ -90,3 +90,10 @@ from app import bootstrap as bs  # noqa: E402
 fl = bs.fmg_network_lines(t)
 assert "edit 11" in fl and 'set dst 100.127.201.0 255.255.255.0' in fl and "set gateway 10.10.106.250" in fl
 print("OK  FMG: geen NAT naar het lab-subnet, routes naar ISP-HUB/A/B via wan-emu (Day-0); niet als FMG elders staat")
+
+# the CT template is fixed: a client cannot choose it
+t = model.merged({"wanemu": {"template": "local:vztmpl/evil.tar.zst"}})
+assert t["wanemu"]["template"] == model.DEFAULTS["wanemu"]["template"]
+from app import csvio  # noqa: E402
+assert "wanemu.template" not in csvio.export_csv(model.merged({}), full=True)
+print("OK  CT-template vast (niet via API of CSV te kiezen)")

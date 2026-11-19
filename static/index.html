@@ -38,6 +38,7 @@
           <div class="inline"><input type="radio" name="scope" id="scope_fgt" value="fgt"><label for="scope_fgt"><b>FortiGates only</b> &ndash; against an existing, reachable FortiManager; ADOM and templates are reused or updated, model devices added, then install</label></div>
           <div class="inline"><input type="radio" name="scope" id="scope_dev" value="dev"><label for="scope_dev"><b>Model devices only</b> &ndash; to an existing, reachable FortiManager: ADOM, model devices and templates with the per-device values, then a Quick install and a Re-install policy per device; no link to real FortiGates, no VMs and no Proxmox</label></div>
           <div class="inline"><input type="radio" name="scope" id="scope_tpl" value="tpl"><label for="scope_tpl"><b>Templates only</b> &ndash; to an existing, reachable FortiManager: ADOM and templates for hubs and spokes; no VMs, no Proxmox, no model devices and no install</label></div>
+          <div class="inline"><input type="radio" name="scope" id="scope_lan" value="lan"><label for="scope_lan"><b>LAN clients only</b> &ndash; one container per spoke on its LAN VLAN (<code>client-&lt;spoke&gt;</code>, .10, the spoke as gateway) on Proxmox; nothing on FortiManager or the FortiGates</label></div>
         </div>
         <div class="hint" id="scope_hint"></div>
       </div>
@@ -93,7 +94,6 @@
         <div class="hint">The container routes between ISP-HUB (hubs, static IP), ISP-A (spoke wan1) and ISP-B (spoke wan2), gives the spokes a DHCP reservation and NATs to the lab via the uplink. Set latency, jitter, loss and bandwidth per link on the <a href="#/wanemu" style="color:var(--accent)">WAN emulation</a> page.</div>
         <div class="fields">
           <div class="f"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
-          <div class="f"><label>Template</label><input id="wan-template" class="mono"></div>
           <div class="f"><label>Storage (rootfs)</label><input id="wan-storage"></div>
           <div class="f"><label>Bridge</label><select id="wan-bridge"></select></div>
           <div class="f"><label>Uplink VLAN</label><input id="wan-uplink-vlan" type="number"></div>
@@ -109,7 +109,7 @@
         </div><!-- /wanemu -->
       </div>
 
-      <div class="card">
+      <div class="card not-lan">
         <h2><span class="num">02</span>FortiManager <small class="only-fmg">(always a static IP; Day-0)</small><small class="only-existing">(existing FortiManager: IP, ADOM and API login)</small></h2>
         <div class="fields">
           <div class="f only-fmg"><label>Hostname</label><input id="fm_name"></div>
@@ -142,7 +142,7 @@
         <div class="only-fgt">
         <h3>FortiGates: password &amp; licence</h3>
         <div class="fields">
-          <div class="f"><label>FortiGate admin and SSH password</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
+          <div class="f"><label><span class="not-lan">FortiGate admin and SSH password</span><span class="only-lan">Root password of the LAN clients</span></label><input id="fgt_newpw" type="password" autocomplete="off"></div>
         </div>
         <div class="hint">Enter the serial number and FortiFlex token per FortiGate below (or let FortiFlex fill them in). Hubs have one WAN (wan1, static IP + gateway); branches use wan1 and optionally wan2, always via DHCP. Every branch WAN gets a tunnel to wan1 of every hub. The tool creates the VMs with Day-0 (cloud-init) on Proxmox: IP, password, FMG link and token go into the config drive.</div>
         </div>
@@ -154,21 +154,11 @@
         </div>
       </div>
 
-      <div class="card">
-        <h2><span class="num">04</span>Preview &amp; deploy</h2>
-        <div class="btnrow">
-          <button id="btn_render">Generate templates</button>
-          <span class="only-vm"><select id="d0_dev" style="width:auto"></select> <button id="btn_d0">Day-0 preview</button></span>
-          <span class="only-vm"><button id="btn_flexcheck">Check licences</button></span>
-        </div>
-        <div id="flex_check" hidden></div>
-        <pre class="cfg" id="d0_out" hidden></pre>
-        <div id="preview" hidden><div class="tabs" id="tabs"></div><pre class="cfg" id="cfg"></pre></div>
-      </div>
       <div class="actions space">
-        <div class="inline"><input type="checkbox" id="dry" checked><label for="dry">Dry run (sends nothing to FortiManager, FortiGates or Proxmox; FortiFlex is only queried)</label></div>
+        <span class="only-vm"><button id="btn_flexcheck">Check licences</button></span>
         <button id="btn_deploy" class="primary">Deploy</button>
       </div>
+      <div id="flex_check" class="card" hidden></div>
       <div id="deploy_status" class="card" hidden></div>
     </section>
 
@@ -287,7 +277,7 @@
     </section>
 
   </main>
-  <footer><div class="wrap">FGT SD-WAN Provision · multi-VRF ADVPN via FortiManager</div></footer>
+  <footer><div class="wrap">FGT SD-WAN Provision · SD-WAN ADVPN via FortiManager</div></footer>
   <script src="app.js"></script>
 </body>
 </html>

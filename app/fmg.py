@@ -341,7 +341,7 @@ def osmr(topo):
     return ("7.0", 6) if v == "7.6" else (v, topo.get("mr", 0))
 
 
-SCOPES = ("all", "fmg", "fgt", "tpl", "dev")
+SCOPES = ("all", "fmg", "fgt", "tpl", "dev", "lan")   # lan = only the LAN client CTs on Proxmox
 NO_DEVICES = ("fmg", "tpl")           # scopes that create no model devices (templates only)
 EXISTING_FMG = ("fgt", "tpl", "dev")  # scopes against an existing FortiManager (no FMG VM, settings untouched)
 NO_FGT = ("fmg", "tpl", "dev")        # scopes that create no FortiGate VMs and do no install
@@ -511,6 +511,12 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     why_fmg = why[scope] if scope in EXISTING_FMG else "skipped (not requested)"
     why_fgt = why[scope] if scope in NO_FGT else "skipped (not requested)"
     state = boot.setdefault("state", {})
+    if scope == "lan":                         # LAN clients only: no FortiManager, no FortiGates, no WAN emulator
+        for s in ("pve_fmg", "bootstrap_fmg", "preflight", "fmg_settings", "adom", "devices", "templates", "pve_wan",
+                  "pve_fgt", "bootstrap_fgt", "install"):
+            emit(s, "skipped", "skipped (LAN clients only)")
+        _clients(topo, boot, emit)
+        return
     from . import bootstrap as bs
     from . import provision_vms as pv
 

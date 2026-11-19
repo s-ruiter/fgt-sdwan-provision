@@ -33,7 +33,7 @@ print("OK  UI statisch: app.js parseert, start-up-functies bestaan, alle $('#id'
 sec = html[html.index('id="wanemu-section"') - 200:]
 sec = sec[:sec.index("</div><!-- /wanemu -->")]
 assert 'class="only-fgt"' in sec[:300], "WAN-emulatie hoort bij de FortiGate-VM's (alleen bij Day-0 FortiGates)"
-for i in ("wan-vmid", "wan-template", "wan-storage", "wan-bridge", "wan-uplink-vlan", "wan-uplink-ip", "wan-uplink-gw",
+for i in ("wan-vmid", "wan-storage", "wan-bridge", "wan-uplink-vlan", "wan-uplink-ip", "wan-uplink-gw",
           "wan-seg-hub-vlan", "wan-seg-hub-subnet", "wan-seg-hub-gw", "wan-seg-a-vlan", "wan-seg-a-subnet", "wan-seg-a-gw",
           "wan-seg-a-res", "wan-seg-b-vlan", "wan-seg-b-subnet", "wan-seg-b-gw", "wan-seg-b-res"):
     assert f'id="{i}"' in sec, i
@@ -116,3 +116,32 @@ try:                                                       # render it for real 
 except FileNotFoundError:
     pass
 print("OK  UI: topologieplaatje (FMG, wan-emu, ISP-HUB/A/B, hubs, spokes, LAN-VLAN's, clients), per scope gedimd")
+
+# no preview card and no dry-run switch: Deploy is always real; "Check licences" sits next to Deploy
+for gone in ('id="btn_render"', 'id="btn_d0"', 'id="d0_dev"', 'id="dry"', "Preview &amp; deploy"):
+    assert gone not in html, gone
+for gone in ("btn_render", "btn_d0", "d0Opts", '$("#dry")'):
+    assert gone not in js, gone
+act = html[html.index('id="btn_deploy"') - 400:html.index('id="btn_deploy"')]
+assert 'id="btn_flexcheck"' in act, "Check licences staat naast Deploy"
+assert "dry_run: false" in js[js.index('$("#btn_deploy").onclick'):][:2500]
+print("OK  UI: geen preview-blok en geen dry-run; Check licences naast Deploy")
+
+assert 'id="wan-template"' not in html and "wan-template" not in js, "het CT-template kiest de gebruiker niet"
+print("OK  UI: geen template-veld bij de WAN-emulatie")
+
+# scope "LAN clients only": radio, hint, hidden FortiManager card, deploy without FMG/FGT methods, topology
+assert 'id="scope_lan" value="lan"' in html and "lan:" in js[js.index("const SCOPE_HINT"):js.index("const SCOPE_HINT") + 3000]
+assert 'class="card not-lan"' in html and '[data-scope="lan"] .not-lan' in open(os.path.join(root, "static", "style.css")).read()
+dep = js[js.index('$("#btn_deploy").onclick'):][:1500]
+assert '["fgt", "tpl", "dev", "lan"]' in dep and '["fmg", "tpl", "dev", "lan"]' in dep and 'sc === "lan"' in dep
+try:
+    probe = ("const esc=s=>String(s);" + js[js.index("function topoSvg"):js.index("function topoDraw")] +
+             "const T=" + __import__("json").dumps(__import__("app.model", fromlist=["x"]).merged({})) + ";"
+             "const s=topoSvg(T,'lan');const i=s.indexOf('client-site1-1');const g=s.lastIndexOf('<g',i);"
+             "if(s.slice(g,i).includes('opacity'))throw 'client gedimd bij lan';console.log('ok')")
+    r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stderr[:400]
+except FileNotFoundError:
+    pass
+print("OK  UI: keuze 'LAN clients only' (FortiManager-kaart weg, geen FMG/FGT, clients niet gedimd in de topologie)")

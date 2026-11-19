@@ -85,7 +85,7 @@ function ipErrors() {
   const out = [];
   document.querySelectorAll("[data-ip]").forEach((el) => {
     const dev = el.closest(".dev");
-    if (el.closest(".only-vm, .only-fmg, .only-fgt, .only-dev") && !el.offsetParent) { el.classList.remove("bad"); return; }   // hidden by the deploy choice
+    if (el.closest(".only-vm, .only-fmg, .only-fgt, .only-dev, .not-lan") && !el.offsetParent) { el.classList.remove("bad"); return; }   // hidden by the deploy choice
     const p = checkIp(el);
     if (p) out.push(`${dev ? dev.querySelector("b").textContent + ": " : ""}${labelText(el)} — ${p}`);
   });
@@ -118,7 +118,7 @@ function pveFill(p) {
 }
 const WAN_SEGS = ["hub", "a", "b"];
 function wanFill(w) {
-  $("#wan-vmid").value = w.vmid ?? ""; $("#wan-template").value = w.template; $("#wan-storage").value = w.storage;
+  $("#wan-vmid").value = w.vmid ?? ""; $("#wan-storage").value = w.storage;
   setSel("#wan-bridge", PVE_OPT.bridges, w.bridge);
   $("#wan-uplink-vlan").value = w.uplink.vlan; $("#wan-uplink-ip").value = w.uplink.ip; $("#wan-uplink-gw").value = w.uplink.gw;
   WAN_SEGS.forEach((k) => {
@@ -129,7 +129,7 @@ function wanFill(w) {
 }
 function wanCollect() {
   const w = JSON.parse(JSON.stringify(T.wanemu)), n = (v) => (v === "" ? null : +v);
-  w.vmid = n($("#wan-vmid").value); w.template = $("#wan-template").value.trim(); w.storage = $("#wan-storage").value.trim();
+  w.vmid = n($("#wan-vmid").value); w.storage = $("#wan-storage").value.trim();
   w.bridge = $("#wan-bridge").value.trim();
   w.uplink = { vlan: n($("#wan-uplink-vlan").value), ip: $("#wan-uplink-ip").value.trim(), gw: $("#wan-uplink-gw").value.trim() };
   WAN_SEGS.forEach((k) => {
@@ -159,15 +159,7 @@ function draw() {
   $("#vrfs").innerHTML = "<thead><tr><th>VRF id</th><th>LAN summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
-  d0Opts(); flexFields(); topoDraw();
-}
-// Day-0 preview: only the VMs the chosen deploy option creates
-function d0Opts() {
-  const s = scope(), cur = $("#d0_dev").value;
-  const l = [...(s === "all" || s === "fmg" ? ["fmg"] : []), ...(s === "all" || s === "fgt" ? [...T.hubs, ...T.edges].map((d) => d.name) : [])];
-  $("#d0_dev").innerHTML = l.map((n) => `<option>${esc(n)}</option>`).join("");
-  if (l.includes(cur)) $("#d0_dev").value = cur;
-  $("#d0_out").hidden = true;
+  flexFields(); topoDraw();
 }
 function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);
@@ -322,27 +314,6 @@ $("#csv_file").onchange = async (ev) => {
   $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (Object.keys(imp).length || j.fmg_token ? ` · FortiFlex tokens: ${Object.keys(imp).length + (j.fmg_token ? 1 : 0)}` : "") + ([...j.notes, ...extra].length ? ` (${[...j.notes, ...extra].join("; ")})` : "");
   if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Still to fill in / correct: " + j.todo.join(" · "); }
 };
-$("#btn_render").onclick = async () => {
-  showErr([]);
-  { const e = ipErrors(); if (e.length) return showErr(e); }
-  const r = await post("/api/render", { topology: collect() }), j = await json(r);
-  if (!r.ok) return showErr(errList(j));
-  $("#preview").hidden = false;
-  const names = Object.keys(j.configs);
-  $("#tabs").innerHTML = names.map((n) => `<button data-n="${esc(n)}">${esc(n)} (${j.lines[n]})</button>`).join("");
-  const sel = (n) => { $("#cfg").textContent = j.configs[n]; document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.n === n)); };
-  $("#tabs").onclick = (e) => e.target.dataset.n && sel(e.target.dataset.n);
-  sel(names[0]);
-};
-$("#btn_d0").onclick = async () => {
-  showErr([]);
-  { const e = ipErrors(); if (e.length) return showErr(e); }
-  const r = await post("/api/cloudinit/preview", { topology: collect(), device: $("#d0_dev").value }), j = await json(r);
-  if (!r.ok) return showErr(errList(j));
-  $("#d0_out").hidden = false;
-  $("#d0_out").textContent = `# ${j.layout} · licence mode: ${j.mode} · token/password masked\n` + j.user_data;
-};
-
 // ---- scope: all / only FortiManager / only FortiGates ------------------------
 const SCOPE_HINT = {
   all: "",
@@ -350,13 +321,14 @@ const SCOPE_HINT = {
   tpl: "Deploys only the ADOM and the templates (metadata variables, system, SD-WAN and CLI templates, policy packages, template groups, blueprints) to an existing FortiManager at the given IP, with the admin user and password below. No VMs and no Proxmox; the FortiManager settings (time zone, timers, FortiAnalyzer) are left alone. Serial numbers and wan1 gateways are not needed; model devices follow with 'FortiGates only'.",
   dev: "Creates the ADOM, the model devices (with serial number) and the templates with the per-device values in an existing FortiManager, without a link to real FortiGates: no VMs, no Proxmox. Then the tool does a Quick install (device settings) per device and a Re-install policy per role, to the device database. The FortiManager settings are left alone. Serial numbers and hub gateways are needed; FortiGate tokens and password are not. Real FortiGates register later on their serial number, or deploy them with 'FortiGates only'.",
   fgt: "The FortiManager must already run on the given static IP and be reachable with the admin user and password below. No FortiManager VM is created.",
+  lan: "Creates (or updates) only the LAN client containers client-<spoke> on Proxmox, one per spoke on its LAN1 VLAN with .10 and the spoke as gateway. Nothing is sent to FortiManager or the FortiGates and no licences are used. The password below becomes the clients' root password.",
 };
 const scope = () => (document.querySelector('input[name="scope"]:checked') || {}).value || "all";
 function scopeApply() {
   const s = scope();
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
-  if (T) { d0Opts(); flexFields(); topoDraw(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
+  if (T) { flexFields(); topoDraw(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
   try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
 }
 document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
@@ -375,15 +347,16 @@ function stepsDraw(states = {}) {
 $("#btn_deploy").onclick = async () => {
   showErr([]);
   { const e = ipErrors(); if (e.length) return showErr(e); }
-  const dry = $("#dry").checked, sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";   // Day-0 for what is deployed
+  const dry = false, sc = scope(), mf = ["fgt", "tpl", "dev", "lan"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev", "lan"].includes(sc) ? "none" : "day0";   // Day-0 for what is deployed
   const what = { all: "the FortiManager and FortiGate VMs", fmg: "the FortiManager VM", fgt: "the FortiGate VMs" }[sc];
-  const ask = sc === "tpl" ? "This writes the ADOM and the templates to the existing FortiManager (set/update: earlier objects of this tool are overwritten). Continue?"
+  const ask = sc === "lan" ? "This creates or updates the LAN client containers on Proxmox (one per spoke). Continue?"
+    : sc === "tpl" ? "This writes the ADOM and the templates to the existing FortiManager (set/update: earlier objects of this tool are overwritten). Continue?"
     : sc === "dev" ? "This writes the ADOM, the model devices and the templates to the existing FortiManager (set/update: earlier objects of this tool are overwritten) and then does a Quick install and a Re-install policy per device. Continue?"
     : `This writes to FortiManager, creates ${what} on Proxmox, configures and licenses them (they reboot). Continue?`;
   if (!dry && !confirm(ask)) return;
   const btn = $("#btn_deploy"); if (btn.disabled) return;
   btn.disabled = true;                                   // FortiFlex licenses are fetched in this request: no double click
-  const body = { topology: collect(), fmg: fmgCfg(), dry_run: dry, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } };
+  const body = { topology: collect(), fmg: fmgCfg(), dry_run: false, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } };
   let plan = null;
   if (!$("#btn_flexcheck").hidden) {                     // FortiFlex in this run: show what is looked up and why it takes a while
     deployStatus("FortiFlex: looking up licences for the devices of this deployment…");
@@ -651,7 +624,7 @@ function flexFields() {               // sync: after draw() and on a scope chang
   if (!(fgtOn || fmgOn)) $("#flex_check").hidden = true;
 }
 $("#btn_flexcheck").onclick = async () => {
-  const sc = scope(), mf = ["fgt", "tpl", "dev"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev"].includes(sc) ? "none" : "day0";
+  const sc = scope(), mf = ["fgt", "tpl", "dev", "lan"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev", "lan"].includes(sc) ? "none" : "day0";
   $("#flex_check").hidden = false; $("#flex_check").innerHTML = '<div class="hint">looking up licences at FortiFlex&hellip;</div>';
   const r = await post("/api/fortiflex/check", { topology: collect(), fmg: fmgCfg(), dry_run: true, scope: sc, bootstrap: { fmg: mf, fgt: mg } });
   const j = await json(r);
@@ -738,7 +711,7 @@ function topoSvg(t, sc) {
   const w = t.wanemu, seg = w.segments, fgts = [...t.hubs.map((d) => [d, true]), ...t.edges.map((d) => [d, false])];
   const L = 150, COL = 180, W = Math.max(900, L + fgts.length * COL + 20);
   const oct = (subnet, n) => subnet.split("/")[0].split(".").slice(0, 3).join(".") + "." + n;
-  const fgtOn = ["all", "fgt"].includes(sc), modelOnly = ["dev", "tpl"].includes(sc), fmgNew = ["all", "fmg"].includes(sc);
+  const fgtOn = ["all", "fgt"].includes(sc), modelOnly = ["dev", "tpl"].includes(sc), fmgNew = ["all", "fmg"].includes(sc), lanOnly = sc === "lan";
   const dim = (on) => (on ? "" : ' opacity="0.35"');
   const box = (x, y, bw, bh, title, lines, cls, on = true) =>
     `<g${dim(on)}><rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="7" class="tp-box ${cls || ""}"/>` +
@@ -750,7 +723,7 @@ function topoSvg(t, sc) {
   const yLab = 92, yHub = 170, yA = 205, yB = 240, yF = 290, yLan = 395, yCli = 470;
   let o = "";
   o += bar(yLab, "Lab / uplink", w.uplink.vlan, w.uplink.ip.replace(/\.\d+\/(\d+)$/, ".0/$1"), true);
-  o += box(L, 14, 200, 56, "FortiManager", [`${(t.fmgr.ip || "").split("/")[0] || "(IP)"}`, fmgNew ? "new VM (Day-0)" : "existing"], "", true) + line(L + 100, 70, L + 100, yLab);
+  o += box(L, 14, 200, 56, "FortiManager", [`${(t.fmgr.ip || "").split("/")[0] || "(IP)"}`, fmgNew ? "new VM (Day-0)" : "existing"], "", !lanOnly) + line(L + 100, 70, L + 100, yLab);
   o += box(L + 230, 14, 230, 56, "wan-emu (LXC)", [`${w.uplink.ip.split("/")[0]} · NAT, DHCP, tc`, "forwards :" + w.fwd_https_base + "+ / :" + w.fwd_ssh_base + "+"], "tp-emu", fgtOn) + line(L + 345, 70, L + 345, yLab, fgtOn);
   o += line(L + 345, yLab, L + 345, yB, fgtOn);
   o += bar(yHub, seg.hub.name, seg.hub.vlan, seg.hub.subnet, fgtOn) + bar(yA, seg.a.name, seg.a.vlan, seg.a.subnet, fgtOn) + bar(yB, seg.b.name, seg.b.vlan, seg.b.subnet, fgtOn);
@@ -764,10 +737,10 @@ function topoSvg(t, sc) {
     o += box(x, yF, 160, 72, `${d.name || "?"} · ${hub ? "hub" : "spoke"}`, [`WAN1 ${wan1}`, wan2 ? `WAN2 ${wan2}` : hub ? "gw " + (d.wan1_gw || "") : "no WAN2", modelOnly ? "model device" : `Lo ${d.loopback || ""}`], hub ? "tp-hub" : "tp-spoke", fgtOn || modelOnly);
     if (lan.ip) {
       o += line(cx, yF + 72, cx, yLan, fgtOn || modelOnly);
-      o += box(x, yLan, 160, 50, `LAN ${lan.intf || ""}`, [lan.ip, `VLAN ${vlan}`], "tp-lan", fgtOn || modelOnly);
+      o += box(x, yLan, 160, 50, `LAN ${lan.intf || ""}`, [lan.ip, `VLAN ${vlan}`], "tp-lan", fgtOn || modelOnly || lanOnly);
       if (!hub) {
         const ip = lan.ip.split("/")[0].split(".").slice(0, 3).join(".") + ".10";
-        o += line(cx, yLan + 50, cx, yCli, fgtOn) + box(x, yCli, 160, 46, `client-${d.name}`, [`${ip} (LXC)`], "tp-cli", fgtOn);
+        o += line(cx, yLan + 50, cx, yCli, fgtOn || lanOnly) + box(x, yCli, 160, 46, `client-${d.name}`, [`${ip} (LXC)`], "tp-cli", fgtOn || lanOnly);
       }
     }
   });

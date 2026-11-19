@@ -259,3 +259,8 @@ input.flex[readonly] { background: var(--line); color: var(--muted, #888); }
 .tp-txt { font: 11px var(--mono); fill: var(--text-2); }
 .tp-line { stroke: var(--muted); stroke-width: 1.4; }
 .tp-bar { stroke: var(--text-2); stroke-width: 3; }
+
+/* deploy choice "LAN clients only": only Proxmox, the device list and the client password */
+[data-scope="lan"] .only-fmg, [data-scope="lan"] .only-fgt, [data-scope="lan"] .only-dev, [data-scope="lan"] .only-existing,
+[data-scope="lan"] .not-lan { display: none !important; }
+#v_deploy:not([data-scope="lan"]) .only-lan { display: none !important; }

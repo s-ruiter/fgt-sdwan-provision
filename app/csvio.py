@@ -57,7 +57,7 @@ PVE_SETTINGS = [
 ] + [(f"pve.ports.port{i}.{k}", f"FortiGate port{i} {k}", "optint" if k == "vlan" else "str")
      for i in range(1, 9) for k in ("bridge", "vlan")] + [
     ("wanemu.vmid", "WAN emulator CT id (empty = automatic)", "optint"),
-    ("wanemu.template", "WAN emulator template", "str"), ("wanemu.storage", "WAN emulator storage", "str"),
+    ("wanemu.storage", "WAN emulator storage", "str"),
     ("wanemu.bridge", "WAN emulator bridge", "str"),
     ("wanemu.uplink.vlan", "WAN emulator uplink VLAN", "int"), ("wanemu.uplink.ip", "WAN emulator uplink IP/prefix", "str"),
     ("wanemu.uplink.gw", "WAN emulator uplink gateway", "str"),
