@@ -113,3 +113,32 @@ pv2["hubs"][0]["wan1_ip"], pv2["hubs"][0]["wan1_gw"] = "100.64.1.1/29", "100.64.
 assert not any("ISP-HUB" in e for e in model.validate_pve(pv2, wanemu=False))
 assert any("ISP-HUB" in e for e in model.validate_pve(pv2))
 print("OK  review: forwarding na herstart, sysctl alleen eigen bestand, agent-check vóór ping, VMID-melding, warn blijft staan, validatie alleen bij FortiGate-VM's")
+
+# routes on an existing FortiManager via the API (pve_wan step), idempotent; a refusal is a warning with the CLI
+import http.server  # noqa: E402
+from app.fmg import Fmg  # noqa: E402
+from tests import mock_fmg  # noqa: E402
+msrv = http.server.HTTPServer(("127.0.0.1", 8093), mock_fmg.H)
+import threading as _t  # noqa: E402
+_t.Thread(target=msrv.serve_forever, daemon=True).start()
+fake_proxmox.reset()
+srv = fake_proxmox.start(8094)
+pve = Pve("http://127.0.0.1:8094", "root@pam!t", "secret", poll=0)
+tf = model.merged({"pve": {"node": "pve1"}}); tf["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
+f = Fmg("http://127.0.0.1:8093", "admin", "x"); f.login()
+b = {"pve_client": pve, "wanemu_secrets": SEC, "waiter": waiter, "wanemu_connector": connector(FakeShell(installed=True)), "fmg": f}
+ev.clear()
+fmgmod._wanemu(tf, b, emit)
+rt = mock_fmg.STATE["routes"]
+assert sorted((r["dst"][0], r["gateway"], r["device"]) for r in rt) == [("100.127.200.0", "10.10.106.250", "port1"),
+       ("100.127.201.0", "10.10.106.250", "port1"), ("100.127.202.0", "10.10.106.250", "port1")], rt
+n = len(rt)
+fmgmod._wanemu(tf, b, emit)
+assert len(mock_fmg.STATE["routes"]) == n                                   # second run: nothing added
+mock_fmg.STATE["routes"].clear(); mock_fmg.STATE["refuse_route"] = True
+ev.clear()
+fmgmod._wanemu(tf, b, emit)
+assert any(st == "warn" and "config system route" in m for s_, st, m in ev if s_ == "pve_wan"), ev
+mock_fmg.STATE["refuse_route"] = False
+srv.shutdown(); msrv.shutdown()
+print("OK  FMG-routes via de API: toegevoegd, herhaalbaar, bij weigering een waarschuwing met de CLI")

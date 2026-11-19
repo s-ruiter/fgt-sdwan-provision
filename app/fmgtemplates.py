@@ -283,6 +283,7 @@ def build_plan(topo, orch_dir):
             row.setdefault("dst", ["0.0.0.0", "0.0.0.0"])
             row.setdefault("status", "enable")
             row["_seq-num"] = row.get("seq-num")
+        _fmg_host_route(r, topo, warnings)
         addr = {}
         for a in sd.get("firewall address", []) + fw.get("firewall address", []):
             addr[a["name"]] = {"name": a["name"], "type": 0, "associated-interface": "any", "color": 22,
@@ -346,6 +347,23 @@ def rename_edge_tunnels(s):
         s["core"] = {k: sub(v) for k, v in s["core"].items()}
         s["sdwan"], s["firewall"] = sub(s["sdwan"]), sub(s["firewall"])
     return names
+
+
+FMG_ROUTE_SEQ = 110        # host route to the FortiManager (the Orchestrator's own routes use 100-102)
+
+
+def _fmg_host_route(r, topo, warnings):
+    """The Orchestrator blackholes the LAN/loopback summaries (e.g. 10.0.0.0/8 'Avoid potential leak of corporate traffic
+    to underlay'). A FortiManager inside such a range is then unreachable once the template is installed: the FGFM tunnel
+    drops ('tunnel down'). A /32 via the underlay zone is more specific and keeps it reachable."""
+    ip = str(topo.get("fmgr", {}).get("ip", "")).split("/")[0].strip()
+    if not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", ip):
+        return
+    if not any(z.get("name") == "underlay" for z in r["sdwan"].get("zone", [])):
+        warnings.append(f"{r['name']}: geen SD-WAN-zone 'underlay', geen hostroute naar FortiManager {ip}")
+        return
+    r["static"].append({"seq-num": FMG_ROUTE_SEQ, "_seq-num": FMG_ROUTE_SEQ, "dst": [ip, "255.255.255.255"],
+                        "sdwan-zone": ["underlay"], "status": "enable", "comment": "FortiManager (fgt-sdwan-provision)"})
 
 
 def _hub_gateway(sdwan, dev):

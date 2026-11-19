@@ -41,3 +41,11 @@ assert any("LAN-summary" in e for e in model.validate(bad))
 bad = topo(True); bad["region"]["vrfs"] = []
 assert any("minstens 1 vrf" in e.lower() for e in model.validate(bad))
 print("OK  single-VRF: geen VRF 1/11/12, leak, vpn-id-ipip of vrf-select; 1 LAN; multi-VRF ongewijzigd; validatie")
+
+# single-VRF: everything in VRF 0 (only explicit 'set vrf 0'), FMG tunnel without vrf-select
+import json as _j  # noqa: E402
+for r in ps["roles"]:
+    blob = "\n".join(x for _, x, _ in r["cli"]) + _j.dumps(r["sdwan"]) + _j.dumps(r["static"]) + _j.dumps(r["policies"])
+    vrfs = set(re.findall(r"set vrf (\S+)", blob)) | set(re.findall(r'"vrf": ?"?(\w+)', blob))
+    assert vrfs <= {"0"} and "vrf-select" not in blob, (r["name"], vrfs)
+print("OK  single-VRF: alles in VRF 0, geen vrf-select")

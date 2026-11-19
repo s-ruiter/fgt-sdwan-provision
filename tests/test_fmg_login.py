@@ -100,3 +100,21 @@ try:
 except FmgError as e:
     assert "nog niet gelicenseerd" in str(e), str(e)
 print("OK  FMG-login: pad met /, geweigerd wachtwoord stopt na 2 pogingen, lockout (-23) wordt uitgewacht, niet-gereed wordt herhaald")
+
+# wait_online: FortiManager answers enums as text with verbose=1 ("up" / "down" / "UNKNOWN"), older code used 1
+from app.fmg import wait_online  # noqa: E402
+
+
+class _F:
+    dry = False
+
+    def __init__(self, st):
+        self.st = st
+
+    def call(self, m, url):
+        return {"data": {"conn_status": self.st[url.rsplit("/", 1)[1]]}}
+
+
+left = wait_online(_F({"a": "up", "b": 1, "c": "UNKNOWN", "d": "down"}), "X", ["a", "b", "c", "d"], 0, lambda *x: None, poll=0)
+assert left == ["c", "d"], left
+print("OK  wait_online: 'up' (verbose) en 1 tellen als online; UNKNOWN/down niet")

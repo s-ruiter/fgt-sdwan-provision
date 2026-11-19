@@ -53,9 +53,32 @@ def links(t):
     return out
 
 
+def _uplink_net(t):
+    return ipaddress.ip_interface(t["wanemu"]["uplink"]["ip"]).network
+
+
 def agent_topology(t):
-    """What the agent in the container needs: the links and the source subnets that get NAT towards eth0."""
-    return {"links": links(t), "nat": [t["wanemu"]["segments"][s]["subnet"] for s in SEGS]}
+    """What the agent in the container needs: the links, the source subnets that get NAT towards eth0, and the
+    destinations that do NOT (the lab subnet: FortiManager sees the real FortiGate addresses and routes back)."""
+    return {"links": links(t), "nat": [t["wanemu"]["segments"][s]["subnet"] for s in SEGS],
+            "no_nat": [str(_uplink_net(t))]}
+
+
+def fmg_routes(t):
+    """[(dst, mask, gateway)] the FortiManager needs to reach the segments via wan-emu; [] when the FortiManager is not
+    in the uplink subnet (then the lab router has to route 100.127.x to the uplink address)."""
+    try:
+        fip = ipaddress.ip_interface(str(t["fmgr"].get("ip", "")).strip()).ip
+    except ValueError:
+        return []
+    if fip not in _uplink_net(t):
+        return []
+    gw = _ip(t["wanemu"]["uplink"]["ip"])
+    out = []
+    for s in SEGS:
+        n = ipaddress.ip_network(t["wanemu"]["segments"][s]["subnet"], strict=False)
+        out.append((str(n.network_address), str(n.netmask), gw))
+    return out
 
 
 def dnsmasq_conf(t):
@@ -84,6 +107,8 @@ def ct_params(t, vmid, ssh_pubkey):
          "unprivileged": 0 if WANEMU_PRIVILEGED else 1, "onboot": 1, "start": 0, "tags": TAG_VM,
          # Debian 13 (systemd 257) in a CT: without nesting /tmp, /run/lock and mqueue fail to mount (spike on PVE01)
          "features": "nesting=1",
+         # DNS of the topology: without it the CT inherits the PVE host's resolvers, which the uplink VLAN may not reach
+         "nameserver": " ".join(x for x in (t.get("dns_primary"), t.get("dns_secondary")) if x),
          "ssh-public-keys": ssh_pubkey,
          "net0": f"name=eth0,bridge={w['bridge']},tag={up['vlan']},ip={up['ip']},gw={up['gw']}"}
     for i, s in enumerate(SEGS, start=1):

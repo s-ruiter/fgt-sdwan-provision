@@ -112,3 +112,6 @@ try:
 except OSError as e:
     assert e.errno == 98
 print("OK  agent wacht bij opstarten op zijn uplink-adres (errno 99) in plaats van te crashen")
+r = agent.nft_ruleset(dict(topo, no_nat=["10.10.106.0/24"]), {})
+assert 'oifname "eth0" ip saddr { 100.127.200.0/24, 100.127.201.0/24, 100.127.202.0/24 } ip daddr != { 10.10.106.0/24 } masquerade' in r, r
+print("OK  agent: geen NAT naar het lab-subnet (FortiManager ziet de echte adressen)")
