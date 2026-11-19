@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import threading
@@ -5,7 +6,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -417,6 +418,91 @@ def wanemu_preset(name: str, link: Optional[str] = None):
     return {"applied": [lid for lid, _ in changes]}
 
 
+@app.get("/api/wanemu/forwards")
+def wanemu_forwards():
+    raw = db.get_secret(db.connect(DATA_DIR), "wanemu_forwards")
+    if not raw:
+        raise HTTPException(409, detail="Nog geen WAN-emulator uitgerold: rol eerst FortiGates uit (Alles of Alleen FortiGates)")
+    return json.loads(raw)
+
+
+# ---- SSH in the browser: websocket <-> SSH shell via the wan-emu port forward. Credentials per session, never kept.
+class TermError(Exception):
+    pass
+
+
+def _term_connect(host, port, user, password, cols, rows):
+    import paramiko
+    c = paramiko.SSHClient()
+    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())          # lab FortiGates, new host key on every deploy
+    try:
+        c.connect(host, port=port, username=user, password=password, timeout=10, banner_timeout=15,
+                  auth_timeout=15, allow_agent=False, look_for_keys=False)
+    except paramiko.AuthenticationException:
+        c.close()
+        raise TermError("inloggen geweigerd (gebruiker of wachtwoord onjuist)") from None
+    except Exception as e:
+        c.close()
+        raise TermError(f"geen SSH-verbinding met {host}:{port} ({type(e).__name__})") from None
+    chan = c.invoke_shell(term="xterm", width=cols, height=rows)
+    return chan, c.close
+
+
+TERM_CONNECT = _term_connect
+
+
+@app.websocket("/api/term/{name}")
+async def term(ws: WebSocket, name: str):
+    await ws.accept()
+    say = lambda m: ws.send_text(f"\r\n\x1b[31m[{m}]\x1b[0m\r\n")
+    try:
+        auth = json.loads(await ws.receive_text())
+        raw = db.get_secret(db.connect(DATA_DIR), "wanemu_forwards")
+        fw = json.loads(raw) if raw else {"forwards": []}
+        f = next((x for x in fw["forwards"] if x["name"] == name), None)
+        if not f:
+            await say(f"onbekend device {name}: rol eerst de FortiGates uit")
+            return await ws.close()
+        cols, rows = int(auth.get("cols") or 80), int(auth.get("rows") or 24)
+        try:
+            chan, closer = await asyncio.to_thread(TERM_CONNECT, fw["host"], f["ssh"], auth.get("user") or "admin",
+                                                   auth.get("password") or "", cols, rows)
+        except TermError as e:
+            await say(str(e))
+            return await ws.close()
+        auth = None                                                   # the password is not kept
+
+        async def out():
+            while not chan.exit_status_ready():
+                if chan.recv_ready():
+                    await ws.send_text(chan.recv(65536).decode(errors="replace"))
+                else:
+                    await asyncio.sleep(0.02)
+            while chan.recv_ready():
+                await ws.send_text(chan.recv(65536).decode(errors="replace"))
+
+        async def inp():
+            while True:
+                m = json.loads(await ws.receive_text())
+                if "data" in m:
+                    chan.send(str(m["data"]).encode())
+                elif "resize" in m:
+                    chan.resize_pty(width=int(m["resize"][0]), height=int(m["resize"][1]))
+
+        tasks = [asyncio.create_task(out()), asyncio.create_task(inp())]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for x in tasks:
+                x.cancel()
+            chan.close()
+            closer()
+        await say("sessie beëindigd")
+        await ws.close()
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+
+
 @app.post("/api/wanemu/reset")
 def wanemu_reset():
     a = _agent()
@@ -653,6 +739,9 @@ def deploy(r: DeployReq):
         boot["wanemu_secrets"] = _wanemu_secrets()
         w = topo["wanemu"]                     # where the WAN-emulatie page finds the agent of this deployment
         db.put_secret(db.connect(DATA_DIR), "wanemu_addr", f"{model.split_cidr(w['uplink']['ip'])[0]}:{w['agent_port']}")
+        from .wanemu.net import forwards
+        db.put_secret(db.connect(DATA_DIR), "wanemu_forwards",       # GUI/SSH links on the WAN-emulatie page
+                      json.dumps({"host": model.split_cidr(w["uplink"]["ip"])[0], "forwards": forwards(topo)}))
     jid = uuid.uuid4().hex[:8]
     job = {"id": jid, "state": "running", "dry_run": r.dry_run, "events": [], "created": time.strftime("%Y-%m-%d %H:%M:%S"),
            "title": f"Uitrol van {topo['adom']}" + SCOPE_TITLE[r.scope] + (" (dry-run)" if r.dry_run else ""),

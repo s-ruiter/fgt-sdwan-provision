@@ -75,3 +75,14 @@ ds = js[js.index("function deployStatus"):]
 assert "flexPlanTable(plan)" in ds[:ds.index("\n}")], "deployStatus tekent het plan per device"
 assert dep.index("/api/fortiflex/check") < dep.index('post("/api/deploy"'), "eerst opzoeken (zichtbaar), dan de uitrol"
 print("OK  UI: uitrol met FortiFlex toont eerst het licentieplan per device en een teller tijdens het ophalen")
+
+# WAN-emulatie: FortiGates with "GUI openen" (port forward) and SSH in the browser (xterm.js, pinned version)
+for i in ("wanemu-fgts", "term_overlay", "term_user", "term_pw", "term_go", "term_box", "term_close", "term_title"):
+    assert f'id="{i}"' in html, i
+assert 'type="password"' in html[html.index('id="term_pw"') - 80:html.index('id="term_pw"') + 40]
+for f in ("wanFwdLoad", "termOpen", "termStart", "termClose"):
+    assert re.search(rf"(async\s+)?function\s+{f}\b", js), f
+assert "/api/wanemu/forwards" in js and "/api/term/" in js
+assert re.search(r"cdn\.jsdelivr\.net/npm/xterm@\d+\.\d+\.\d+/", js) and re.search(r"xterm-addon-fit@\d+\.\d+\.\d+/", js)
+assert "term_pw\").value = \"\"" in js.replace("'", '"'), "wachtwoordveld wordt na het verbinden leeggemaakt"
+print("OK  UI: FortiGates met 'GUI openen' en SSH in de browser (xterm.js vast versienummer), wachtwoord niet bewaard")
