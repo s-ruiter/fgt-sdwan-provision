@@ -34,10 +34,10 @@ for multi in (True, False):
         sv = {s["id"]: s for s in r["sdwan"]["service"]}
         assert [s["id"] for s in r["sdwan"]["service"]] == [1, 2, 3, 4, 5, 6, 10], [s["id"] for s in r["sdwan"]["service"]]
         assert [sv[i]["name"] for i in (2, 3, 4, 5, 6)] == ["O365", "Collab", "Streaming-Social", "Updates-Downloads", "SaaS"]
-        assert sv[2]["mode"] == "priority" and sv[2]["priority-members"] == ["2", "1"]
+        assert sv[2]["mode"] == "sla" and sv[2]["priority-members"] == ["2", "1"] and sv[2]["sla"] == [{"health-check": "Internet", "id": 1}]
         assert sv[3]["mode"] == "sla" and sv[3]["priority-members"] == ["2", "1"] and sv[3]["sla"] == [{"health-check": "Internet", "id": 1}]
         assert sv[4]["priority-members"] == ["1"]
-        assert sv[5]["mode"] == "load-balance" and sv[5]["priority-members"] == ["1", "2"]
+        assert sv[5]["mode"] == "load-balance" and sv[5]["priority-members"] == ["1", "2"] and sv[5]["sla"] == [{"health-check": "Internet", "id": 1}]
         assert sv[6]["mode"] == "priority" and sv[6]["link-cost-factor"] == "latency" and sv[6]["health-check"] == "Internet"
         for i in (2, 3, 4, 5, 6):
             assert sv[i]["_isdb_keywords"] and "dst" not in sv[i], sv[i]
@@ -45,6 +45,14 @@ for multi in (True, False):
         assert hc["sla"] == [{"id": 1, "latency-threshold": 150, "jitter-threshold": 30, "packetloss-threshold": 2}], hc
     for r in others:
         assert not any(2 <= s.get("id", 0) <= 6 for s in r["sdwan"].get("service", [])), r["name"]
+# member numbers come from the template's underlay members (wan1 first, wan2 second), not fixed values
+sd = {"members": [{"interface": "port1", "zone": "underlay", "seq-num": 5}, {"interface": "port2", "zone": "underlay", "seq-num": 6},
+                  {"interface": "H1-WAN1", "zone": "overlay", "seq-num": 1}],
+      "health-check": [{"name": "Internet", "members": ["5", "6"]}], "service": [{"id": 1, "name": "Corporate"}, {"id": 10, "name": "x"}]}
+ft.add_demo_rules(sd)
+sv = {s["name"]: s for s in sd["service"]}
+assert sv["O365"]["priority-members"] == ["6", "5"] and sv["Streaming-Social"]["priority-members"] == ["5"]
+assert sv["Updates-Downloads"]["priority-members"] == ["5", "6"]
 print("OK  demo-regels: spokes met 2 WAN's krijgen O365/Collab/Streaming/Updates/SaaS (ids 2-6) tussen Corporate en Local-Breakout")
 
 # ---- resolve the keywords against the FortiManager's internet-service names at deployment
@@ -105,6 +113,9 @@ for f in (Fmg(NAMES), Fmg(fail=True)):
     assert f.calls[0][1] == f"/pm/config/adom/{t['adom']}/obj/firewall/internet-service-name"
     assert "_isdb_keywords" not in str(f.calls)
     assert any(s == "warn" and ("SaaS" in m or "skipped" in m) for s, m in ev), ev
+    if f.fail:                                                       # one warning, with the reason
+        demo = [m for s, m in ev if s == "warn" and ("internet-service" in m or "demo" in m)]
+        assert len(demo) == 1 and "no permission" in demo[0], demo
 assert any("Microsoft-Teams" in str(d) for _, _, d in Fmg(NAMES).calls) is False   # (fresh object: nothing called)
 f = Fmg(NAMES)
 fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda *a: None)

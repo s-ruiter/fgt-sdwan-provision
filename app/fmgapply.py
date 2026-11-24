@@ -144,7 +144,7 @@ def _norm(text):
     return " " + re.sub(r"[-._/\s]+", " ", text.lower()).strip() + " "
 
 
-def resolve_isdb(names, plan):
+def resolve_isdb(names, plan, why=""):
     """Turn the demo rules' keywords into internet-service names the FortiManager has (word match, at most 10 per
     keyword); a rule without any hit is dropped. names=[] (list not available): all demo rules dropped. Returns
     warnings. Removes every '_isdb_keywords'."""
@@ -174,11 +174,13 @@ def resolve_isdb(names, plan):
         if sv:
             r["sdwan"]["service"] = keep
     if skipped_all:
-        warns.insert(0, "demo SD-WAN rules skipped: the FortiManager's internet-service list is not available")
+        warns.insert(0, "demo SD-WAN rules skipped: the FortiManager's internet-service list is not available"
+                     + (f" ({why})" if why else " (empty: FortiGuard ISDB not downloaded?)"))
     return warns
 
 
 def apply_plan(fmg, topo, plan, emit, step="templates", devices=True):
+    why = ""
     if fmg.dry:
         names = None
     else:
@@ -187,14 +189,13 @@ def apply_plan(fmg, topo, plan, emit, step="templates", devices=True):
                             fields=["name"]).get("data") or []
             names = [x["name"] for x in rows if isinstance(x, dict) and x.get("name")]
         except FmgError as e:
-            emit(step, "warn", f"internet-service list not readable ({e})")
-            names = []
+            names, why = [], f"not readable: {e}"
     if names is None:                                    # dry run: nothing is looked up, the demo rules are left out
         for r in plan["roles"]:
             r["sdwan"]["service"] = [x for x in r["sdwan"].get("service", []) if "_isdb_keywords" not in x]
         emit(step, "running", "dry run: the demo SD-WAN rules are matched with the FortiManager at deployment")
     else:
-        for w in resolve_isdb(names, plan):
+        for w in resolve_isdb(names, plan, why):
             emit(step, "warn", w)
         used = sorted({n for r in plan["roles"] for x in r["sdwan"].get("service", [])
                        for n in x.get("internet-service-name", [])})

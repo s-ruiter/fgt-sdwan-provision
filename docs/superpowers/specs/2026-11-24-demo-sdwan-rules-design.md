@@ -11,10 +11,10 @@ app group the demo shows SD-WAN steering live, and with the WAN sliders (latency
 ## Rules (spokes with two WANs, before the existing Local-Breakout, id 10)
 | id | name | match (FortiOS ISDB internet services) | mode |
 |----|------|----------------------------------------|------|
-| 2 | O365 | Microsoft Office 365 (outlook, login, sharepoint, onedrive) | priority: wan2, then wan1 |
+| 2 | O365 | Microsoft Office 365 (outlook, login, sharepoint, onedrive) | SLA (Internet check): wan2 while it meets the SLA, otherwise wan1 (in priority mode FortiOS picks on latency and ignores the order) |
 | 3 | Collab | Teams, Zoom, Webex, Google Meet, Slack | SLA (Internet check: latency/jitter/loss); wan2 preferred, wan1 when wan2 leaves the SLA |
 | 4 | Streaming-Social | Netflix, YouTube, Spotify, Disney+, Prime Video, Twitch, Facebook, Instagram, WhatsApp, LinkedIn, X, TikTok, Reddit | wan1 only (priority wan1, no wan2) |
-| 5 | Updates-Downloads | Windows Update, Apple Update, speedtests | load-balance over wan1 + wan2 |
+| 5 | Updates-Downloads | Windows Update, Apple Update, speedtests | load-balance over wan1 + wan2 (with the Internet SLA) |
 | 6 | SaaS | Salesforce, Google Workspace, Dropbox, Box, GitHub, AWS, Adobe, ServiceNow | priority on lowest latency (link-cost-factor latency) |
 | 10 | Local-Breakout | the rest | unchanged |
 
