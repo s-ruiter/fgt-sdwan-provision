@@ -6,8 +6,7 @@ ORCH = os.environ.get("ORCH_DIR", os.path.join(os.path.dirname(os.path.dirname(o
 
 
 def topo(multi):
-    t = model.merged({})
-    t["region"]["multi_vrf"] = multi
+    t = model.merged({"region": dict(model.DEFAULTS["region"], multi_vrf=multi)})
     t["dns_primary"] = "1.1.1.1"
     t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
     t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.127.200.1", "100.127.200.1"

@@ -39,8 +39,8 @@ t["pve"].update(url="https://pve:8006", token_id="a@pam!b", node="n", disk_stora
 assert not any("First VM ID" in e for e in model.validate_pve(t))
 t["pve"]["first_vmid"] = 50
 assert any("First VM ID" in e for e in model.validate_pve(t))
-from app import csvio  # noqa: E402
-assert "pve.first_vmid;" in csvio.export_csv(model.merged({"pve": {"first_vmid": 500}}), full=True)
+from app import settings_io  # noqa: E402
+assert settings_io.from_file(settings_io.to_file(model.merged({"pve": {"first_vmid": 500}})), {})[0]["pve"]["first_vmid"] == 500
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 html, js = open(os.path.join(root, "static", "index.html")).read(), open(os.path.join(root, "static", "app.js")).read()
 assert 'id="pve_first"' in html and "first_vmid" in js

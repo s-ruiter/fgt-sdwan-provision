@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Union
 
-from . import cloudinit, csvio, db, images, model
+from . import cloudinit, db, images, model
 from .bootstrap import Masker
 from .pve import Pve, PveError
 from .fmg import Fmg, FmgError, pipeline
@@ -20,9 +20,11 @@ from . import fmgtemplates
 
 from .config import DATA_DIR, ORCH_DIR
 from .routes_servers import router as servers_router
+from .routes_settings import router as settings_router
 STATIC = Path(__file__).resolve().parent.parent / "static"
 app = FastAPI(title="FGT SD-WAN Provision")
 app.include_router(servers_router)
+app.include_router(settings_router)
 JOBS = {}
 _JOB_LOCK = threading.Lock()
 _JOB_DB = None
@@ -217,12 +219,16 @@ def _check_bootstrap(topo, r):
             errs.append("FortiManager: FortiFlex token missing or invalid (letters/digits only)")
     if not r.fmg.password and not r.fmg.api_token:     # the tool always logs in to the FortiManager API
         errs.append("FortiManager: admin password is required")
+    elif mf == "day0" and model.password_problems(r.fmg.password):       # the tool sets it on the new FortiManager
+        errs.append("FortiManager: admin password is not strong, it needs " + ", ".join(model.password_problems(r.fmg.password)))
     if mg in ("ssh", "day0"):
         for d in devs:
             if not model.valid_token(s.fgt_tokens.get(d["name"])):
                 errs.append(f"{d['name']}: FortiFlex token missing or invalid")
         if not s.fgt_new_pw:
             errs.append("FortiGates: admin password is required")
+        elif model.password_problems(s.fgt_new_pw):
+            errs.append("FortiGates: admin password is not strong, it needs " + ", ".join(model.password_problems(s.fgt_new_pw)))
     if mg == "day0" and r.scope in ("all", "fgt") and len(s.client_pw or "") < 5:   # the LAN clients come along
         errs.append("LAN client password: at least 5 characters (root password of the client containers)")
     if mg == "ssh":
@@ -314,48 +320,6 @@ def render(r: RenderReq):
     return {"project": project, "inventory": inv, "configs": cfg, "warnings": plan["warnings"],
             "roles": [{"name": r["name"], "kind": r["kind"], "devices": r["devices"]} for r in plan["roles"]],
             "lines": {k: len(v.splitlines()) for k, v in cfg.items()}}
-
-
-class ExportReq(BaseModel):
-    topology: dict
-    full: bool = False                     # True: settings + devices (reusable deployment); False: devices only
-    tokens: dict = {}                      # {"fmg": token, "devices": {name: token}}: FortiFlex tokens typed in the GUI
-
-
-@app.post("/api/csv/export")
-def csv_export(r: ExportReq):
-    """Current form state as CSV. Contains the FortiFlex tokens (sent along), never admin passwords or the Proxmox secret."""
-    topo = model.merged(r.topology)
-    name = ""
-    sid = (topo.get("pve") or {}).get("server_id")
-    if r.full and sid:
-        row = db.get_server(db.connect(DATA_DIR), sid)
-        name = row["name"] if row else ""
-    body = csvio.export_csv(topo, full=r.full, server_name=name, tokens=r.tokens)
-    fn = "sdwan-full.csv" if r.full else "sdwan-devices.csv"
-    return Response(body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{fn}"'})
-
-
-@app.post("/api/csv/import")
-async def csv_import(file: UploadFile = File(...), topology: str = Form("{}"), apply_settings: str = Form("")):
-    """Devices; with apply_settings also [algemeen]/[vrf]/[proxmox]. The current GUI settings are sent along for validation."""
-    raw = await file.read()
-    if len(raw) > 1_000_000:
-        raise HTTPException(413, detail="CSV file too large")
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("cp1252")                      # Excel 'CSV (door lijst gescheiden)'
-    try:
-        current = json.loads(topology or "{}")
-    except ValueError:
-        raise HTTPException(422, detail="CSV: invalid topology in the request")
-    try:
-        res = csvio.import_devices(text, current, bool(apply_settings))
-    except csvio.CsvError as e:
-        raise HTTPException(422, detail=f"CSV: {e}")
-    res["summary"] = f"{len(res['hubs'])} hub(s), {len(res['edges'])} branch(es)" + (" + instellingen" if res["settings"] else "")
-    return res
 
 
 @app.post("/api/fmg/test")

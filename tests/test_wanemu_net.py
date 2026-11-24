@@ -95,8 +95,9 @@ print("OK  FMG: geen NAT naar het lab-subnet, routes naar ISP-HUB/A/B via wan-em
 # the CT template is fixed: a client cannot choose it
 t = model.merged({"wanemu": {"template": "local:vztmpl/evil.tar.zst"}})
 assert t["wanemu"]["template"] == model.DEFAULTS["wanemu"]["template"]
-from app import csvio  # noqa: E402
-assert "wanemu.template" not in csvio.export_csv(model.merged({"wanemu": {"uplink": LAB}}), full=True)
+from app import settings_io  # noqa: E402
+f = settings_io.to_file(model.merged({"wanemu": {"uplink": LAB, "template": "local:vztmpl/evil.tar.zst"}}))
+assert f["topology"]["wanemu"]["template"] == model.DEFAULTS["wanemu"]["template"]
 print("OK  CT-template vast (niet via API of CSV te kiezen)")
 
 # no lab-specific uplink in the defaults: it must be filled in; an empty VLAN = untagged
@@ -126,7 +127,7 @@ assert any("bridge" in e for e in model.validate_wanemu(bad)), model.validate_wa
 
 # which VLANs each bridge must carry, and whether the Proxmox bridges allow them (bridge-vids)
 need = net.bridge_needs(u, fgts=True, clients=True)
-assert need["vmbr5"] == {3200, 3201, 3202} | set(range(3301, 3306)) | {3403, 3404, 3405}, sorted(need["vmbr5"])
+assert need["vmbr5"] == {3200, 3201, 3202} | set(range(3301, 3306)), sorted(need["vmbr5"])    # single-VRF: no LAN2
 assert need["vmbr0"] == set()
 assert net.bridge_needs(u, fgts=False, clients=True) == {"vmbr5": {3303, 3304, 3305}}      # LAN clients only: LAN1 of the spokes
 info = {"vmbr0": {"iface": "vmbr0", "bridge_ports": "nic0"},
@@ -143,3 +144,16 @@ assert "not on" in net.bridge_problems({"vmbr9": set()}, info)[0]
 assert "physical port" in net.bridge_problems({"vmbr2": {3200}}, info)[0]               # not VLAN-aware, no port: PVE can't tag
 assert net.bridge_problems({"vmbr0": {3200}, "vmbr2": set()}, info) == []                # not VLAN-aware + port: PVE makes vmbr0v3200
 print("OK  aparte uplink-bridge; VLANs per bridge vooraf gecontroleerd (bridge-vids, VLAN-aware, fysieke poort)")
+
+# hubs: wan1 gateway = the ISP-HUB gateway (wan-emu), wan1 IP always in the ISP-HUB /24; spokes: one LAN (no LAN2)
+h = model.merged({"hubs": [{"name": "H1", "loopback": "10.200.1.253", "wan1_intf": "port1", "wan1_ip": "100.127.200.21/16",
+                            "wan1_gw": "1.2.3.4", "lans": [{"intf": "port5", "ip": "10.1.0.1/24"}]}],
+                  "edges": [{"name": "S1", "loopback": "10.200.1.1", "wan1_intf": "port1", "wan2_intf": "port2",
+                             "lans": [{"intf": "port5", "ip": "10.0.1.1/24"}, {"intf": "port6", "ip": "10.0.101.1/24"}]}]})
+assert (h["hubs"][0]["wan1_ip"], h["hubs"][0]["wan1_gw"]) == ("100.127.200.21/24", "100.127.200.1"), h["hubs"][0]
+assert h["edges"][0]["lans"] == [{"intf": "port5", "ip": "10.0.1.1/24"}], h["edges"][0]["lans"]      # single-VRF: LAN1 only
+assert all(len(e["lans"]) == 1 for e in model.merged({})["edges"])
+mv = model.merged({"region": dict(model.DEFAULTS["region"], multi_vrf=True)})
+assert len(mv["edges"][0]["lans"]) == 2                                                     # multi-VRF: LAN per VRF
+assert "LAN2" not in str(net.lan_vlans(h)) and net.bridge_needs(dict(h, wanemu=dict(h["wanemu"], uplink=LAB)))["vmbr0"].isdisjoint(range(3401, 3500))
+print("OK  hub wan1: gateway en /24 uit ISP-HUB; single-VRF alleen LAN1 (geen LAN2-VLAN meer)")

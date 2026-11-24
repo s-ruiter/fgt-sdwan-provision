@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS saved_settings (
+    id INTEGER PRIMARY KEY,
+    description TEXT NOT NULL,
+    adom TEXT NOT NULL DEFAULT '',
+    devices INTEGER NOT NULL DEFAULT 0,
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL,
+    data TEXT NOT NULL
+);
 """
 # keys of topology['pve'] that are remembered per server (never the url/token/secret themselves)
 REMEMBER = ("node", "disk_storage", "import_storage", "iso_storage", "default_bridge", "cpu_type", "license_mode",
@@ -167,3 +176,35 @@ def interrupt_running_jobs(conn, when):
         save_job(conn, j)
         n += 1
     return n
+
+
+# ---- saved settings (a settings file, see settings_io, with a description)
+def save_settings(conn, description, adom, devices, data, sid=None):
+    import time
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    if sid is None:
+        cur = conn.execute("INSERT INTO saved_settings(description,adom,devices,created,updated,data) VALUES(?,?,?,?,?,?)",
+                           (description, adom, devices, now, now, json.dumps(data)))
+        conn.commit()
+        return cur.lastrowid
+    cur = conn.execute("UPDATE saved_settings SET description=?, adom=?, devices=?, updated=?, data=? WHERE id=?",
+                       (description, adom, devices, now, json.dumps(data), sid))
+    conn.commit()
+    return sid if cur.rowcount else None
+
+
+def list_settings(conn):
+    rows = conn.execute("SELECT id, description, adom, devices, created, updated FROM saved_settings "
+                        "ORDER BY updated DESC, id DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_settings(conn, sid):
+    r = conn.execute("SELECT * FROM saved_settings WHERE id=?", (sid,)).fetchone()
+    return dict(r, data=json.loads(r["data"])) if r else None
+
+
+def delete_settings(conn, sid):
+    cur = conn.execute("DELETE FROM saved_settings WHERE id=?", (sid,))
+    conn.commit()
+    return cur.rowcount > 0

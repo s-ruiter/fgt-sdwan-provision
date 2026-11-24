@@ -31,7 +31,7 @@ print("OK  port forwarding: HTTPS 10443+n en SSH 10022+n per FortiGate (hubs, da
 
 # LAN VLANs: LAN1 of FortiGate n on 3301+n, LAN2 on 3401+n; other ports keep the per-port table
 from app import provision_vms as pv  # noqa: E402
-t = model.merged({})
+t = model.merged({"region": dict(model.DEFAULTS["region"], multi_vrf=True)})     # multi-VRF: LAN1 + LAN2 per FortiGate
 cfg, w = t["pve"], t["wanemu"]
 cfg["ports"]["port4"] = {"bridge": "vmbr1", "vlan": 44}
 h1 = pv.fgt_nics(t["hubs"][0], cfg, w, True, 0)
@@ -39,6 +39,8 @@ assert h1[4]["vlan"] == 3301 and h1[4]["bridge"] == "vmbr0" and h1[3] == {"bridg
 s1 = pv.fgt_nics(t["edges"][0], cfg, w, False, 2)                   # site1-1 = FortiGate n=2
 assert (s1[4]["vlan"], s1[5]["vlan"]) == (3303, 3403), s1
 assert net.lan_vlans(t)["site1-3"] == (3305, 3405) and net.lan_vlans(t)["site1-H2"][0] == 3302
+sv = model.merged({})                                                 # single-VRF: no LAN2 NIC on port6
+assert pv.fgt_nics(sv["edges"][0], sv["pve"], sv["wanemu"], False, 2)[5]["vlan"] is None
 specs = pv.build_specs(dict(t, fmgr=dict(t["fmgr"], ip="10.10.106.11/24", gateway="10.10.106.1")), "pw", "pw",
                        {d["name"]: "T" * 20 for d in t["hubs"] + t["edges"]}, "", "fgt")
 assert [s["nics"][4]["vlan"] for s in specs] == [3301, 3302, 3303, 3304, 3305]
