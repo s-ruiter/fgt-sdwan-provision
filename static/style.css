@@ -305,3 +305,12 @@ input.flex[readonly] { background: var(--line); color: var(--muted, #888); }
 .octet { display: flex; align-items: center; gap: 6px; }
 .octet span { color: var(--muted); white-space: nowrap; }
 .octet input { flex: 1; min-width: 60px; }
+
+/* Traffic tab */
+.tr-mix { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 24px; margin-top: 12px; }
+.tr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tr-tile { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.tr-tile b { display: block; font-size: 20px; line-height: 26px; }
+.tr-tile span { font-size: 12px; color: var(--muted); }
+.tr-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
+.tr-url { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
