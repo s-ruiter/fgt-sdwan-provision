@@ -13,7 +13,7 @@ TAG_VM = "fgt-sdwan"                  # Proxmox tag on every VM / CT the tool cr
 # code reads it) but is forced by normalize_wans(): hub = static, branch = dhcp.
 def _hub(name, lo, wan1, lan):
     return {"name": name, "serial": "", "loopback": lo,
-            "wan1_intf": "port1", "wan1_mode": "static", "wan1_ip": f"{wan1}/24", "wan1_gw": "100.127.200.1",
+            "wan1_intf": "port1", "wan1_mode": "static", "wan1_ip": f"{wan1}/24", "wan1_gw": "100.64." + wan1.split(".")[2] + ".1",
             "initial_ip": DEFAULT_INITIAL_IP, "lans": [{"intf": "port5", "ip": lan}]}
 
 
@@ -84,8 +84,8 @@ DEFAULTS = {
         ],
     },
     "hubs": [
-        _hub("site1-H1", "10.200.1.253", "100.127.200.11", "10.1.0.1/24"),
-        _hub("site1-H2", "10.200.1.254", "100.127.200.12", "10.2.0.1/24"),
+        _hub("site1-H1", "10.200.1.253", "100.64.1.2", "10.1.0.1/24"),     # wan1 = derived (normalize_wans)
+        _hub("site1-H2", "10.200.1.254", "100.64.2.2", "10.2.0.1/24"),
     ],
     "edges": [
         _edge("site1-1", "10.200.1.1", 1),

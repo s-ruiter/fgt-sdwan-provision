@@ -34,9 +34,17 @@ sec = html[html.index('id="wanemu-section"') - 200:]
 sec = sec[:sec.index("</div><!-- /wanemu -->")]
 assert 'class="only-fgt"' in sec[:300], "WAN-emulatie hoort bij de FortiGate-VM's (alleen bij Day-0 FortiGates)"
 for i in ("wan-vmid", "wan-storage", "wan-bridge", "wan-uplink-vlan", "wan-uplink-ip", "wan-uplink-gw",
-          "wan-seg-hub-vlan", "wan-seg-hub-subnet", "wan-seg-hub-gw", "wan-seg-a-vlan", "wan-seg-a-subnet", "wan-seg-a-gw",
-          "wan-seg-a-res", "wan-seg-b-vlan", "wan-seg-b-subnet", "wan-seg-b-gw", "wan-seg-b-res"):
+          "wan-seg-hub-block", "wan-seg-hub-vlanbase", "wan-seg-a-block", "wan-seg-a-vlanbase",
+          "wan-seg-b-block", "wan-seg-b-vlanbase"):
     assert f'id="{i}"' in sec, i
+# one VLAN + /24 per WAN: no shared subnet/gateway/reservation fields any more, no hub octet field
+for gone in ("wan-seg-hub-subnet", "wan-seg-a-gw", "wan-seg-a-res", "wan-seg-b-vlan\""):
+    assert gone not in html, gone
+assert "wan1_oct" not in js and "data-hubpre" not in js and "data-hubaddr" in js
+assert re.search(r"function\s+wanLinks\b", js), "JS mirror of model.wan_links"
+topo = js[js.index("function topoSvg("):js.index("function portRoles(")]
+assert "VLAN ${" in topo and "wanLinks(" in topo and "block" in topo, "diagram: block + VLAN range per ISP, address + VLAN per WAN"
+assert "wanLinks(" in js[js.index("function portRoles("):js.index("function portsFixed(")]
 assert 'type="checkbox"' not in sec, "geen aan/uit-schakelaar: de WAN-emulator is altijd aan"
 assert "wanFill(" in js and "wanCollect(" in js and "t.wanemu = wanCollect()" in js
 print("OK  UI: instellingen WAN-emulatie (container, uplink, ISP-HUB/ISP-A/ISP-B) zonder aan/uit, gevuld uit de standaarden")
@@ -124,10 +132,12 @@ for f in ("topoSvg", "topoDraw"):
 assert "topoDraw()" in js[js.index("function draw()"):js.index("function draw()") + 1500], "draw() tekent de topologie"
 assert "topoDraw()" in js[js.index("function scopeApply()"):js.index("function scopeApply()") + 600], "scope-wissel tekent opnieuw"
 try:                                                       # render it for real with node (optional, like the syntax check)
-    probe = ("const esc=s=>String(s);" + js[js.index("function topoSvg"):js.index("function topoDraw")] +
+    probe = ("const esc=s=>String(s);" + js[js.index("function linkNet("):js.index("function segPerDraw(")] +
+             js[js.index("function topoSvg"):js.index("function topoDraw")] +
              "const T=" + __import__("json").dumps(__import__("app.model", fromlist=["x"]).merged({})) + ";"
              "const s=topoSvg(T,'all');if(!s.startsWith('<svg'))throw 'geen svg';"
-             "for(const w of ['site1-H1','site1-3','ISP-A','100.127.201.13','VLAN 3305','client-site1-1','wan-emu','FortiManager'])"
+             "for(const w of ['site1-H1','site1-3','ISP-A','WAN2 100.66.3.2','VLAN 3233','WAN1 100.64.1.2','gw 100.64.1.1','100.65.0.0/16',"
+             "'VLAN 3211–3213','VLAN 3305','client-site1-1','wan-emu','FortiManager'])"
              "if(!s.includes(w))throw 'mist '+w;"
              "const d=topoSvg(T,'tpl');if(!d.includes('opacity'))throw 'tpl: niets gedimd';console.log('ok')")
     r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
@@ -155,7 +165,8 @@ assert 'class="card not-lan"' in html and '[data-scope="lan"] .not-lan' in open(
 dep = js[js.index('$("#btn_deploy").onclick'):][:1500]
 assert '["fgt", "tpl", "dev", "lan"]' in dep and '["fmg", "tpl", "dev", "lan"]' in dep and 'sc === "lan"' in dep
 try:
-    probe = ("const esc=s=>String(s);" + js[js.index("function topoSvg"):js.index("function topoDraw")] +
+    probe = ("const esc=s=>String(s);" + js[js.index("function linkNet("):js.index("function segPerDraw(")] +
+             js[js.index("function topoSvg"):js.index("function topoDraw")] +
              "const T=" + __import__("json").dumps(__import__("app.model", fromlist=["x"]).merged({})) + ";"
              "const s=topoSvg(T,'lan');const i=s.indexOf('client-site1-1');const g=s.lastIndexOf('<g',i);"
              "if(s.slice(g,i).includes('opacity'))throw 'client gedimd bij lan';console.log('ok')")
@@ -203,7 +214,7 @@ rule = re.search(r"\.fields \{[^}]*\}", css).group(0)
 assert "auto-fill" in rule and "auto-fit" not in rule, rule
 devrule = re.search(r"\.dev \.fields \{[^}]*\}", css).group(0)
 assert "auto-fill" in devrule and "auto-fit" not in devrule, devrule
-body = js[js.index("function dev(kind, d, i)"):js.index("function hubNet()")]
+body = js[js.index("function dev(kind, d, i)"):js.index("function linkNet(")]
 order = [body.index(x) for x in ('"Name"', '"Serial number"', "FortiFlex token", '"Loopback (BGP, router-id)"', '"wan1_intf"', 'LAN${j + 1} port')]
 assert order == sorted(order), order
 assert "lan-first" in body and re.search(r"\.dev \.fields > \.lan-first \{[^}]*grid-column-start: 1", css), "LAN velden op een eigen regel"

@@ -142,21 +142,15 @@ function wanFill(w) {
   setSel("#wan-bridge", PVE_OPT.bridges, w.bridge);
   setSel("#wan-uplink-bridge", PVE_OPT.bridges, w.uplink.bridge || "", "(same as WAN emulator bridge)");
   $("#wan-uplink-vlan").value = w.uplink.vlan ?? ""; $("#wan-uplink-ip").value = w.uplink.ip; $("#wan-uplink-gw").value = w.uplink.gw;
-  WAN_SEGS.forEach((k) => {
-    const g = w.segments[k];
-    $(`#wan-seg-${k}-vlan`).value = g.vlan; $(`#wan-seg-${k}-subnet`).value = g.subnet; $(`#wan-seg-${k}-gw`).value = g.gw;
-    if (k !== "hub") $(`#wan-seg-${k}-res`).value = g.res_start;
-  });
+  WAN_SEGS.forEach((k) => { const g = w.segments[k]; $(`#wan-seg-${k}-block`).value = g.block; $(`#wan-seg-${k}-vlanbase`).value = g.vlan_base; });
+  segPerDraw();
 }
 function wanCollect() {
   const w = JSON.parse(JSON.stringify(T.wanemu)), n = (v) => (v === "" ? null : +v);
   w.vmid = n($("#wan-vmid").value); w.storage = $("#wan-storage").value.trim();
   w.bridge = $("#wan-bridge").value.trim();
   w.uplink = { bridge: $("#wan-uplink-bridge").value.trim(), vlan: n($("#wan-uplink-vlan").value), ip: $("#wan-uplink-ip").value.trim(), gw: $("#wan-uplink-gw").value.trim() };
-  WAN_SEGS.forEach((k) => {
-    Object.assign(w.segments[k], { vlan: n($(`#wan-seg-${k}-vlan`).value), subnet: $(`#wan-seg-${k}-subnet`).value.trim(), gw: $(`#wan-seg-${k}-gw`).value.trim() });
-    if (k !== "hub") w.segments[k].res_start = n($(`#wan-seg-${k}-res`).value);
-  });
+  WAN_SEGS.forEach((k) => { w.segments[k] = { name: w.segments[k].name, block: $(`#wan-seg-${k}-block`).value.trim(), vlan_base: n($(`#wan-seg-${k}-vlanbase`).value) }; });
   return w;
 }
 function dev(kind, d, i) {
@@ -167,11 +161,10 @@ function dev(kind, d, i) {
     `<div class="f only-fgt"><label>FortiFlex token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>` +
     fld("loopback", "Loopback (BGP, router-id)", d.loopback);
   // WAN design: hub = one wan (wan1, always static); branch = wan1 + optional wan2, both DHCP, each with a tunnel to wan1 of every hub
-  if (hub) {                                   // wan1 lives in ISP-HUB (/24): only the last octet; gateway = wan-emu
-    const oct = ((d.wan1_ip || "").split("/")[0].split(".")[3]) || "";
+  if (hub) {                                   // wan1 = .2 of its own /24 in ISP-HUB, gateway = wan-emu (.1): derived
     h += pfld("wan1_intf", "wan1 port (ZTP)", d.wan1_intf) +
-      `<div class="f"><label>wan1 IP (ISP-HUB /24)</label><div class="octet"><span class="mono" data-hubpre>${esc(hubNet().pre)}</span><input data-f="wan1_oct" data-ip="octet" type="number" min="1" max="254" value="${esc(oct)}"></div></div>` +
-      `<div class="f"><label>wan1 gateway (wan-emu)</label><input data-hubgw class="mono" value="${esc(hubNet().gw)}" disabled></div>`;
+      `<div class="f"><label>wan1 IP (own /24, ISP-HUB)</label><input data-hubaddr="${i}" class="mono" disabled></div>` +
+      `<div class="f"><label>wan1 gateway (wan-emu)</label><input data-hubgw="${i}" class="mono" disabled></div>`;
   } else h += pfld("wan1_intf", "wan1 port (ZTP, DHCP)", d.wan1_intf) + pfld("wan2_intf", "wan2 port (DHCP)", d.wan2_intf, "(none)");
   // single-VRF: one LAN; multi-VRF: one LAN per VRF (LAN2+ optional: port "(none)" = no LAN in that VRF)
   const vrfs = T.region.multi_vrf === false ? [null] : T.region.vrfs.length ? T.region.vrfs : [null];
@@ -181,18 +174,38 @@ function dev(kind, d, i) {
   });
   return h + "</div></div>";
 }
-// ISP-HUB as typed in the WAN emulation section: "a.b.c." prefix of its /24 and the gateway (= wan-emu)
-function hubNet() {
-  const sub = (($("#wan-seg-hub-subnet") && $("#wan-seg-hub-subnet").value) || T.wanemu.segments.hub.subnet || "").trim();
-  const gw = (($("#wan-seg-hub-gw") && $("#wan-seg-hub-gw").value) || T.wanemu.segments.hub.gw || "").trim();
-  return { pre: sub.split("/")[0].split(".").slice(0, 3).join(".") + ".", gw };
+// one VLAN + /24 per FortiGate WAN (mirror of model.wan_links): hub n wan1 -> ISP-HUB, spoke n wan1 -> ISP-A, wan2 ->
+// ISP-B; link n = n-th /24 of the block (.1 wan-emu, .2 FortiGate), VLAN vlan_base+n
+function linkNet(block, n) {
+  const m = String(block || "").trim().match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
+  if (!m || +m[5] > 23) return null;
+  const base = ((+m[1] << 24) >>> 0) + (+m[2] << 16) + (+m[3] << 8) + +m[4], net = base + n * 256;
+  if (n >= 2 ** (24 - +m[5])) return null;
+  const ip = (x) => [x >>> 24, (x >>> 16) & 255, (x >>> 8) & 255, x & 255].join(".");
+  return { subnet: ip(net) + "/24", gw: ip(net + 1), ip: ip(net + 2) };
 }
-function hubNetDraw() {
-  const n = hubNet();
-  document.querySelectorAll("[data-hubpre]").forEach((e) => (e.textContent = n.pre));
-  document.querySelectorAll("[data-hubgw]").forEach((e) => (e.value = n.gw));
+function wanLinks(t) {
+  const seg = t.wanemu.segments, out = [];
+  const add = (name, s, n, w) => { const x = linkNet(seg[s].block, n); if (x) out.push({ id: `${name}-${w}`, name, seg: s, n, vlan: seg[s].vlan_base + n, ...x }); };
+  t.hubs.forEach((h, i) => add(h.name, "hub", i + 1, "wan1"));
+  t.edges.forEach((e, i) => { add(e.name, "a", i + 1, "wan1"); if (e.wan2_intf) add(e.name, "b", i + 1, "wan2"); });
+  return out;
 }
-["#wan-seg-hub-subnet", "#wan-seg-hub-gw"].forEach((id) => $(id).addEventListener("input", hubNetDraw));
+function segPerDraw() {
+  let t = null; try { t = collect(); } catch (_) { return; }
+  const L = wanLinks(t);
+  document.querySelectorAll("[data-segper]").forEach((c) => {
+    const s = c.dataset.segper, l = L.filter((x) => x.seg === s);
+    c.textContent = l.length ? `${l.length} WAN(s): ${l[0].subnet} … · VLAN ${l[0].vlan}${l.length > 1 ? "–" + l[l.length - 1].vlan : ""}` : "no WANs";
+  });
+  T.hubs.forEach((h, i) => {
+    const x = L.find((l) => l.seg === "hub" && l.n === i + 1);
+    const a = document.querySelector(`[data-hubaddr="${i}"]`), g = document.querySelector(`[data-hubgw="${i}"]`);
+    if (a) a.value = x ? `${x.ip}/24` : "(invalid ISP-HUB block)";
+    if (g) g.value = x ? x.gw : "";
+  });
+}
+WAN_SEGS.forEach((k) => ["block", "vlanbase"].forEach((f) => $(`#wan-seg-${k}-${f}`).addEventListener("input", segPerDraw)));
 function draw() {
   const p = T.pve;
   $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub;
@@ -205,7 +218,7 @@ function draw() {
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
   const g = T.trafficgen || { enabled: false, ip: "" };
   $("#tg_on").checked = !!g.enabled; $("#tg_ip").value = g.ip || ""; tgDraw();
-  flexFields(); topoDraw();
+  flexFields(); topoDraw(); segPerDraw();
 }
 // Traffic-Gen: management on the uplink network, traffic from the first spoke's LAN (.20-.29, spoke as gateway)
 function tgDraw() {
@@ -242,7 +255,6 @@ function collect() {
     el.querySelectorAll("[data-f]").forEach((inp) => {
       const k = inp.dataset.f, v = inp.value.trim(), m = k.match(/^lan(\d+)_(intf|ip)$/);
       if (m) (lans[+m[1]] ??= {})[m[2]] = v;
-      else if (k === "wan1_oct") { const n = hubNet(); d.wan1_ip = v ? `${n.pre}${v}/24` : ""; d.wan1_gw = n.gw; }
       else d[k] = v;
     });
     // only what is on screen: single-VRF = LAN1 only, multi-VRF = LAN per VRF, an optional LAN without a port is no LAN
@@ -942,7 +954,8 @@ $("#ff_list").addEventListener("click", async (e) => {
 function topoSvg(t, sc) {
   const w = t.wanemu, seg = w.segments, fgts = [...t.hubs.map((d) => [d, true]), ...t.edges.map((d) => [d, false])];
   const L = 150, COL = 180, W = Math.max(900, L + fgts.length * COL + 20);
-  const oct = (subnet, n) => subnet.split("/")[0].split(".").slice(0, 3).join(".") + "." + n;
+  const links = wanLinks(t), lk = (name, wan) => links.find((x) => x.id === `${name}-${wan}`);
+  const range = (s) => { const v = links.filter((x) => x.seg === s).map((x) => x.vlan); return v.length ? (v.length > 1 ? `${Math.min(...v)}–${Math.max(...v)}` : `${v[0]}`) : ""; };
   const fgtOn = ["all", "fgt"].includes(sc), modelOnly = ["dev", "tpl"].includes(sc), fmgNew = ["all", "fmg"].includes(sc), lanOnly = sc === "lan";
   const dim = (on) => (on ? "" : ' opacity="0.35"');
   const box = (x, y, bw, bh, title, lines, cls, on = true) =>
@@ -952,21 +965,25 @@ function topoSvg(t, sc) {
   const line = (x1, y1, x2, y2, on = true, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="tp-line"${dash ? ' stroke-dasharray="4 3"' : ""}${dim(on)}/>`;
   const bar = (y, name, vlan, subnet, on) => `<g${dim(on)}><line x1="${L}" y1="${y}" x2="${W - 10}" y2="${y}" class="tp-bar"/>` +
     `<text x="10" y="${y - 3}" class="tp-title">${esc(name)}</text><text x="10" y="${y + 11}" class="tp-txt">${vlan ? "VLAN " + vlan : "untagged"} · ${esc(subnet || "(not set)")}</text></g>`;
+  // an ISP: one /24 + VLAN per FortiGate WAN, all routed by the wan-emu (the bar shows the block and the VLAN range)
+  const isp = (y, s, on) => bar(y, seg[s].name, range(s), seg[s].block, on);
   const yLab = 92, yHub = 170, yA = 205, yB = 240, yF = 290, yLan = 395, yCli = 470;
   let o = "";
   o += bar(yLab, "Lab / uplink", w.uplink.vlan, w.uplink.ip.replace(/\.\d+\/(\d+)$/, ".0/$1"), true);
   o += box(L, 14, 200, 56, "FortiManager", [`${(t.fmgr.ip || "").split("/")[0] || "(IP)"}`, fmgNew ? "new VM (Day-0)" : "existing"], "", !lanOnly) + line(L + 100, 70, L + 100, yLab);
   o += box(L + 230, 14, 230, 56, "wan-emu (LXC)", [`${w.uplink.ip.split("/")[0] || "(uplink IP)"} · NAT, DHCP, tc`, "forwards :" + w.fwd_https_base + "+ / :" + w.fwd_ssh_base + "+"], "tp-emu", fgtOn) + line(L + 345, 70, L + 345, yLab, fgtOn);
   o += line(L + 345, yLab, L + 345, yB, fgtOn);
-  o += bar(yHub, seg.hub.name, seg.hub.vlan, seg.hub.subnet, fgtOn) + bar(yA, seg.a.name, seg.a.vlan, seg.a.subnet, fgtOn) + bar(yB, seg.b.name, seg.b.vlan, seg.b.subnet, fgtOn);
+  o += isp(yHub, "hub", fgtOn) + isp(yA, "a", fgtOn) + isp(yB, "b", fgtOn);
   fgts.forEach(([d, hub], n) => {
     const x = L + 10 + n * COL, cx = x + 80, ei = n - t.hubs.length;
-    const wan1 = hub ? (d.wan1_ip || "").split("/")[0] : oct(seg.a.subnet, seg.a.res_start + ei);
-    const wan2 = !hub && d.wan2_intf ? oct(seg.b.subnet, seg.b.res_start + ei) : null;
+    const l1 = lk(d.name, "wan1"), l2 = !hub && d.wan2_intf ? lk(d.name, "wan2") : null;
+    const wan1 = l1 ? l1.ip : "(no address)", wan2 = l2 ? l2.ip : null;
+    // the VLAN of each WAN line next to its drop (wan1 left of the line, wan2 right of it)
+    const vlab = (x, v, end) => `<text x="${x + (end ? -4 : 4)}" y="${yF - 6}" class="tp-txt"${end ? ' text-anchor="end"' : ""}${dim(fgtOn)}>VLAN ${v}</text>`;
     const lan = (d.lans || [])[0] || {}, vlan = w.lan_vlan_base + 1 + n;
-    o += line(cx - 20, yF, cx - 20, hub ? yHub : yA, fgtOn);
-    if (wan2) o += line(cx + 20, yF, cx + 20, yB, fgtOn);
-    o += box(x, yF, 160, 72, `${d.name || "?"} · ${hub ? "hub" : "spoke"}`, [`WAN1 ${wan1}`, wan2 ? `WAN2 ${wan2}` : hub ? "gw " + (d.wan1_gw || "") : "no WAN2", modelOnly ? "model device" : `Lo ${d.loopback || ""}`], hub ? "tp-hub" : "tp-spoke", fgtOn || modelOnly);
+    o += line(cx - 20, yF, cx - 20, hub ? yHub : yA, fgtOn) + (l1 ? vlab(cx - 20, l1.vlan, true) : "");
+    if (wan2) o += line(cx + 20, yF, cx + 20, yB, fgtOn) + vlab(cx + 20, l2.vlan, false);
+    o += box(x, yF, 160, 72, `${d.name || "?"} · ${hub ? "hub" : "spoke"}`, [`WAN1 ${wan1}`, wan2 ? `WAN2 ${wan2}` : hub ? "gw " + (l1 ? l1.gw : "") : "no WAN2", modelOnly ? "model device" : `Lo ${d.loopback || ""}`], hub ? "tp-hub" : "tp-spoke", fgtOn || modelOnly);
     if (lan.ip) {
       o += line(cx, yF + 72, cx, yLan, fgtOn || modelOnly);
       o += box(x, yLan, 160, 50, `LAN ${lan.intf || ""}`, [lan.ip, `VLAN ${vlan}`], "tp-lan", fgtOn || modelOnly || lanOnly);
@@ -987,8 +1004,9 @@ function portRoles(t) {
   const w = t.wanemu, seg = w.segments, fgts = [...t.hubs.map((d) => [d, true]), ...t.edges.map((d) => [d, false])], out = {};
   const add = (port, key, txt) => { const o = (out[port] ||= { m: new Map(), n: new Set() }); if (!o.m.has(key)) o.m.set(key, []); o.m.get(key).push(txt); };
   fgts.forEach(([d, hub], n) => {
-    const wans = hub ? { [d.wan1_intf]: "hub" } : { [d.wan1_intf]: "a", ...(d.wan2_intf ? { [d.wan2_intf]: "b" } : {}) };
-    Object.entries(wans).forEach(([p, s]) => { if (p && p !== "undefined") { add(p, s, seg[s].vlan); out[p].n.add(n); } });
+    const L = wanLinks(t), vl = (w) => (L.find((x) => x.id === `${d.name}-${w}`) || {}).vlan;
+    const wans = hub ? { [d.wan1_intf]: ["hub", vl("wan1")] } : { [d.wan1_intf]: ["a", vl("wan1")], ...(d.wan2_intf ? { [d.wan2_intf]: ["b", vl("wan2")] } : {}) };
+    Object.entries(wans).forEach(([p, [s, v]]) => { if (p && p !== "undefined" && v) { add(p, s, v); out[p].n.add(n); } });
     (d.lans || []).slice(0, 2).forEach((l, k) => {
       if (l.intf && !(l.intf in wans)) { add(l.intf, "lan" + (k + 1), (k ? w.lan2_vlan_base : w.lan_vlan_base) + 1 + n); out[l.intf].n.add(n); }
     });
