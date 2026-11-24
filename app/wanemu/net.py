@@ -159,7 +159,7 @@ def agent_topology(t):
 
 def fmg_routes(t):
     """[(dst, mask, gateway)] the FortiManager needs to reach the segments via wan-emu; [] when the FortiManager is not
-    in the uplink subnet (then the lab router has to route 100.127.x to the uplink address)."""
+    in the uplink subnet (then the lab router has to route the ISP blocks to the uplink address)."""
     try:
         fip = ipaddress.ip_interface(str(t["fmgr"].get("ip", "")).strip()).ip
     except ValueError:

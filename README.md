@@ -96,14 +96,17 @@ FortiGates en de LAN-clients (ideaal: een interne VLAN-aware bridge zonder fysie
 FortiFlex-licenties worden gemaakt) controleert de tool via de Proxmox-API of elke bridge bestaat en de benodigde VLAN's
 doorlaat (`bridge-vids`; een niet-VLAN-aware bridge heeft een fysieke poort nodig). Hieronder een voorbeeld-uplink:
 
-| Segment | VLAN | Subnet | Gateway (container) | Wie |
+Elke FortiGate-WAN is een eigen lijn: een eigen VLAN en /24, gerouteerd door `wan-emu` (zo gaan ook ADVPN-shortcuts
+tussen spokes door de emulator). Lijn n van een ISP = de n-de /24 van het blok; `wan-emu` is .1, de FortiGate .2.
+
+| Lijn | VLAN | Subnet | Gateway (container) | Wie |
 |---|---|---|---|---|
 | uplink (voorbeeld) | 106 | 10.10.106.0/24 | 10.10.106.1 | `wan-emu` zelf: 10.10.106.250 |
-| ISP-HUB | 3200 | 100.127.200.0/24 | 100.127.200.1 | hubs, vast (.11, .12) |
-| ISP-A | 3201 | 100.127.201.0/24 | 100.127.201.1 | port1 van de spokes, DHCP: spoke n = .11+n |
-| ISP-B | 3202 | 100.127.202.0/24 | 100.127.202.1 | port2 van de spokes, DHCP: spoke n = .11+n |
+| ISP-HUB, hub n | 3200+n | 100.64.n.0/24 | 100.64.n.1 | wan1 van hub n, vast .2 |
+| ISP-A, spoke n | 3210+n | 100.65.n.0/24 | 100.65.n.1 | wan1 (port1) van spoke n, DHCP-reservering .2 |
+| ISP-B, spoke n | 3230+n | 100.66.n.0/24 | 100.66.n.1 | wan2 (port2) van spoke n, DHCP-reservering .2 |
 
-- De wan-poorten van de FortiGate-VM's krijgen automatisch het VLAN van hun segment en een vast MAC-adres (voor de
+- De wan-poorten van de FortiGate-VM's krijgen automatisch het VLAN van hun eigen lijn en een vast MAC-adres (voor de
   DHCP-reservering), de LAN1/LAN2-poorten een eigen VLAN per FortiGate. De poortentabel toont per poort wat de tool
   zelf zet (kolom *Set by the tool*, dan vergrendeld); alleen de overige poorten volgen de tabel.
 - Tussen de segmenten geen NAT; naar het lab (eth0) masquerade, dus op de lab-gateway hoeft niets te veranderen.

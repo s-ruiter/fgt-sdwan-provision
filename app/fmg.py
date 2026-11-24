@@ -205,7 +205,8 @@ def _fmg_routes(fmg, topo, emit, step="pve_wan"):
     from .wanemu.net import fmg_routes
     want = fmg_routes(topo)
     if not want:
-        emit(step, "running", "FortiManager is not in the uplink subnet: the lab router must route 100.127.200.0/22 to "
+        blocks = ", ".join(g["block"] for g in topo["wanemu"]["segments"].values())
+        emit(step, "running", f"FortiManager is not in the uplink subnet: the lab router must route {blocks} to "
                               f"{topo['wanemu']['uplink']['ip'].split('/')[0]}")
         return
     port = topo["fmgr"].get("port", "port1")
