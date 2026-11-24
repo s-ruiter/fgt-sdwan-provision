@@ -314,3 +314,8 @@ input.flex[readonly] { background: var(--line); color: var(--muted, #888); }
 .tr-tile span { font-size: 12px; color: var(--muted); }
 .tr-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
 .tr-url { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Access & WAN control: which FortiGates' links are shown */
+button.chip { border-radius: 999px; }
+button.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wan-card[hidden] { display: none; }

@@ -20,7 +20,7 @@
         <a href="#/deploy" data-nav="deploy">Deploy</a>
         <a href="#/progress" data-nav="progress">Progress</a>
         <a href="#/images" data-nav="images">Images</a>
-        <a href="#/wanemu" data-nav="wanemu">WAN emulation</a>
+        <a href="#/wanemu" data-nav="wanemu">Access &amp; WAN control</a>
         <a href="#/traffic" data-nav="traffic">Traffic</a>
         <a href="#/fortiflex" data-nav="fortiflex">FortiFlex</a>
         <a href="#/servers" data-nav="servers">Servers</a>
@@ -100,7 +100,7 @@
 
         <div class="only-fgt" id="wanemu-section">
         <h3>WAN emulation <small>(LXC wan-emu, always deployed with FortiGate VMs)</small></h3>
-        <div class="hint">The container routes between ISP-HUB (hubs, static IP), ISP-A (spoke wan1) and ISP-B (spoke wan2), gives the spokes a DHCP reservation and NATs to the lab via the uplink. The WAN emulator bridge carries the ISP segments, the FortiGate WAN/LAN ports and the LAN clients (an internal VLAN-aware bridge is ideal); the uplink bridge connects wan-emu to your lab. Set latency, jitter, loss and bandwidth per link on the <a href="#/wanemu" style="color:var(--accent)">WAN emulation</a> page.</div>
+        <div class="hint">The container routes between ISP-HUB (hubs, static IP), ISP-A (spoke wan1) and ISP-B (spoke wan2), gives the spokes a DHCP reservation and NATs to the lab via the uplink. The WAN emulator bridge carries the ISP segments, the FortiGate WAN/LAN ports and the LAN clients (an internal VLAN-aware bridge is ideal); the uplink bridge connects wan-emu to your lab. Set latency, jitter, loss and bandwidth per link on the <a href="#/wanemu" style="color:var(--accent)">Access &amp; WAN control</a> page.</div>
         <div class="fields">
           <div class="f"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
           <div class="f"><label>Storage (rootfs)</label><input id="wan-storage"></div>
@@ -226,17 +226,21 @@
     </section>
 
     <section id="v_wanemu" hidden>
-      <h1>WAN emulation</h1>
+      <h1>Access &amp; WAN control</h1>
       <div id="wanemu-err"></div>
       <div class="card">
-        <h2><span class="num">01</span>Failures <small id="wanemu-addr"></small></h2>
+        <h2><span class="num">01</span>Remote access <small>(FortiManager directly, FortiGates via port forwarding on wan-emu)</small></h2>
+        <div id="wanemu-fgts"></div>
+        <div class="hint">The GUI opens in a new tab (the device uses its own certificate: accept the warning); <b>Copy password</b> puts the admin password from the deployment on the clipboard, paste it in the login screen. <b>SSH</b> runs through this tool and logs in by itself with that password; without a kept password it asks for one (not kept).</div>
+      </div>
+      <div class="card">
+        <h2><span class="num">02</span>WAN emulation: failures <small id="wanemu-addr"></small></h2>
         <div class="hint">Values apply in both directions: a delay of 40 ms adds 80 ms of RTT. A slider or "link down" is applied as soon as you let go. The failure presets take all links of ISP-A, ISP-B or hub 1 down at once; "All neutral" resets everything.</div>
         <div class="btnrow" id="wanemu-presets"></div>
       </div>
       <div class="card">
-        <h2><span class="num">02</span>FortiGates <small>(via port forwarding on wan-emu)</small></h2>
-        <div id="wanemu-fgts"></div>
-        <div class="hint">The GUI opens in a new tab (the FortiGate uses its own certificate: accept the warning). SSH runs through this tool; user and password are not kept.</div>
+        <h2><span class="num">03</span>WAN emulation: links <small>(show the links of)</small></h2>
+        <div class="btnrow" id="wanemu-show"></div>
       </div>
       <div class="wan-cols" id="wanemu-links"></div>
       <div class="term-overlay" id="term_overlay" hidden>
@@ -257,7 +261,7 @@
       <div id="tr_err"></div>
       <div class="card">
         <h2><span class="num">01</span>Traffic-Gen <small id="tr_where"></small></h2>
-        <div class="hint" id="tr_intro">Realistic user traffic (Microsoft 365, Teams, streaming, SaaS, SD-WAN probes, …) from the LAN of the first spoke, through the SD-WAN. Combine it with the <a href="#/wanemu" style="color:var(--accent)">WAN emulation</a> page: degrade a link and watch what happens to the traffic.</div>
+        <div class="hint" id="tr_intro">Realistic user traffic (Microsoft 365, Teams, streaming, SaaS, SD-WAN probes, …) from the LAN of the first spoke, through the SD-WAN. Combine it with the <a href="#/wanemu" style="color:var(--accent)">Access &amp; WAN control</a> page: degrade a link and watch what happens to the traffic.</div>
         <div class="fields tr-ctl">
           <div class="f"><label>Duration</label><select id="tr_dur"><option value="5">5 min</option><option value="10">10 min</option><option value="30">30 min</option><option value="60">1 hour</option><option value="120">2 hours</option><option value="0">Until stopped</option></select></div>
           <div class="f"><label>Intensity</label><select id="tr_int"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
