@@ -74,7 +74,7 @@ assert any("serial number" in x for x in model.validate(bare))                  
 assert model.validate(bare, devices=False) == [], model.validate(bare, devices=False)
 nogw = copy.deepcopy(bare)
 nogw["hubs"][0]["wan1_gw"] = ""                    # filled in from ISP-HUB (wan-emu)
-assert model.validate(nogw, devices=False) == [] and nogw["hubs"][0]["wan1_gw"] == "100.127.200.1"
+assert model.validate(nogw, devices=False) == [] and nogw["hubs"][0]["wan1_gw"] == "100.64.1.1"
 bare_cfg = fmgtemplates.build_plan(bare, ORCH)
 mock_fmg.STATE["bodies"].clear()
 ev = []

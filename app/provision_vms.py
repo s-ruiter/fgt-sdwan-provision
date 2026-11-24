@@ -77,7 +77,9 @@ def _check_wan_layout(pve, node, specs, existing):
         for i, nic in enumerate(s["nics"]):
             if not nic.get("mac"):                                  # only the WAN ports (fixed MAC)
                 continue
-            m = re.search(r"tag=(\d+)", str(cfg.get(f"net{i}", "")))
+            if f"net{i}" not in cfg:                              # no such NIC (yet): nothing to compare
+                continue
+            m = re.search(r"tag=(\d+)", str(cfg[f"net{i}"]))
             have = int(m.group(1)) if m else None
             if have != nic.get("vlan"):
                 raise PveError(f"{v['name']} (VM {v['vmid']}) was deployed with the old WAN layout (port{i + 1} on VLAN "

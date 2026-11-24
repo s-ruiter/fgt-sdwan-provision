@@ -124,7 +124,7 @@ nics = lambda p: len([k for k in p if re.fullmatch(r"net\d+", k)])
 assert nics(by["site1-H1"]) == 6 and nics(by["site1-1"]) == 6, (nics(by["site1-H1"]), nics(by["site1-1"]))   # always 6 (vm_interface_number)
 from app.wanemu.net import mac_for
 assert by["site1-1"]["net2"] == "virtio,bridge=vmbr1,tag=20" and by["site1-1"]["net4"] == "virtio,bridge=vmbr0,tag=3303"   # LAN1 VLAN
-assert by["site1-1"]["net0"] == f"virtio={mac_for('site1-1', 1)},bridge=vmbr0,tag=3201"            # wan1 -> ISP-A
+assert by["site1-1"]["net0"] == f"virtio={mac_for('site1-1', 1)},bridge=vmbr0,tag=3211"            # wan1 -> own ISP-A line
 assert all(re.match(r"local:import/fgt-sdwan-[0-9a-f]{8}-(fgt|fmg)\.qcow2", p["scsi0"].split("import-from=")[1]) or True for p in by.values())
 assert all(p.get("scsihw") == "virtio-scsi-single" for n, p in by.items() if n != "fmg"), {n: p.get("scsihw") for n, p in by.items()}
 assert "scsihw" not in by["fmg"]                                                   # FMG boots on the default (LSI)
@@ -181,7 +181,7 @@ events.clear()
 b = boot(dry=True, pve_secret="")
 pipeline(t, cfg, Fmg("http://127.0.0.1:1", dry_run=True), emit, b)
 assert any("[dry-run]" in m and "Day-0 ISO" in m for _, _, m in events) and fake_proxmox.STATE["creates"] == 6
-assert any("[dry-run] wan-emu net2: name=eth2,bridge=vmbr0,tag=3201" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 4
+assert any("[dry-run] wan-emu net3: name=eth3,bridge=vmbr0,tag=3211" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 4
 assert any("[dry-run] client-site1-1" in m for _, _, m in events)
 print("OK  dry-run: plan per VM gelogd, niets naar Proxmox")
 
