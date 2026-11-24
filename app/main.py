@@ -521,7 +521,53 @@ def wanemu_forwards():
     return json.loads(raw)
 
 
-# ---- SSH in the browser: websocket <-> SSH shell via the wan-emu port forward. Credentials per session, never kept.
+# ---- remote access: FortiManager (direct) + FortiGates (wan-emu port forwards); admin credentials kept at deployment
+def _creds():
+    raw = db.get_secret(db.connect(DATA_DIR), "access_creds")
+    try:
+        return json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+
+
+def _forwards():
+    raw = db.get_secret(db.connect(DATA_DIR), "wanemu_forwards")
+    return json.loads(raw) if raw else {"host": "", "forwards": []}
+
+
+@app.get("/api/access")
+def access():
+    """What the Access page lists: GUI URL + SSH command per device; whether the tool knows the password."""
+    cr, fw = _creds(), _forwards()
+    fm = cr.get("fmg") or {}
+    fmg = ({"name": fm.get("name") or "FortiManager", "ip": fm["host"], "gui": f"https://{fm['host']}/",
+            "ssh": f"ssh {fm.get('user') or 'admin'}@{fm['host']}", "password": bool(fm.get("password"))}
+           if fm.get("host") else None)
+    fg = cr.get("fgt") or {}
+    fgts = [{"name": f["name"], "ip": f["ip"], "gui": f"https://{fw['host']}:{f['https']}/",
+             "ssh": f"ssh -p {f['ssh']} {fg.get('user') or 'admin'}@{fw['host']}", "password": bool(fg.get("password"))}
+            for f in fw["forwards"]]
+    return {"fmg": fmg, "fgts": fgts}
+
+
+class AccessName(BaseModel):
+    name: str
+
+
+@app.post("/api/access/password")
+def access_password(a: AccessName):
+    """The kept admin login of one device, for the copy-password button (only on request)."""
+    cr, fw = _creds(), _forwards()
+    fm, fg = cr.get("fmg") or {}, cr.get("fgt") or {}
+    if a.name in ("fmg", "@fmg", fm.get("name")) and fm.get("password"):
+        return {"user": fm.get("user") or "admin", "password": fm["password"]}
+    if any(f["name"] == a.name for f in fw["forwards"]) and fg.get("password"):
+        return {"user": fg.get("user") or "admin", "password": fg["password"]}
+    raise HTTPException(404, detail=f"no password kept for {a.name}")
+
+
+# ---- SSH in the browser: websocket <-> SSH shell (FortiGates via the wan-emu port forward, FortiManager directly).
+# Without a typed password the admin login kept at deployment is used (server side: it never reaches the browser).
 class TermError(Exception):
     pass
 
@@ -574,15 +620,25 @@ async def term(ws: WebSocket, name: str):
         except (ValueError, TypeError, AttributeError):
             await say("invalid start message")
             return await close()
-        raw = db.get_secret(db.connect(DATA_DIR), "wanemu_forwards")
-        fw = json.loads(raw) if raw else {"forwards": []}
-        f = next((x for x in fw["forwards"] if x["name"] == name), None)
-        if not f:
-            await say(f"unknown device {name}: deploy the FortiGates first")
-            return await close()
+        cr = _creds()
+        if name == "@fmg":
+            fm = cr.get("fmg") or {}
+            if not fm.get("host"):
+                await say("unknown device FortiManager: deploy first")
+                return await close()
+            host, port, kept = fm["host"], 22, fm
+        else:
+            fw = _forwards()
+            f = next((x for x in fw["forwards"] if x["name"] == name), None)
+            if not f:
+                await say(f"unknown device {name}: deploy the FortiGates first")
+                return await close()
+            host, port, kept = fw["host"], f["ssh"], cr.get("fgt") or {}
+        user, pw = auth.get("user") or "", auth.get("password") or ""
+        if not pw and kept.get("password"):                          # automatic login with the kept credentials
+            user, pw = kept.get("user") or "admin", kept["password"]
         try:
-            chan, closer = await asyncio.to_thread(TERM_CONNECT, fw["host"], f["ssh"], auth.get("user") or "admin",
-                                                   auth.get("password") or "", cols, rows)
+            chan, closer = await asyncio.to_thread(TERM_CONNECT, host, port, user or "admin", pw, cols, rows)
         except TermError as e:
             await say(str(e))
             return await close()
@@ -889,6 +945,13 @@ def cleanup_run(c: CleanupReq):
             conn = db.connect(DATA_DIR)                      # the WAN emulation page no longer points at a deleted wan-emu
             for k in ("wanemu_addr", "wanemu_forwards"):
                 db.put_secret(conn, k, "")
+        cr = _creds()                                        # remote access: forget logins of deleted devices
+        fmn = (cr.get("fmg") or {}).get("name")
+        if fmn and any(r["kind"] == "vm" and r["ok"] and (r["name"] == fmn or r["name"].endswith("-" + fmn)) for r in results):
+            cr.pop("fmg", None)
+        if gone_ct("wan-emu"):
+            cr.pop("fgt", None)
+        db.put_secret(db.connect(DATA_DIR), "access_creds", json.dumps(cr) if cr else "")
         if gone_ct("trafficgen"):
             conn = db.connect(DATA_DIR)                      # the Traffic tab no longer points at a deleted Traffic-Gen
             for k in ("trafficgen_addr", "trafficgen_password"):
@@ -956,6 +1019,14 @@ def deploy(r: DeployReq):
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
             "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw, "client_pw": s.client_pw, "tg_pw": s.tg_pw}
+    if not r.dry_run:                                  # remote access page: admin logins (database 0600)
+        cr = _creds()
+        if r.fmg.password and topo["fmgr"].get("ip"):
+            cr["fmg"] = {"name": topo["fmgr"].get("name") or "FortiManager", "host": model.split_cidr(topo["fmgr"]["ip"])[0],
+                         "user": s.admin_user or "admin", "password": r.fmg.password}
+        if boot["fgt"] == "day0" and r.scope in ("all", "fgt") and s.fgt_new_pw:
+            cr["fgt"] = {"user": s.admin_user or "admin", "password": s.fgt_new_pw}
+        db.put_secret(db.connect(DATA_DIR), "access_creds", json.dumps(cr))
     if not r.dry_run and topo.get("trafficgen", {}).get("enabled") and \
             (r.scope == "lan" or (boot["fgt"] == "day0" and r.scope in ("all", "fgt"))):
         conn = db.connect(DATA_DIR)                    # where the Traffic tab finds it (password: like the agent token)

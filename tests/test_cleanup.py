@@ -64,6 +64,8 @@ sid = conn.execute("INSERT INTO servers(name,url,token_id,token_secret,verify_tl
 conn.commit()
 db.put_secret(conn, "wanemu_addr", "10.10.106.250:8090")
 db.put_secret(conn, "wanemu_forwards", json.dumps({"host": "x", "forwards": []}))
+db.put_secret(conn, "access_creds", json.dumps({"fmg": {"name": "fmg", "host": "10.10.106.11", "user": "admin", "password": "x"},
+                                                "fgt": {"user": "admin", "password": "y"}}))
 db.put_secret(conn, "trafficgen_addr", "10.10.106.249:8443")
 db.put_secret(conn, "trafficgen_password", "Tg-Admin-pw1!")
 r = main.cleanup_plan(main.CleanupReq(server_id=sid, node="pve1"))
@@ -78,6 +80,7 @@ r = main.cleanup_run(main.CleanupReq(server_id=sid, node="pve1", confirm="DELETE
 assert all(x["ok"] for x in r["results"]) and not S["vms"] and not S["cts"]
 assert db.get_secret(conn, "wanemu_addr") in (None, "") and db.get_secret(conn, "wanemu_forwards") in (None, "")
 assert db.get_secret(conn, "trafficgen_addr") in (None, "") and db.get_secret(conn, "trafficgen_password") in (None, "")
+assert db.get_secret(conn, "access_creds") in (None, "")                                  # FMG + wan-emu gone: logins too
 srv.shutdown()
 print("OK  API: plan via opgeslagen server, verwijderen alleen met 'DELETE', WAN-emulatie-adres in de tool gewist")
 

@@ -622,12 +622,27 @@ function wanErr(msg) { $("#wanemu-err").innerHTML = msg ? `<div class="error">âœ
 // ---- FortiGates via wan-emu: GUI via port forward, SSH in the browser (xterm.js) ----------------------------------
 const XTERM = "https://cdn.jsdelivr.net/npm/xterm@5.3.0/", XFIT = "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/";
 let TERM = null, TERM_WS = null, TERM_NAME = "";
+// remote access: FortiManager first, then the FortiGates; GUI link, copy the kept password, SSH (auto-login when kept)
 async function wanFwdLoad() {
-  const r = await fetch("/api/wanemu/forwards"), j = await json(r);
+  const r = await fetch("/api/access"), j = await json(r);
   if (!r.ok) { $("#wanemu-fgts").innerHTML = `<div class="hint">${esc(errList(j).join(" "))}</div>`; return; }
-  $("#wanemu-fgts").innerHTML = j.forwards.map((f) => `<div class="fgt-row"><b>${esc(f.name)}</b><span class="mono">${esc(f.ip)}</span>` +
-    `<a href="https://${esc(j.host)}:${f.https}/" target="_blank" rel="noopener"><button>GUI openen</button></a>` +
-    `<button data-ssh="${esc(f.name)}">SSH</button><span class="hint mono">ssh -p ${f.ssh} admin@${esc(j.host)}</span></div>`).join("");
+  const row = (d, key, kind) => `<div class="fgt-row"><b>${esc(d.name)}</b><span class="hint">${kind}</span><span class="mono">${esc(d.ip)}</span>` +
+    `<a href="${esc(d.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` +
+    (d.password ? `<button data-cpw="${esc(key)}" title="Copy the admin password to the clipboard">Copy password</button>` : "") +
+    `<button data-ssh="${esc(key)}" data-auto="${d.password ? 1 : ""}">SSH</button><span class="hint mono">${esc(d.ssh)}</span></div>`;
+  const rows = (j.fmg ? row(j.fmg, "@fmg", "FortiManager") : "") + j.fgts.map((f) => row(f, f.name, "FortiGate")).join("");
+  $("#wanemu-fgts").innerHTML = rows || '<div class="hint">Nothing deployed yet: deploy the FortiManager and FortiGates first.</div>';
+}
+// clipboard: the modern API needs https (the tool usually runs on plain http) and may refuse after an await, so fall
+// back to execCommand; returns true when copied
+async function copyText(t) {
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(t); return true; } } catch (_) {}
+  const a = document.createElement("textarea"); a.value = t; a.setAttribute("readonly", ""); a.style.position = "fixed"; a.style.opacity = "0";
+  document.body.appendChild(a); a.focus(); a.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (_) {}
+  a.remove();
+  return ok;
 }
 function loadOnce(tag, attrs) {
   return new Promise((ok, bad) => {
@@ -636,9 +651,11 @@ function loadOnce(tag, attrs) {
     document.head.appendChild(e);
   });
 }
-function termOpen(name) {
-  TERM_NAME = name; $("#term_title").textContent = `SSH to ${name}`;
-  $("#term_overlay").hidden = false; $("#term_form").hidden = false; $("#term_box").innerHTML = ""; $("#term_pw").focus();
+function termOpen(name, auto) {
+  TERM_NAME = name; $("#term_title").textContent = `SSH to ${name === "@fmg" ? "FortiManager" : name}`;
+  $("#term_overlay").hidden = false; $("#term_form").hidden = false; $("#term_box").innerHTML = "";
+  if (auto) { $("#term_pw").value = ""; termStart(); }         // the tool logs in with the kept password
+  else $("#term_pw").focus();
 }
 let TERM_FIT = null, TERM_BUSY = false;
 const termResize = () => TERM && TERM_FIT && TERM_FIT.fit();
@@ -671,7 +688,19 @@ function termClose() {
   TERM_BUSY = false;
   $("#term_pw").value = ""; $("#term_overlay").hidden = true;
 }
-$("#wanemu-fgts").addEventListener("click", (e) => { const b = e.target.closest("[data-ssh]"); if (b) termOpen(b.dataset.ssh); });
+$("#wanemu-fgts").addEventListener("click", async (e) => {
+  const c = e.target.closest("[data-cpw]");
+  if (c) {
+    const r = await post("/api/access/password", { name: c.dataset.cpw }), j = await json(r);
+    if (!r.ok) return wanErr(j.detail || "no password kept");
+    if (await copyText(j.password)) c.textContent = "âœ“ Copied";
+    else window.prompt(`Admin password (user ${j.user}): copy it with Ctrl/Cmd+C`, j.password);   // browser refused: copy by hand
+    setTimeout(() => (c.textContent = "Copy password"), 2000);
+    return;
+  }
+  const b = e.target.closest("[data-ssh]");
+  if (b) termOpen(b.dataset.ssh, !!b.dataset.auto);
+});
 $("#term_go").onclick = termStart;
 $("#term_pw").addEventListener("keydown", (e) => { if (e.key === "Enter") termStart(); });
 $("#term_close").onclick = termClose;
@@ -681,7 +710,35 @@ async function wanLoad() {
   wanErr(""); WAN = j; $("#wanemu-addr").textContent = `agent ${j.addr}`;
   $("#wanemu-presets").innerHTML = Object.entries(j.presets).map(([k, l]) => `<button data-wp="${k}">${esc(l)}</button>`).join("") + `<button data-wreset="1">All neutral</button>`;
   $("#wanemu-links").innerHTML = Object.entries(WAN_SEG).map(([s, n]) => `<div class="wan-col"><h3>${n}</h3>${j.links.filter((l) => l.seg === s).map(wanCard).join("") || '<div class="hint">no links</div>'}</div>`).join("");
+  wanShowDraw();
 }
+// which FortiGates' link cards are shown (per browser); default only the first spoke
+function wanShown() {
+  let v = null;
+  try { v = JSON.parse(localStorage.getItem("fgt-sdwan-wan-show") || "null"); } catch (_) {}
+  if (Array.isArray(v)) return v;
+  const first = (WAN.links || []).find((l) => l.seg !== "hub");
+  return first ? [first.name] : [];
+}
+function wanShowSet(v) { try { localStorage.setItem("fgt-sdwan-wan-show", JSON.stringify(v)); } catch (_) {} wanShowDraw(); }
+function wanShowDraw() {
+  const names = [...new Set((WAN.links || []).map((l) => l.name))], on = wanShown();
+  $("#wanemu-show").innerHTML = names.map((n) => `<button class="chip${on.includes(n) ? " on" : ""}" data-wshow="${esc(n)}">${esc(n)}</button>`).join("") +
+    `<button data-wshowall="1">Show all</button><button data-wshowall="0">Hide all</button>`;
+  document.querySelectorAll("#wanemu-links [data-wl]").forEach((c) => (c.hidden = !on.includes(c.querySelector("b").textContent)));
+  document.querySelectorAll("#wanemu-links .wan-col").forEach((col) => {
+    const any = [...col.querySelectorAll("[data-wl]")].some((c) => !c.hidden);
+    let h = col.querySelector(".wan-none");
+    if (!any && !h) { h = document.createElement("div"); h.className = "hint wan-none"; h.textContent = "hidden: pick a FortiGate above"; col.appendChild(h); }
+    if (h) h.hidden = any;
+  });
+}
+$("#wanemu-show").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.wshowall) return wanShowSet(b.dataset.wshowall === "1" ? [...new Set(WAN.links.map((l) => l.name))] : []);
+  const n = b.dataset.wshow, on = wanShown();
+  wanShowSet(on.includes(n) ? on.filter((x) => x !== n) : [...on, n]);
+});
 function wanCard(l) {
   const st = l.state, rtt = 2 * st.delay_ms;
   return `<div class="card wan-card${st.down ? " down" : ""}" data-wl="${esc(l.id)}"><b>${esc(l.name)}</b> <span class="mono">${esc(l.ip)}</span> <small>${esc(l.id.split("-").pop())}</small>` +
@@ -1009,11 +1066,13 @@ async function trOpen() {
 }
 async function trPoll() {
   if (!TR_ON) return;
-  const r = await fetch("/api/traffic/state"), j = await json(r);
+  let r;
+  try { r = await fetch("/api/traffic/state"); } catch (_) { return trErr("The tool is not reachable (restarting?)"); }
+  const j = await json(r);
   if (!r.ok) return trErr(typeof j.detail === "string" ? j.detail : "Traffic-Gen not reachable");
   trErr(""); trShow(j);
-  const l = await fetch("/api/traffic/log?n=25");
-  if (l.ok) trLogDraw(await l.json());
+  const l = await fetch("/api/traffic/log?n=25").catch(() => null);
+  if (l && l.ok) trLogDraw(await l.json());
 }
 function trShow(s) {
   if (!s) return;
