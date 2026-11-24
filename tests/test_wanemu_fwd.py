@@ -10,15 +10,15 @@ from app.wanemu import agent, net  # noqa: E402
 t = model.merged({})
 f = net.forwards(t)
 assert [(x["name"], x["ip"], x["https"], x["ssh"]) for x in f] == [
-    ("site1-H1", "100.127.200.11", 10443, 10022), ("site1-H2", "100.127.200.12", 10444, 10023),
-    ("site1-1", "100.127.201.11", 10445, 10024), ("site1-2", "100.127.201.12", 10446, 10025),
-    ("site1-3", "100.127.201.13", 10447, 10026)], f
+    ("site1-H1", "100.64.1.2", 10443, 10022), ("site1-H2", "100.64.2.2", 10444, 10023),
+    ("site1-1", "100.65.1.2", 10445, 10024), ("site1-2", "100.65.2.2", 10446, 10025),
+    ("site1-3", "100.65.3.2", 10447, 10026)], f
 at = net.agent_topology(t)
 assert at["forwards"] == f
 r = agent.nft_ruleset(at, {})
 assert "type nat hook prerouting priority -100" in r
-assert 'iifname "eth0" tcp dport 10443 dnat ip to 100.127.200.11:443' in r
-assert 'iifname "eth0" tcp dport 10026 dnat ip to 100.127.201.13:22' in r
+assert 'iifname "eth0" tcp dport 10443 dnat ip to 100.64.1.2:443' in r
+assert 'iifname "eth0" tcp dport 10026 dnat ip to 100.65.3.2:22' in r
 assert "dnat" not in agent.nft_ruleset(dict(at, forwards=[]), {})
 assert model.validate_wanemu(t) == []
 bad = model.merged({"wanemu": {"fwd_ssh_base": 10440}})                      # overlaps the HTTPS range
@@ -89,6 +89,6 @@ print("OK  LAN-clients dry-run: spoke zonder LAN wordt overgeslagen")
 # (a hub blackholes 10.0.0.0/8, so replies to a lab source like 10.10.106.1 were lost)
 t = model.merged({})
 r = agent.nft_ruleset(net.agent_topology(t), {})
-assert 'ct status dnat oifname { "eth1", "eth2", "eth3" } masquerade' in r, r
+assert 'ct status dnat oifname { "eth1", "eth2", "eth3", "eth4", "eth5", "eth6", "eth7" } masquerade' in r, r
 assert "ct status dnat" not in agent.nft_ruleset(dict(net.agent_topology(t), forwards=[]), {})
 print("OK  port forwarding: bron van doorgestuurde verbindingen = wan-emu in het segment (antwoord altijd terug)")

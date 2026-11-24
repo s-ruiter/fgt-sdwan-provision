@@ -27,7 +27,7 @@ con = connector(sh)
 r = setup.deploy_wanemu(pve, t, SEC, emit, connector=con, waiter=waiter)
 assert r["created"] is True and r["internet"] is True and r["vmid"] in (100, 101)
 ct = fake_proxmox.STATE["cts"][str(r["vmid"])]
-assert ct["status"] == "running" and ct["params"]["net2"] == "name=eth2,bridge=vmbr0,tag=3201,ip=100.127.201.1/24"
+assert ct["status"] == "running" and ct["params"]["net3"].startswith("name=eth3,bridge=vmbr0,tag=3211,ip=100.65.1.1/24,firewall=0,hwaddr=")
 assert ct["params"]["ssh-public-keys"] == setup.public_key(key) and con.seen[0][0] == "10.10.106.250"
 assert "apt-get install -y -q dnsmasq nftables iproute2 python3" in " ".join(sh.cmds)
 assert "dhcp-host=" in sh.files["/etc/dnsmasq.d/wan-emu.conf"][0]
@@ -110,7 +110,7 @@ srv.shutdown()
 # validation: the emulator is only checked when FortiGates are deployed with Day-0
 pv2 = model.merged({"pve": {"url": "https://pve:8006", "token_id": "a@pam!b", "node": "n", "disk_storage": "d",
                             "import_storage": "i", "iso_storage": "s"}})
-pv2["hubs"][0]["wan1_ip"], pv2["hubs"][0]["wan1_gw"] = "100.64.1.1/29", "100.64.1.6"
+pv2["wanemu"]["segments"]["hub"]["block"] = "nope"
 assert not any("ISP-HUB" in e for e in model.validate_pve(pv2, wanemu=False))
 assert any("ISP-HUB" in e for e in model.validate_pve(pv2))
 print("OK  review: forwarding na herstart, sysctl alleen eigen bestand, agent-check vóór ping, VMID-melding, warn blijft staan, validatie alleen bij FortiGate-VM's")
@@ -131,8 +131,8 @@ b = {"pve_client": pve, "wanemu_secrets": SEC, "waiter": waiter, "wanemu_connect
 ev.clear()
 fmgmod._wanemu(tf, b, emit)
 rt = mock_fmg.STATE["routes"]
-assert sorted((r["dst"][0], r["gateway"], r["device"]) for r in rt) == [("100.127.200.0", "10.10.106.250", "port1"),
-       ("100.127.201.0", "10.10.106.250", "port1"), ("100.127.202.0", "10.10.106.250", "port1")], rt
+assert sorted((r["dst"][0], r["gateway"], r["device"]) for r in rt) == [("100.64.0.0", "10.10.106.250", "port1"),
+       ("100.65.0.0", "10.10.106.250", "port1"), ("100.66.0.0", "10.10.106.250", "port1")], rt
 n = len(rt)
 fmgmod._wanemu(tf, b, emit)
 assert len(mock_fmg.STATE["routes"]) == n                                   # second run: nothing added

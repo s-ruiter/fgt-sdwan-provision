@@ -40,6 +40,9 @@ def from_file(data, servers):
     for k in PVE_LOCAL:
         pve.pop(k, None)
     notes = []
+    if model.old_segments(t):
+        notes.append("WAN emulation now uses one subnet per WAN (ISP-HUB 100.64.n.0/24, ISP-A 100.65.n.0/24, ISP-B "
+                     "100.66.n.0/24): the ISP blocks and VLANs from this file were reset to the defaults")
     sid = servers.get(name) if name else None
     if name and sid is None:
         notes.append(f"Proxmox server '{name}' does not exist in this tool: choose a server")

@@ -58,15 +58,14 @@ def test_fgt_dhcp():
 def test_fgt_static_with_ip_move():
     t = topo()
     d = t["hubs"][0]
-    d.update(wan1_gw="100.127.200.1")
     lines = fgt_network_lines(d, t)
-    assert lines[-4:] == ["set allowaccess ping https ssh fgfm", "set ip 100.127.200.11 255.255.255.0", "next", "end"], lines[-6:]
-    dev, log, st, err = run(d, lines=lines, target="100.127.200.11")
+    assert lines[-4:] == ["set allowaccess ping https ssh fgfm", "set ip 100.64.1.2 255.255.255.0", "next", "end"], lines[-6:]
+    dev, log, st, err = run(d, lines=lines, target="100.64.1.2")
     assert err is None, err
     c = dev.state.cmds
-    assert "set mode static" in c and "set gateway 100.127.200.1" in c
+    assert "set mode static" in c and "set gateway 100.64.1.1" in c
     assert 'set sdwan-zone "underlay"' in c and "set device" not in c     # default via SD-WAN, not a route on port1
-    assert any("waiting for 100.127.200.11" in m for _, m in log)
+    assert any("waiting for 100.64.1.2" in m for _, m in log)
     print("OK  FortiGate static: route + IP als laatste, herverbinden op nieuw IP, licentie")
 
 

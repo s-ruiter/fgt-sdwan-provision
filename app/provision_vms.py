@@ -28,13 +28,18 @@ def fgt_port_count(dev):
     return max([n for n in map(_port_no, used) if n] + [MIN_FGT_NICS])
 
 
-def fgt_nics(dev, cfg, wanemu, is_hub, index=None):
+def fgt_nics(dev, cfg, wanemu, is_hub, index=None, link_no=None):
     """One virtio NIC per port up to the highest portN the device uses, at least MIN_FGT_NICS. The wan ports go to the
-    WAN emulator (hub wan1 -> ISP-HUB; branch wan1 -> ISP-A, wan2 -> ISP-B) with a fixed MAC (DHCP reservation); the
-    other ports take bridge/VLAN from the per-port table."""
+    WAN emulator, each on the VLAN of its own link (hub n wan1 -> ISP-HUB vlan_base+n; spoke n wan1 -> ISP-A, wan2 ->
+    ISP-B vlan_base+n) with a fixed MAC (DHCP reservation); the other ports take bridge/VLAN from the per-port table.
+    index = position among all FortiGates (LAN VLANs), link_no = 1-based number of the hub / of the spoke."""
     from .wanemu.net import mac_for
     seg = wanemu["segments"]
-    wans = {dev.get("wan1_intf"): "hub"} if is_hub else {dev.get("wan1_intf"): "a", dev.get("wan2_intf"): "b"}
+    no = link_no or 1
+    wans = ({dev.get("wan1_intf"): seg["hub"]["vlan_base"] + no} if is_hub else
+            {dev.get("wan1_intf"): seg["a"]["vlan_base"] + no, dev.get("wan2_intf"): seg["b"]["vlan_base"] + no})
+    wans.pop(None, None)
+    wans.pop("", None)
     lans = {}                                                       # LAN1/LAN2 on their own VLAN per FortiGate
     if index is not None:
         for k, l in enumerate((dev.get("lans") or [])[:2]):
@@ -48,11 +53,56 @@ def fgt_nics(dev, cfg, wanemu, is_hub, index=None):
         if name in lans and name not in wans:
             nics.append({"bridge": wanemu["bridge"], "vlan": lans[name]})
         elif name in wans:
-            nics.append({"bridge": wanemu["bridge"], "vlan": seg[wans[name]]["vlan"], "mac": mac_for(dev["name"], i)})
+            nics.append({"bridge": wanemu["bridge"], "vlan": wans[name], "mac": mac_for(dev["name"], i)})
         else:
             p = ports.get(name) or {}
             nics.append({"bridge": p.get("bridge") or cfg["default_bridge"], "vlan": p.get("vlan")})
     return nics
+
+
+def wan_specs(topo):
+    """Only what the WAN layout check needs per FortiGate: name, Proxmox name, NICs (no passwords, no user data)."""
+    from .model import pve_name
+    nh, out = len(topo["hubs"]), []
+    for n, d in enumerate(topo["hubs"] + topo["edges"]):
+        out.append({"name": d["name"], "pve_name": pve_name(topo, d["name"]), "role": "fgt",
+                    "nics": fgt_nics(d, topo["pve"], topo["wanemu"], n < nh, n, n + 1 if n < nh else n - nh + 1)})
+    return out
+
+
+def check_wan_layout(pve, topo):
+    """Run before anything is changed (also before the wan-emu): reused FortiGate VMs must have their WAN ports on the
+    VLAN of their own link. Raises PveError."""
+    _check_wan_layout(pve, topo["pve"]["node"], wan_specs(topo), {v["name"]: v for v in pve.find_vms(TAG)})
+
+
+def _check_wan_layout(pve, node, specs, existing):
+    """A FortiGate VM that is reused must already have its WAN ports on the VLAN of its own link. A reused VM keeps its
+    own configuration (addresses, FMG link): moved to another VLAN it would lose FortiManager. This happens with an
+    older deployment (one shared VLAN per ISP) and when the WAN numbering changes (a hub/spoke added, removed or moved,
+    another VLAN base). Stop before changing anything."""
+    for s in specs:
+        if s.get("role") != "fgt":
+            continue
+        v = existing.get(s.get("pve_name") or s["name"]) or existing.get(s["name"])
+        if not v:
+            continue
+        try:
+            cfg = pve.vm_config(node, int(v["vmid"])) or {}
+        except PveError:
+            continue
+        for i, nic in enumerate(s["nics"]):
+            if not nic.get("mac"):                                  # only the WAN ports (fixed MAC)
+                continue
+            if f"net{i}" not in cfg:                              # no such NIC (yet): nothing to compare
+                continue
+            m = re.search(r"tag=(\d+)", str(cfg[f"net{i}"]))
+            have = int(m.group(1)) if m else None
+            if have != nic.get("vlan"):
+                raise PveError(f"{v['name']} (VM {v['vmid']}): WAN port port{i + 1} is on VLAN {have}, this deployment "
+                               f"needs VLAN {nic.get('vlan')} (one VLAN per WAN, numbered by the order of the hubs/spokes "
+                               "and the VLAN base). It was deployed before with another WAN layout, or FortiGates were "
+                               "added, removed or reordered: run Cleanup first, then deploy again")
 
 
 def deploy_names(t, scope, fmg_vm=None, fgt_vm=None):
@@ -114,10 +164,12 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
     else:
         fg = cfg["fgt"]
         hubs = {h["name"] for h in topo["hubs"]}
+        nh = len(topo["hubs"])
         for n, d in enumerate(topo["hubs"] + topo["edges"]):
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
             specs.append({"name": d["name"], "pve_name": pve_name(topo, d["name"]), "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
-                          "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n), "extra_disks": [],
+                          "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n, n + 1 if n < nh else n - nh + 1),
+                          "extra_disks": [],
                           "user_data": cloudinit.build_user_data(cli, tokens.get(d["name"]), cloudinit.license_mode("fgt", mode))})
     return specs
 
@@ -166,6 +218,7 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True, vmid
 
     try:
         existing = {v["name"]: v for v in pve.find_vms(TAG)}
+        _check_wan_layout(pve, node, specs, existing)              # before anything is changed
         todo = []
         for s in specs:
             pn = s.get("pve_name") or s["name"]

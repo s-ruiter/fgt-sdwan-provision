@@ -4,8 +4,9 @@
 Per link (a FortiGate WAN address on one segment interface) it applies delay / jitter / loss / rate in both
 directions with tc, and "link down" plus NAT towards eth0 with nftables.
 
-  to the FortiGate    segment interface (eth1/eth2/eth3): htb root, class per link, netem leaf, u32 on ip dst
-  from the FortiGate  ingress of that interface -> mirred to ifb-<iface>, same build-up there, u32 on ip src
+  Every link is its own interface (own VLAN + /24), so no IP filters are needed:
+  to the FortiGate    link interface: htb root with one class (rate) and a netem leaf
+  from the FortiGate  ingress of that interface -> mirred to ifb-<iface>, same build-up there
 
 Files in the config dir: topology.json (written by the tool: {"links": [...], "nat": [subnets]}), links.json (the
 state per link id, kept across restarts) and token (bearer token, mode 0600).
@@ -67,23 +68,19 @@ def _netem(s):
 def tc_commands(topo, state):
     """All tc commands that build the shaping from scratch (the caller removes the old roots first)."""
     cmds = []
-    for iface in _ifaces(topo):
+    for link in topo["links"]:
+        s = dict(DEFAULT, **state.get(link["id"], {}))
+        rate = f"{s['rate_kbit']}kbit" if s["rate_kbit"] else FULL
+        iface = link["iface"]
         ifb = _ifb(iface)
         for dev in (iface, ifb):
-            cmds += [["tc", "qdisc", "replace", "dev", dev, "root", "handle", "1:", "htb", "default", "9999"],
-                     ["tc", "class", "add", "dev", dev, "parent", "1:", "classid", "1:9999", "htb", "rate", FULL]]
+            cmds += [["tc", "qdisc", "replace", "dev", dev, "root", "handle", "1:", "htb", "default", "1"],
+                     ["tc", "class", "add", "dev", dev, "parent", "1:", "classid", "1:1", "htb", "rate", rate,
+                      "ceil", rate],
+                     ["tc", "qdisc", "add", "dev", dev, "parent", "1:1", "handle", "10:", *_netem(s)]]
         cmds += [["tc", "qdisc", "replace", "dev", iface, "handle", "ffff:", "ingress"],
                  ["tc", "filter", "add", "dev", iface, "parent", "ffff:", "matchall", "action", "mirred", "egress",
                   "redirect", "dev", ifb]]
-    for n, link in enumerate(topo["links"], start=10):
-        s = dict(DEFAULT, **state.get(link["id"], {}))
-        rate = f"{s['rate_kbit']}kbit" if s["rate_kbit"] else FULL
-        for dev, field in ((link["iface"], "dst"), (_ifb(link["iface"]), "src")):
-            cmds += [["tc", "class", "add", "dev", dev, "parent", "1:", "classid", f"1:{n}", "htb", "rate", rate,
-                      "ceil", rate],
-                     ["tc", "qdisc", "add", "dev", dev, "parent", f"1:{n}", "handle", f"{n}:", *_netem(s)],
-                     ["tc", "filter", "add", "dev", dev, "parent", "1:", "protocol", "ip", "prio", "1", "u32",
-                      "match", "ip", field, f"{link['ip']}/32", "flowid", f"1:{n}"]]
     return cmds
 
 
@@ -92,7 +89,7 @@ def nft_ruleset(topo, state):
     drops = []
     for link in topo["links"]:
         if state.get(link["id"], {}).get("down"):
-            drops += [f"    ip saddr {link['ip']} drop", f"    ip daddr {link['ip']} drop"]
+            drops += [f'    iifname "{link["iface"]}" drop', f'    oifname "{link["iface"]}" drop']
     nat = ", ".join(topo.get("nat", []))
     lines = ["table inet wanemu", "delete table inet wanemu", "table inet wanemu {",
              "  chain forward {", "    type filter hook forward priority 0; policy accept;", *drops, "  }",

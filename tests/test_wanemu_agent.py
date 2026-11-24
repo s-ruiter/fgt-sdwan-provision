@@ -15,20 +15,21 @@ from app.wanemu import agent, net  # noqa: E402
 topo = net.agent_topology(model.merged({}))
 st = {"site1-1-wan1": dict(agent.DEFAULT, delay_ms=40, jitter_ms=5, loss_pct=1, rate_kbit=20000)}
 s = [" ".join(c) for c in agent.tc_commands(topo, st)]
-assert "tc qdisc replace dev eth2 root handle 1: htb default 9999" in s
-assert "tc qdisc replace dev ifb-eth2 root handle 1: htb default 9999" in s
-assert "tc qdisc replace dev eth2 handle ffff: ingress" in s
-assert any("mirred egress redirect dev ifb-eth2" in x and "dev eth2" in x for x in s)
-assert any("netem delay 40ms 5ms loss 1%" in x and "dev eth2" in x for x in s)
-assert any("netem delay 40ms 5ms loss 1%" in x and "dev ifb-eth2" in x for x in s)
-assert any("match ip dst 100.127.201.11/32" in x and "dev eth2" in x for x in s)
-assert any("match ip src 100.127.201.11/32" in x and "dev ifb-eth2" in x for x in s)
-assert any("rate 20000kbit" in x for x in s) and any("rate 10gbit" in x for x in s)
-assert {x.split()[4] for x in s if x.startswith("tc qdisc replace") and "root" in x} == {"eth1", "eth2", "eth3", "ifb-eth1", "ifb-eth2", "ifb-eth3"}
+# one interface per link (site1-1 wan1 = eth3): a root htb with one class + netem leaf, both directions (ifb)
+assert "tc qdisc replace dev eth3 root handle 1: htb default 1" in s
+assert "tc qdisc replace dev ifb-eth3 root handle 1: htb default 1" in s
+assert "tc qdisc replace dev eth3 handle ffff: ingress" in s
+assert any("mirred egress redirect dev ifb-eth3" in x and "dev eth3" in x for x in s)
+assert any("netem delay 40ms 5ms loss 1%" in x and "dev eth3 " in x for x in s)
+assert any("netem delay 40ms 5ms loss 1%" in x and "dev ifb-eth3 " in x for x in s)
+assert any("rate 20000kbit" in x and "dev eth3 " in x for x in s) and any("rate 10gbit" in x and "dev eth1 " in x for x in s)
+assert not any("u32" in x for x in s), "no IP filters: the interface is the link"
+assert {x.split()[4] for x in s if x.startswith("tc qdisc replace") and "root" in x} == \
+    {f"eth{k}" for k in range(1, 8)} | {f"ifb-eth{k}" for k in range(1, 8)}
 r0 = agent.nft_ruleset(topo, {})
-assert 'oifname "eth0"' in r0 and "masquerade" in r0 and "100.127.201.0/24" in r0 and " drop" not in r0
+assert 'oifname "eth0"' in r0 and "masquerade" in r0 and "100.65.0.0/16" in r0 and " drop" not in r0
 r1 = agent.nft_ruleset(topo, {"site1-1-wan1": dict(agent.DEFAULT, down=True)})
-assert "ip saddr 100.127.201.11 drop" in r1 and "ip daddr 100.127.201.11 drop" in r1
+assert 'iifname "eth3" drop' in r1 and 'oifname "eth3" drop' in r1
 for bad in ({"loss_pct": 150}, {"delay_ms": -1}, {"jitter_ms": 2000}, {"rate_kbit": "x"}, {"foo": 1}, {"down": "ja"}):
     try:
         agent.check(bad)
@@ -36,7 +37,7 @@ for bad in ({"loss_pct": 150}, {"delay_ms": -1}, {"jitter_ms": 2000}, {"rate_kbi
     except ValueError:
         pass
 assert agent.check({"loss_pct": "2.5", "delay_ms": 10}) == {"loss_pct": 2.5, "delay_ms": 10}
-print("OK  agent: htb+netem per link in beide richtingen (ifb), NAT op eth0, link down via nft, waarden gecontroleerd")
+print("OK  agent: per link een interface met htb+netem in beide richtingen (ifb), NAT op eth0, link down per interface")
 
 # HTTP API
 calls = []
@@ -114,5 +115,5 @@ except OSError as e:
     assert e.errno == 98
 print("OK  agent wacht bij opstarten op zijn uplink-adres (errno 99) in plaats van te crashen")
 r = agent.nft_ruleset(dict(topo, no_nat=["10.10.106.0/24"]), {})
-assert 'oifname "eth0" ip saddr { 100.127.200.0/24, 100.127.201.0/24, 100.127.202.0/24 } ip daddr != { 10.10.106.0/24 } masquerade' in r, r
+assert 'oifname "eth0" ip saddr { 100.64.0.0/16, 100.65.0.0/16, 100.66.0.0/16 } ip daddr != { 10.10.106.0/24 } masquerade' in r, r
 print("OK  agent: geen NAT naar het lab-subnet (FortiManager ziet de echte adressen)")

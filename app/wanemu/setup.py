@@ -93,7 +93,7 @@ def provision(sh, t, agent_token, emit, step="pve_wan"):
         emit(step, "running", f"installing packages: {PACKAGES}")
         _must(sh, f"DEBIAN_FRONTEND=noninteractive apt-get update -q && "
                   f"DEBIAN_FRONTEND=noninteractive apt-get install -y -q {PACKAGES}", "installing packages failed")
-    seg_if = net.SEG_IFACE["hub"]
+    seg_if = (net.links(t) or [{"iface": "eth1"}])[0]["iface"]
     if sh.run("ip link add ifb-test type ifb && ip link del ifb-test")[0] != 0 or \
             sh.run(f"tc qdisc replace dev {seg_if} root netem delay 0ms && tc qdisc del dev {seg_if} root")[0] != 0:
         raise WanEmuError("netem/ifb do not work in the container: load sch_netem and ifb on the PVE host "
@@ -118,7 +118,8 @@ def provision(sh, t, agent_token, emit, step="pve_wan"):
 
 
 def internet_check(sh, t):
-    src = t["wanemu"]["segments"]["a"]["gw"]
+    first = next((x for x in net.links(t) if x["seg"] != "hub"), None) or (net.links(t) or [{"gw": ""}])[0]
+    src = first["gw"]
     return sh.run(f"ping -c2 -W2 -I {shlex.quote(src)} 1.1.1.1")[0] == 0
 
 
@@ -194,6 +195,14 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
             emit(step, "running", f"{name}: CT id {w['vmid']} ignored, the existing CT {vmid} is used "
                                   "(a CT id cannot change; delete CT {vmid} for a new one)".replace("{vmid}", str(vmid)))
         params = {k: v for k, v in net.ct_params(t, vmid, "").items() if k not in CREATE_ONLY}
+        from ..pve import PveError
+        try:                                       # a NIC per WAN link: remove the ones of an earlier, larger layout
+            cur = pve.ct_config(node, vmid) or {}
+        except PveError as e:
+            raise WanEmuError(f"{name}: cannot read its configuration (CT {vmid}) to replace its WAN NICs: {e}") from None
+        extra = sorted((k for k in cur if re.fullmatch(r"net\d+", k) and k not in params), key=lambda k: int(k[3:]))
+        if extra:
+            params["delete"] = ",".join(extra)
         if pve.ct_status(node, vmid) == "running":
             pve.wait_task(node, pve.stop_ct(node, vmid))
         pve.set_ct_config(node, vmid, params)

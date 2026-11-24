@@ -205,7 +205,8 @@ def _fmg_routes(fmg, topo, emit, step="pve_wan"):
     from .wanemu.net import fmg_routes
     want = fmg_routes(topo)
     if not want:
-        emit(step, "running", "FortiManager is not in the uplink subnet: the lab router must route 100.127.200.0/22 to "
+        blocks = ", ".join(g["block"] for g in topo["wanemu"]["segments"].values())
+        emit(step, "running", f"FortiManager is not in the uplink subnet: the lab router must route {blocks} to "
                               f"{topo['wanemu']['uplink']['ip'].split('/')[0]}")
         return
     port = topo["fmgr"].get("port", "port1")
@@ -241,7 +242,7 @@ def _wanemu(topo, boot, emit, step="pve_wan", fmg=None):
             if k.startswith("net"):
                 emit(step, "running", f"[dry-run] {w['hostname']} {k}: {v}")
         for r in net.reservations(topo):
-            emit(step, "running", f"[dry-run] DHCP {w['segments'][r['seg']]['name']}: {r['name']} {r['mac']} -> {r['ip']}")
+            emit(step, "running", f"[dry-run] DHCP {w['segments'][r['seg']]['name']} {r['iface']}: {r['name']} {r['mac']} -> {r['ip']}")
         emit(step, "ok", "dry run: no container created")
         return
     pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
@@ -255,7 +256,7 @@ def _wanemu(topo, boot, emit, step="pve_wan", fmg=None):
     fmg = fmg or boot.get("fmg")
     if fmg is not None and not fmg.dry:
         _fmg_routes(fmg, topo, emit, step)
-    segs = ", ".join(f"{g['name']} {g['subnet']}" for g in w["segments"].values())
+    segs = ", ".join(f"{g['name']} {g['block']}" for g in w["segments"].values()) + f" ({len(net.links(topo))} WAN links)"
     emit(step, "ok" if r["internet"] else "warn",       # no internet: keep the step on warning (licences will fail)
          f"{w['hostname']} (CT {r['vmid']}{', new' if r['created'] else ''}) ready: {segs}"
          + ("" if r["internet"] else " - but without internet from the segments"))
@@ -645,6 +646,15 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     # real FortiGates (Alles / Alleen FortiGates): VM + Day-0 (hub static wan1, licence, FMG link), register, online
     names = [d["name"] for d, _ in devices]
     if m_fgt == "day0":
+        if not boot.get("dry"):                       # reused FortiGates on another WAN layout: stop before the wan-emu
+            pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
+            boot["pve_client"] = pve
+            from .pve import PveError
+            try:
+                pv.check_wan_layout(pve, topo)
+            except PveError as e:
+                emit("pve_wan", "error", str(e))
+                raise FmgError(str(e)) from None
         _wanemu(topo, boot, emit, fmg=fmg)
         _pve_vms(topo, boot, "fgt", "pve_fgt", emit, state)
         emit("bootstrap_fgt", "running", "waiting until the FortiGates are licensed and register with FortiManager")

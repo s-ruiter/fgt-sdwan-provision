@@ -144,8 +144,15 @@ class H(BaseHTTPRequestHandler):
                 return self._send(self._upid())
             if method == "GET" and sub == "/status/current":
                 return self._send({"status": ct["status"]})
+            if method == "GET" and sub == "/config":
+                if STATE.get("fail_ct_config_get"):
+                    return self._send(None, 500, "config read failed: simulated")
+                return self._send(dict(ct["params"]))
             if method == "PUT" and sub == "/config":
-                ct["params"].update({k: v[0] for k, v in parse_qs(body.decode()).items()})
+                f = {k: v[0] for k, v in parse_qs(body.decode()).items()}
+                for k in (f.pop("delete", "") or "").split(","):
+                    ct["params"].pop(k.strip(), None)
+                ct["params"].update(f)
                 return self._send(None)
         if path == "/nodes/pve1/aplinfo" and method == "GET":         # appliance index (pveam available)
             return self._send([{"template": x, "section": "system", "package": x.split("_")[0], "os": "debian"}

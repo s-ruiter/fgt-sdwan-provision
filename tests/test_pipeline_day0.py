@@ -124,7 +124,7 @@ nics = lambda p: len([k for k in p if re.fullmatch(r"net\d+", k)])
 assert nics(by["site1-H1"]) == 6 and nics(by["site1-1"]) == 6, (nics(by["site1-H1"]), nics(by["site1-1"]))   # always 6 (vm_interface_number)
 from app.wanemu.net import mac_for
 assert by["site1-1"]["net2"] == "virtio,bridge=vmbr1,tag=20" and by["site1-1"]["net4"] == "virtio,bridge=vmbr0,tag=3303"   # LAN1 VLAN
-assert by["site1-1"]["net0"] == f"virtio={mac_for('site1-1', 1)},bridge=vmbr0,tag=3201"            # wan1 -> ISP-A
+assert by["site1-1"]["net0"] == f"virtio={mac_for('site1-1', 1)},bridge=vmbr0,tag=3211"            # wan1 -> own ISP-A line
 assert all(re.match(r"local:import/fgt-sdwan-[0-9a-f]{8}-(fgt|fmg)\.qcow2", p["scsi0"].split("import-from=")[1]) or True for p in by.values())
 assert all(p.get("scsihw") == "virtio-scsi-single" for n, p in by.items() if n != "fmg"), {n: p.get("scsihw") for n, p in by.items()}
 assert "scsihw" not in by["fmg"]                                                   # FMG boots on the default (LSI)
@@ -181,7 +181,7 @@ events.clear()
 b = boot(dry=True, pve_secret="")
 pipeline(t, cfg, Fmg("http://127.0.0.1:1", dry_run=True), emit, b)
 assert any("[dry-run]" in m and "Day-0 ISO" in m for _, _, m in events) and fake_proxmox.STATE["creates"] == 6
-assert any("[dry-run] wan-emu net2: name=eth2,bridge=vmbr0,tag=3201" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 4
+assert any("[dry-run] wan-emu net3: name=eth3,bridge=vmbr0,tag=3211" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 4
 assert any("[dry-run] client-site1-1" in m for _, _, m in events)
 print("OK  dry-run: plan per VM gelogd, niets naar Proxmox")
 
@@ -199,4 +199,22 @@ left = {v["name"] for v in fake_proxmox.STATE["vms"].values()}
 assert left == {"fmg"}, left
 assert [u for u in fake_proxmox.STATE["uploads"] if ":vztmpl/" not in u] == [], list(fake_proxmox.STATE["uploads"])
 print("OK  rollback: mislukte FortiGate-batch verwijdert zijn VM's + ISO's/imports; FMG blijft staan")
+
+# ---------------------------------------------------------------- old WAN layout: refused BEFORE the wan-emu changes
+fake_proxmox.reset()
+events.clear()
+S = fake_proxmox.STATE
+S["cts"]["150"] = {"vmid": 150, "status": "running",
+                   "params": {"hostname": "wan-emu", "tags": "fgt-sdwan", "net1": "name=eth1,bridge=vmbr0,tag=3200"}}
+S["vms"]["151"] = {"vmid": 151, "name": "site1-1", "status": "running",
+                   "params": {"tags": "fgt-sdwan", "net0": "virtio=02:AA:BB:CC:DD:01,bridge=vmbr0,tag=3201"}}
+ct_before = dict(S["cts"]["150"]["params"])
+try:
+    pipeline(t, cfg, Fmg(FMG, "admin", NEWPW), emit, boot())
+    raise AssertionError("moest weigeren")
+except Exception as e:
+    assert "Cleanup" in str(e) and "VLAN 3201" in str(e) and "3211" in str(e), e
+assert S["cts"]["150"]["params"] == ct_before and S["cts"]["150"]["status"] == "running"     # wan-emu untouched
+assert not any(m == "PUT" and "/lxc/150/config" in pth for m, pth in S["calls"]), [c for c in S["calls"] if "150" in c[1]]
+print("OK  oude WAN-opzet: geweigerd vóór de wan-emu wordt aangepast (oude lab blijft heel)")
 print("alle day-0 pipeline-tests geslaagd")

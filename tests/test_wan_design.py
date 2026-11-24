@@ -42,10 +42,10 @@ print("OK  invoer wordt afgedwongen: hub alleen wan1 statisch, branch wan1/wan2 
 t = topo()
 assert model.validate(t) == [], model.validate(t)
 t["hubs"][0]["wan1_ip"] = ""
-assert any("hub: always static" in x for x in model.validate(t))
+assert model.merged(t)["hubs"][0]["wan1_ip"] == "100.64.1.2/24"            # the hub address is derived (own /24)
 t = topo()
 t["hubs"][0]["wan1_gw"] = ""                       # the hub gateway always comes from ISP-HUB (wan-emu)
-assert model.validate(t) == [] and t["hubs"][0]["wan1_gw"] == t["wanemu"]["segments"]["hub"]["gw"]
+assert model.validate(t) == [] and t["hubs"][0]["wan1_gw"] == "100.64.1.1"
 t = topo()
 t["edges"][0]["wan2_intf"] = t["edges"][0]["wan1_intf"]
 assert any("another port" in x for x in model.validate(t))
