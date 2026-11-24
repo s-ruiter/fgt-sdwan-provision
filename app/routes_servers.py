@@ -21,6 +21,8 @@ class ServerIn(BaseModel):
     token_id: str
     token_secret: Optional[str] = None
     verify_tls: bool = True
+    console_user: Optional[str] = None          # Proxmox user for VM consoles (None = unchanged, "" = remove)
+    console_password: Optional[str] = None      # write-only, stored encrypted; None/"" = keep
 
 
 class TestIn(BaseModel):
@@ -31,9 +33,23 @@ def conn():
     return db.connect(config.DATA_DIR)
 
 
-def _out(row, last):
+def _out(row, last, c=None):
+    cu, has_pw = db.console_user(c, row["id"]) if c is not None else ("", False)
     return {"id": row["id"], "name": row["name"], "url": row["url"], "token_id": row["token_id"],
-            "verify_tls": bool(row["verify_tls"]), "has_secret": True, "last": row["id"] == last}
+            "verify_tls": bool(row["verify_tls"]), "has_secret": True, "last": row["id"] == last,
+            "console_user": cu, "has_console_password": has_pw}
+
+
+CONSOLE_USER = re.compile(r"^[^\s!@]+@[^\s!@]+$")
+
+
+def _console(c, sid, body):
+    if body.console_user is None:
+        return
+    u = body.console_user.strip()
+    if u and not CONSOLE_USER.match(u):
+        raise HTTPException(422, "Console user as user@realm (e.g. fgtsdwan@pve)")
+    db.put_console(c, sid, config.DATA_DIR, u, body.console_password or None)
 
 
 def _check(body):
@@ -53,7 +69,7 @@ def client(row):
 def list_servers():
     c = conn()
     last = db.last_server(c)
-    return [_out(r, last) for r in c.execute("SELECT * FROM servers ORDER BY name")]
+    return [_out(r, last, c) for r in c.execute("SELECT * FROM servers ORDER BY name")]
 
 
 @router.post("", status_code=201)
@@ -71,7 +87,8 @@ def create_server(body: ServerIn):
         c.close()
         raise HTTPException(409, f"A server named '{body.name}' already exists")
     c.commit()
-    out = _out(db.get_server(c, cur.lastrowid), None)
+    _console(c, cur.lastrowid, body)
+    out = _out(db.get_server(c, cur.lastrowid), None, c)
     c.close()
     return out
 
@@ -94,7 +111,8 @@ def update_server(sid: int, body: ServerIn):
         c.close()
         raise HTTPException(409, f"A server named '{body.name}' already exists")
     c.commit()
-    out = _out(db.get_server(c, sid), db.last_server(c))
+    _console(c, sid, body)
+    out = _out(db.get_server(c, sid), db.last_server(c), c)
     c.close()
     return out
 
@@ -104,6 +122,7 @@ def delete_server(sid: int):
     c = conn()
     c.execute("DELETE FROM servers WHERE id=?", (sid,))
     c.commit()
+    db.put_secret(c, f"pve_console:{sid}", "")
     return Response(status_code=204)
 
 
