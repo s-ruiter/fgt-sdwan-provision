@@ -680,6 +680,144 @@ async def term(ws: WebSocket, name: str):
             closer()
 
 
+# ---- Proxmox console in the browser: websocket <-> Proxmox vncwebsocket (termproxy). LAN clients (LXC) via the API
+# token, FortiGates/FortiManager (VMs) via the console user of the Proxmox server. Same browser messages as /api/term.
+from . import console as _console  # noqa: E402
+
+CONSOLE_OPEN = _console.open_session
+CONSOLE_SERVER = lambda sid: db.get_server(db.connect(DATA_DIR), sid)  # noqa: E731
+CONSOLE_KEEPALIVE = 30
+
+
+def _console_target(name):
+    """-> (proxmox name, server row, console user or None, kept login {user, password})."""
+    raw = db.get_secret(db.connect(DATA_DIR), "console_target")
+    tgt = json.loads(raw) if raw else {}
+    if not tgt.get("server_id"):
+        raise _console.ConsoleError("no deployment known yet: deploy first")
+    row = CONSOLE_SERVER(tgt["server_id"])
+    if row is None:
+        raise _console.ConsoleError("the Proxmox server of the deployment no longer exists in the tool")
+    cr = _creds()
+    if name == "@fmg":
+        fm = cr.get("fmg") or {}
+        dev, kept = fm.get("name") or "fmg", fm
+    elif name.startswith("client-"):
+        dev, kept = name, cr.get("client") or {}
+    else:
+        dev, kept = name, cr.get("fgt") or {}
+    try:
+        cons = db.get_console(db.connect(DATA_DIR), tgt["server_id"], DATA_DIR)
+    except ValueError as e:
+        raise _console.ConsoleError(str(e)) from None
+    return (tgt.get("prefix") or "") + dev, row, cons, kept
+
+
+@app.websocket("/api/console/{name}")
+async def console_ws(ws: WebSocket, name: str):
+    import codecs
+    import ssl
+    import websockets
+    await ws.accept()
+
+    async def say(m):
+        try:
+            await ws.send_text(f"\r\n\x1b[31m[{m}]\x1b[0m\r\n")
+        except Exception:
+            pass
+
+    async def close():
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    try:
+        try:
+            start = json.loads(await ws.receive_text())
+            cols, rows = int(start.get("cols") or 80), int(start.get("rows") or 24)
+        except (ValueError, TypeError, AttributeError):
+            await say("invalid start message")
+            return await close()
+        try:
+            pve_name, row, cons, kept = await asyncio.to_thread(_console_target, name)
+            sess = await asyncio.to_thread(CONSOLE_OPEN, row, cons, pve_name)
+        except _console.ConsoleError as e:
+            await say(str(e))
+            return await close()
+        user = start.get("user") or kept.get("user") or ("root" if name.startswith("client-") else "admin")
+        pw = start.get("password") or kept.get("password") or ""
+        start = kept = None                                           # passwords not kept around
+        ctx = None
+        if sess["ws_url"].startswith("wss://"):
+            ctx = ssl.create_default_context()
+            if not sess["ssl_verify"]:
+                ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+        try:
+            px = await websockets.connect(sess["ws_url"], additional_headers=sess["headers"], ssl=ctx,
+                                          subprotocols=["binary"], open_timeout=15, max_size=None)
+        except Exception as e:
+            await say(f"no console connection to Proxmox ({type(e).__name__})")
+            return await close()
+        try:
+            await px.send(sess["auth_line"])
+            ok = await asyncio.wait_for(px.recv(), 10)
+            if not (ok if isinstance(ok, bytes) else ok.encode()).startswith(b"OK"):
+                await say("Proxmox refused the console ticket")
+                return await close()
+            await px.send(f"1:{cols}:{rows}:")
+            dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
+            state = {"tail": "", "user": False, "pw": False}
+
+            async def send(data):
+                await px.send(f"0:{len(data.encode())}:{data}")
+
+            async def out():
+                async for m in px:
+                    t = dec.decode(m if isinstance(m, bytes) else m.encode())
+                    await ws.send_text(t)
+                    if not pw or state["pw"]:
+                        continue
+                    state["tail"] = (state["tail"] + t)[-200:]
+                    if not state["user"] and state["tail"].rstrip().endswith("login:"):
+                        state["user"], state["tail"] = True, ""
+                        await send(user + "\r")
+                    elif state["user"] and state["tail"].rstrip().endswith("Password:"):
+                        state["pw"], state["tail"] = True, ""
+                        await send(pw + "\r")
+
+            async def inp():
+                while True:
+                    m = json.loads(await ws.receive_text())
+                    if "data" in m:
+                        await send(str(m["data"]))
+                    elif "resize" in m:
+                        await px.send(f"1:{int(m['resize'][0])}:{int(m['resize'][1])}:")
+
+            async def keep():
+                while True:
+                    await asyncio.sleep(CONSOLE_KEEPALIVE)
+                    await px.send("2")
+
+            tasks = [asyncio.create_task(x()) for x in (out, inp, keep)]
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for x in tasks:
+                x.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            ended = tasks[0] in done or any(isinstance(x.exception(), websockets.ConnectionClosed)
+                                            for x in done if not x.cancelled() and x.exception())
+            if ended:                                                  # Proxmox ended the console
+                await say("session ended")
+                await close()
+        except websockets.ConnectionClosed:                            # Proxmox closed before/while setting up
+            await say("session ended")
+            await close()
+        finally:
+            await px.close()
+    except Exception:
+        pass
+
+
 @app.post("/api/wanemu/reset")
 def wanemu_reset():
     a = _agent()
