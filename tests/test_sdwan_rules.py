@@ -46,3 +46,70 @@ for multi in (True, False):
     for r in others:
         assert not any(2 <= s.get("id", 0) <= 6 for s in r["sdwan"].get("service", [])), r["name"]
 print("OK  demo-regels: spokes met 2 WAN's krijgen O365/Collab/Streaming/Updates/SaaS (ids 2-6) tussen Corporate en Local-Breakout")
+
+# ---- resolve the keywords against the FortiManager's internet-service names at deployment
+import copy  # noqa: E402
+
+from app import fmgapply  # noqa: E402
+from app.fmg import FmgError  # noqa: E402
+
+NAMES = ["Microsoft-Office365", "Microsoft-Office365.Published", "Microsoft-Teams", "Zoom.us-Zoom.Meeting",
+         "Netflix-Netflix", "Google-YouTube", "Microsoft-Xbox", "Microsoft-Windows.Update", "Ookla-Speedtest"]
+base = ft.build_plan(topo(True), ORCH)
+p = copy.deepcopy(base)
+w = fmgapply.resolve_isdb(NAMES, p)
+r = [x for x in p["roles"] if x["kind"] == "edge" and two_wan(x)][0]
+sv = {s["name"]: s for s in r["sdwan"]["service"]}
+assert sv["O365"]["internet-service"] == "enable" and sv["O365"]["internet-service-name"] == ["Microsoft-Office365", "Microsoft-Office365.Published"]
+assert sv["Collab"]["internet-service-name"] == ["Microsoft-Teams", "Zoom.us-Zoom.Meeting"], sv["Collab"]
+assert sv["Streaming-Social"]["internet-service-name"] == ["Google-YouTube", "Netflix-Netflix"]
+assert sv["Updates-Downloads"]["internet-service-name"] == ["Microsoft-Windows.Update", "Ookla-Speedtest"]
+assert "SaaS" not in sv and "Microsoft-Xbox" not in str(sv)                    # 'box' is not 'Xbox'
+assert any("SaaS: no internet services found" in x for x in w), w
+assert "_isdb_keywords" not in str(p["roles"])
+# no list from the FortiManager: all demo rules skipped, one warning, the rest unchanged
+p = copy.deepcopy(base)
+w = fmgapply.resolve_isdb([], p)
+assert len(w) == 1 and "demo SD-WAN rules skipped" in w[0]
+r = [x for x in p["roles"] if x["kind"] == "edge" and two_wan(x)][0]
+assert [s["id"] for s in r["sdwan"]["service"]] == [1, 10]
+# many hits per keyword: at most 10
+many = [f"Vendor-Netflix.{i}" for i in range(30)]
+p = copy.deepcopy(base)
+fmgapply.resolve_isdb(many, p)
+r = [x for x in p["roles"] if x["kind"] == "edge" and two_wan(x)][0]
+assert len({s["name"]: s for s in r["sdwan"]["service"]}["Streaming-Social"]["internet-service-name"]) == 10
+
+
+# apply_plan: reads the names from the ADOM first; the calls to FMG carry no keywords; a failing lookup = a warning
+class Fmg:
+    dry = False
+
+    def __init__(self, names=None, fail=False):
+        self.calls, self.names, self.fail = [], names or [], fail
+
+    def call(self, method, url, data=None, **kw):
+        self.calls.append((method, url, data))
+        if url.endswith("/obj/firewall/internet-service-name"):
+            if self.fail:
+                raise FmgError("no permission")
+            return {"data": [{"name": n} for n in self.names]}
+        return {"data": None}
+
+
+t = topo(True)
+ev = []
+for f in (Fmg(NAMES), Fmg(fail=True)):
+    ev.clear()
+    fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda st, s, m: ev.append((s, m)))
+    assert f.calls[0][1] == f"/pm/config/adom/{t['adom']}/obj/firewall/internet-service-name"
+    assert "_isdb_keywords" not in str(f.calls)
+    assert any(s == "warn" and ("SaaS" in m or "skipped" in m) for s, m in ev), ev
+assert any("Microsoft-Teams" in str(d) for _, _, d in Fmg(NAMES).calls) is False   # (fresh object: nothing called)
+f = Fmg(NAMES)
+fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda *a: None)
+assert any("Microsoft-Teams" in str(d) for _, _, d in f.calls)
+f = Fmg(NAMES); f.dry = True                                                        # dry run: no lookup
+fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda *a: None)
+assert not any(u.endswith("internet-service-name") for _, u, _ in f.calls) and "_isdb_keywords" not in str(f.calls)
+print("OK  ISDB: zoekwoorden -> bestaande namen (max 10, woordgrens), regel zonder treffer overgeslagen, geen lijst = melding")
