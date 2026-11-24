@@ -60,3 +60,44 @@ assert [x for x in c.get("/api/servers").json() if x["id"] == sid][0]["has_conso
 c.put(f"/api/servers/{sid}", json=dict(base, token_secret=None, console_user="u@pve", console_password="P-w0rd!x"))
 assert c.delete(f"/api/servers/{sid}").status_code == 204 and not db.get_secret(conn, f"pve_console:{sid}")
 print("OK  console-gebruiker per server: wachtwoord versleuteld, nooit terug, niet in export, leeg = wissen, weg bij delete")
+
+# ---- open a Proxmox console: LXC with the API token, VM with the console user (PVE refuses VM consoles to a token)
+from app import console  # noqa: E402
+from tests import fake_proxmox as fp  # noqa: E402
+
+fp.reset()
+psrv = fp.start(8087)
+try:
+    row = {"url": "http://127.0.0.1:8087", "token_id": "root@pam!t", "token_secret": "tsec", "verify_tls": 0}
+    S = fp.STATE
+    S["cts"]["118"] = {"vmid": 118, "params": {"hostname": "lab1-client-site1-1", "tags": "fgt-sdwan"}, "status": "running"}
+    S["vms"]["117"] = {"vmid": 117, "name": "lab1-site1-3", "params": {"tags": "fgt-sdwan", "serial0": "socket"}, "status": "running"}
+    S["vms"]["115"] = {"vmid": 115, "name": "lab1-site1-1", "params": {"tags": "fgt-sdwan"}, "status": "running"}
+    S["vms"]["116"] = {"vmid": 116, "name": "lab1-site1-2", "params": {"tags": "fgt-sdwan", "serial0": "socket"}, "status": "stopped"}
+    S["console_users"] = {"fgtsdwan@pve": "Console-pw1!"}
+    cu = {"user": "fgtsdwan@pve", "password": "Console-pw1!"}
+    o = console.open_session(row, None, "lab1-client-site1-1")
+    assert o["headers"] == {"Authorization": "PVEAPIToken=root@pam!t=tsec"} and o["auth_line"] == "root@pam!t:PVEVNC:abc/def+==\n"
+    assert o["ws_url"] == "ws://127.0.0.1:8087/api2/json/nodes/pve1/lxc/118/vncwebsocket?port=5900&vncticket=PVEVNC%3Aabc%2Fdef%2B%3D%3D", o
+    o = console.open_session(row, cu, "lab1-site1-3")
+    assert o["headers"] == {"Cookie": "PVEAuthCookie=PVE:fgtsdwan@pve:TICKET"} and "/qemu/117/vncwebsocket" in o["ws_url"]
+    assert o["auth_line"].startswith("fgtsdwan@pve:") and S["termproxies"][-1] == ("qemu", 117, "fgtsdwan@pve")
+
+    def err(name, cons, text):
+        try:
+            console.open_session(row, cons, name)
+            raise AssertionError(f"expected ConsoleError for {name}")
+        except console.ConsoleError as e:
+            assert text in str(e), (name, str(e))
+    err("lab1-nothing", cu, "not found in Proxmox")
+    err("lab1-site1-2", cu, "is not running")
+    err("lab1-site1-3", None, "add a console user to the Proxmox server")
+    err("lab1-site1-1", cu, "no serial port")
+    err("lab1-site1-3", {"user": "fgtsdwan@pve", "password": "wrong"}, "console login refused")
+    S["termproxy_403"] = True
+    err("lab1-client-site1-1", None, "lacks VM.Console")
+    err("lab1-site1-3", cu, "lacks VM.Console")
+    S["termproxy_403"] = False
+finally:
+    psrv.shutdown()
+print("OK  console openen: LXC via token, VM via console-gebruiker (cookie+CSRF), duidelijke fouten")
