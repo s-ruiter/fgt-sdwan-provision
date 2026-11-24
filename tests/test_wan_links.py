@@ -54,3 +54,51 @@ f = {"format": "fgt-sdwan-settings", "version": 1, "topology": {"wanemu": {"segm
 topo, ui, notes = settings_io.from_file(f, {})
 assert topo["wanemu"]["segments"]["a"]["block"] == "100.65.0.0/16" and any("one subnet per WAN" in n for n in notes), notes
 print("OK  oude instellingen (subnet/gw per segment): nieuwe standaard + melding")
+
+# ---- wan-emu config: one NIC + DHCP per link, FortiGate NICs on the link VLAN, FMG routes per ISP block
+from app import provision_vms as pv  # noqa: E402
+from app.wanemu import net, setup  # noqa: E402
+
+t = lab()
+ln = net.links(t)
+assert [x["iface"] for x in ln] == [f"eth{k}" for k in range(1, 8)] and ln[2]["id"] == "site1-1-wan1"
+ct = net.ct_params(t, 130, "k")
+br = t["wanemu"]["bridge"]
+assert ct["net3"] == f"name=eth3,bridge={br},tag=3211,ip=100.65.1.1/24,firewall=0", ct["net3"]
+assert ct["net1"] == f"name=eth1,bridge={br},tag=3201,ip=100.64.1.1/24,firewall=0" and "net8" not in ct
+dm = net.dnsmasq_conf(t)
+assert "interface=eth3" in dm and "dhcp-range=set:eth3,100.65.1.100,100.65.1.199,255.255.255.0,12h" in dm, dm
+assert "dhcp-option=tag:eth3,option:router,100.65.1.1" in dm
+res = {r["ip"]: r for r in net.reservations(t)}
+assert set(res) == {"100.65.1.2", "100.66.1.2", "100.65.2.2", "100.65.3.2", "100.66.3.2"}
+assert f"dhcp-host={res['100.65.1.2']['mac']},100.65.1.2" in dm
+assert "interface=eth1" not in dm and "interface=eth2" not in dm                  # hubs: static, no DHCP
+up = t["wanemu"]["uplink"]["ip"].split("/")[0]
+assert net.fmg_routes(t) == [("100.64.0.0", "255.255.0.0", up), ("100.65.0.0", "255.255.0.0", up),
+                             ("100.66.0.0", "255.255.0.0", up)]
+fw = {f["name"]: f["ip"] for f in net.forwards(t)}
+assert fw["site1-1"] == "100.65.1.2" and fw["site1-H1"] == "100.64.1.2"
+need = net.bridge_needs(t)[br]
+assert {3201, 3202, 3211, 3212, 3213, 3231, 3233} <= need and not {3200, 3210, 3230, 3232} & need, sorted(need)
+topo = net.agent_topology(t)
+assert topo["nat"] == ["100.64.0.0/16", "100.65.0.0/16", "100.66.0.0/16"] and topo["links"][2]["iface"] == "eth3"
+nics = {n: pv.fgt_nics(d, t["pve"], t["wanemu"], hub, index=n, link_no=n + 1 if hub else n - 1)
+        for n, (d, hub) in enumerate(net.fortigates(t))}
+assert nics[0][0]["vlan"] == 3201 and nics[1][0]["vlan"] == 3202
+assert nics[2][0]["vlan"] == 3211 and nics[2][1]["vlan"] == 3231 and nics[3][0]["vlan"] == 3212
+assert nics[2][0]["mac"] == res["100.65.1.2"]["mac"]
+
+
+class Sh:
+    def __init__(self):
+        self.cmds = []
+
+    def run(self, c):
+        self.cmds.append(c)
+        return 0, "", ""
+
+
+sh = Sh()
+setup.internet_check(sh, t)
+assert "-I 100.65.1.1" in sh.cmds[0], sh.cmds
+print("OK  wan-emu: NIC + DHCP per lijn, FortiGate-NIC's op het lijn-VLAN, FMG-routes per ISP-blok, forwards")

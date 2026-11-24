@@ -118,7 +118,8 @@ def provision(sh, t, agent_token, emit, step="pve_wan"):
 
 
 def internet_check(sh, t):
-    src = t["wanemu"]["segments"]["a"]["gw"]
+    first = next((x for x in net.links(t) if x["seg"] != "hub"), None) or (net.links(t) or [{"gw": ""}])[0]
+    src = first["gw"]
     return sh.run(f"ping -c2 -W2 -I {shlex.quote(src)} 1.1.1.1")[0] == 0
 
 

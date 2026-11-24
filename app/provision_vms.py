@@ -28,13 +28,18 @@ def fgt_port_count(dev):
     return max([n for n in map(_port_no, used) if n] + [MIN_FGT_NICS])
 
 
-def fgt_nics(dev, cfg, wanemu, is_hub, index=None):
+def fgt_nics(dev, cfg, wanemu, is_hub, index=None, link_no=None):
     """One virtio NIC per port up to the highest portN the device uses, at least MIN_FGT_NICS. The wan ports go to the
-    WAN emulator (hub wan1 -> ISP-HUB; branch wan1 -> ISP-A, wan2 -> ISP-B) with a fixed MAC (DHCP reservation); the
-    other ports take bridge/VLAN from the per-port table."""
+    WAN emulator, each on the VLAN of its own link (hub n wan1 -> ISP-HUB vlan_base+n; spoke n wan1 -> ISP-A, wan2 ->
+    ISP-B vlan_base+n) with a fixed MAC (DHCP reservation); the other ports take bridge/VLAN from the per-port table.
+    index = position among all FortiGates (LAN VLANs), link_no = 1-based number of the hub / of the spoke."""
     from .wanemu.net import mac_for
     seg = wanemu["segments"]
-    wans = {dev.get("wan1_intf"): "hub"} if is_hub else {dev.get("wan1_intf"): "a", dev.get("wan2_intf"): "b"}
+    no = link_no or 1
+    wans = ({dev.get("wan1_intf"): seg["hub"]["vlan_base"] + no} if is_hub else
+            {dev.get("wan1_intf"): seg["a"]["vlan_base"] + no, dev.get("wan2_intf"): seg["b"]["vlan_base"] + no})
+    wans.pop(None, None)
+    wans.pop("", None)
     lans = {}                                                       # LAN1/LAN2 on their own VLAN per FortiGate
     if index is not None:
         for k, l in enumerate((dev.get("lans") or [])[:2]):
@@ -48,7 +53,7 @@ def fgt_nics(dev, cfg, wanemu, is_hub, index=None):
         if name in lans and name not in wans:
             nics.append({"bridge": wanemu["bridge"], "vlan": lans[name]})
         elif name in wans:
-            nics.append({"bridge": wanemu["bridge"], "vlan": seg[wans[name]]["vlan"], "mac": mac_for(dev["name"], i)})
+            nics.append({"bridge": wanemu["bridge"], "vlan": wans[name], "mac": mac_for(dev["name"], i)})
         else:
             p = ports.get(name) or {}
             nics.append({"bridge": p.get("bridge") or cfg["default_bridge"], "vlan": p.get("vlan")})
@@ -114,10 +119,12 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
     else:
         fg = cfg["fgt"]
         hubs = {h["name"] for h in topo["hubs"]}
+        nh = len(topo["hubs"])
         for n, d in enumerate(topo["hubs"] + topo["edges"]):
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
             specs.append({"name": d["name"], "pve_name": pve_name(topo, d["name"]), "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
-                          "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n), "extra_disks": [],
+                          "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n, n + 1 if n < nh else n - nh + 1),
+                          "extra_disks": [],
                           "user_data": cloudinit.build_user_data(cli, tokens.get(d["name"]), cloudinit.license_mode("fgt", mode))})
     return specs
 
