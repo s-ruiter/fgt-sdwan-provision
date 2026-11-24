@@ -290,6 +290,8 @@ def build_plan(topo, orch_dir):
                                "subnet": _subnet(a["subnet"]) if isinstance(a.get("subnet"), str) else a.get("subnet")}
         r["addresses"] = list(addr.values())
         r["policies"] = fw.get("firewall policy", [])
+        if r["kind"] == "hub":
+            _hub_leak_dia(r, s)
         r["ippools"] = fw.get("firewall ippool", [])
         zones = {z["name"] for z in r["sdwan"].get("zone", [])}
         names = set()
@@ -308,6 +310,27 @@ def build_plan(topo, orch_dir):
         r["ippool_map"] = {dn: _ippool_values(r["ippools"], per[dn]["reg"]) for dn in r["devices"]}
     return {"roles": roles, "variables": variables, "warnings": warnings, "per": per,
             "dns": [topo["dns_primary"], topo.get("dns_secondary", "")], "adom_meta": {}}
+
+
+LEAK_ZONE_RE = re.compile(r'edit "pevrf_leak_zone"\s*\n\s*set interface \S')
+
+
+def _hub_leak_dia(r, s):
+    """Multi-VRF hub: the LAN sits in VRF 11/12 and its default route goes over the leak link (vrfN_leak1) to the
+    PE-VRF, where the underlay is. The Orchestrator hub firewall only has 'Internet (DIA)' lan_zone -> underlay, which
+    never matches there. Make it like the spokes: 'Internet (to PE)' lan_zone -> vrfs_leak_zone (NAT), and DIA from
+    pevrf_leak_zone -> underlay. Only when the hub actually has leak links (a LAN VRF with DIA)."""
+    if not any(LEAK_ZONE_RE.search(t) for t in s["core"].values()):
+        return
+    pols = r["policies"]
+    dia = next((p for p in pols if p.get("name") == "Internet (DIA)"), None)
+    if dia is None or any(p.get("name") == "Internet (to PE)" for p in pols):
+        return
+    to_pe = {k: v for k, v in dia.items() if k != "policyid"}
+    to_pe.update(name="Internet (to PE)", srcintf=["lan_zone"], dstintf=["vrfs_leak_zone"],
+                 policyid=max(int(p.get("policyid", 0)) for p in pols) + 10)
+    dia["srcintf"] = ["pevrf_leak_zone"]
+    pols.insert(pols.index(dia), to_pe)
 
 
 def _literal_intfs(role, per):
