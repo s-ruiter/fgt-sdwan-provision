@@ -123,22 +123,16 @@
           <div class="f only-fmg"><label>Hostname</label><input id="fm_name"></div>
           <div class="f"><label><span class="only-fmg">Static IP (a.b.c.d/nn)</span><span class="only-existing">IP address (a.b.c.d)</span></label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
           <div class="f only-fmg"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
-          <div class="f only-fmg"><label>Port</label><input id="fm_port"></div>
+          <div class="f only-fmg"><label>Port</label><select id="fm_port"><option>port1</option><option>port2</option><option>port3</option><option>port4</option><option>port5</option><option>port6</option></select></div>
           <div class="f"><label>ADOM name</label><input id="adom"></div>
           <div class="f"><label>Admin user</label><input id="fmg_user" value="admin"></div>
-          <div class="f"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><input id="fmg_pass" type="password" autocomplete="off"></div>
+          <div class="f"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><div class="pw"><input id="fmg_pass" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fmg_pass" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint only-fmg" id="fmg_pass_hint"></div></div>
           <div class="f only-fmg"><label>FortiFlex token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
 
       <div class="card not-lan" id="sec_devices">
         <h2><span class="num">03</span>Topology</h2>
-        <div class="btnrow">
-          <button id="btn_csv_dl" title="The devices as CSV (including FortiFlex tokens you entered), LAN columns per the chosen mode; no passwords">Download CSV (devices)</button>
-          <button id="btn_csv_up">Import CSV (devices)</button><input type="file" id="csv_file" accept=".csv,text/csv" hidden>
-          <span class="hint" id="csv_res"></span>
-        </div>
-        <div class="hint" id="csv_todo" hidden></div>
         <div class="opts">
           <div class="inline"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-to-hub tunnels (DC-to-DC)</label></div>
           <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + customer VRFs leaking to the PE-VRF; off = classic single-VRF, one LAN per device, everything in VRF 0)</label></div>
@@ -150,23 +144,19 @@
         <div class="only-fgt">
         <h3>FortiGates: password &amp; licence</h3>
         <div class="fields">
-          <div class="f"><label>FortiGate admin and SSH password</label><input id="fgt_newpw" type="password" autocomplete="off"></div>
+          <div class="f"><label>FortiGate admin and SSH password</label><div class="pw"><input id="fgt_newpw" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fgt_newpw" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint" id="fgt_newpw_hint"></div></div>
         </div>
-        <div class="hint">Enter the serial number and FortiFlex token per FortiGate below (or let FortiFlex fill them in). Hubs have one WAN (wan1, static IP + gateway); branches use wan1 and optionally wan2, always via DHCP. Every branch WAN gets a tunnel to wan1 of every hub. The tool creates the VMs with Day-0 (cloud-init) on Proxmox: IP, password, FMG link and token go into the config drive.</div>
+        <div class="hint">Enter the serial number and FortiFlex token per FortiGate below (or let FortiFlex fill them in). Hubs have one WAN (wan1, static in ISP-HUB: you only fill in the last octet, the gateway is wan-emu); branches use wan1 and optionally wan2, always via DHCP. Every branch WAN gets a tunnel to wan1 of every hub. The tool creates the VMs with Day-0 (cloud-init) on Proxmox: IP, password, FMG link and token go into the config drive.</div>
         </div>
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
-        <div class="btnrow" style="margin-top:18px">
-          <button id="btn_csv_full" title="Settings (ADOM, VRFs, FortiManager, Proxmox) + all devices including FortiFlex tokens; no passwords">Export everything to CSV</button>
-          <span class="hint">Settings + devices, importable for a next deployment. Contains the FortiFlex tokens you entered (treat the file as a secret); never passwords.</span>
-        </div>
       </div>
 
       <div class="card only-clients" id="sec_clients">
         <h2><span class="num">04</span>LAN clients <small>(one container per spoke, on its LAN VLAN)</small></h2>
         <div class="hint">Every spoke gets a container <code>client-&lt;spoke&gt;</code> with .10 in its LAN and the spoke as gateway, to test traffic. Operate them from the Proxmox console as root with this password. It is not stored.</div>
         <div class="fields">
-          <div class="f"><label>LAN client root password</label><input id="client_pw" type="password" autocomplete="new-password"></div>
+          <div class="f"><label>LAN client root password</label><div class="pw"><input id="client_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="client_pw" title="Show / hide the password" aria-label="Show password"></button></div></div>
         </div>
       </div>
 
@@ -176,6 +166,21 @@
       </div>
       <div id="flex_check" class="card" hidden></div>
       <div id="deploy_status" class="card" hidden></div>
+
+      <div class="card" id="sec_settings">
+        <h2>Settings <small>(the whole form: topology, FortiManager, Proxmox, WAN emulation; never passwords or tokens)</small></h2>
+        <div class="btnrow">
+          <button id="btn_set_export">Export settings</button>
+          <button id="btn_set_import">Import settings</button><input type="file" id="set_file" accept=".json,application/json" hidden>
+          <span class="hint" id="set_res"></span>
+        </div>
+        <h3>Saved in this tool</h3>
+        <div class="fields">
+          <div class="f"><label>Description</label><input id="set_desc" maxlength="200" placeholder="e.g. Lab 2 hubs, 3 spokes, single-VRF"></div>
+          <div class="f"><button id="btn_set_save">Save settings</button></div>
+        </div>
+        <div id="set_list"></div>
+      </div>
     </section>
 
     <section id="v_progress" hidden>

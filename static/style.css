@@ -283,3 +283,18 @@ input.flex[readonly] { background: var(--line); color: var(--muted, #888); }
 .theme-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .theme-btn .sun, [data-theme="dark"] .theme-btn .moon { display: none; }
 [data-theme="dark"] .theme-btn .sun { display: block; }
+
+/* password with show/hide button; hub wan1 = ISP-HUB prefix + last octet */
+.pw { position: relative; }
+.pw input { padding-right: 40px; }
+.pw button.eye { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); }
+.pw button.eye::before { content: ""; display: block; width: 18px; height: 18px; margin: auto; background: currentColor;
+  -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>') center/contain no-repeat;
+          mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>') center/contain no-repeat; }
+.pw button.eye:hover { color: var(--text, inherit); }
+.pw button.eye.on { color: var(--accent); }
+.hint.okc { color: var(--ok-text); }
+.octet { display: flex; align-items: center; gap: 6px; }
+.octet span { color: var(--muted); white-space: nowrap; }
+.octet input { flex: 1; min-width: 60px; }
+#sec_settings .fields { align-items: end; }

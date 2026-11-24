@@ -12,6 +12,10 @@ function showErr(list, target = "#errors") {
   if (list.length) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 const fld = (k, l, v, extra = "", cls = "") => `<div class="f${cls ? " " + cls : ""}"><label>${l}</label><input data-f="${k}" value="${esc(v)}" ${extra}></div>`;
+const PORTS = ["port1", "port2", "port3", "port4", "port5", "port6"];          // FortiGate-VM ports the tool uses
+const portOpts = (cur, none) => [...(none ? [["", none]] : []), ...[...new Set([...PORTS, ...(cur ? [cur] : [])])].map((p) => [p, p])]
+  .map(([v, t]) => `<option value="${esc(v)}"${v === (cur || "") ? " selected" : ""}>${esc(t)}</option>`).join("");
+const pfld = (k, l, v, none) => `<div class="f"><label>${l}</label><select data-f="${k}">${portOpts(v, none)}</select></div>`;
 const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB");
 
 // ---- routing ----------------------------------------------------------------
@@ -44,7 +48,8 @@ function maskToPrefix(m) {                     // 255.255.255.0 -> 24 (null if n
   return /^1*0*$/.test(bits) ? bits.indexOf("0") === -1 ? 32 : bits.indexOf("0") : null;
 }
 function ipProblem(kind, v) {
-  if (!v) return "";
+  if (!v) return kind === "octet" ? "Fill in the last octet (1-254)" : "";
+  if (kind === "octet") return /^\d+$/.test(v) && +v >= 1 && +v <= 254 ? "" : "Last octet: a number 1-254";
   if (kind === "ip" || (kind === "ipcidr" && !v.includes("/"))) return RE_IP.test(v) ? "" : "Not a valid IPv4 address (a.b.c.d)";
   if (!RE_CIDR.test(v)) return "Use a.b.c.d/nn, for example 10.0.0.5/24";
   const [a, p] = v.split("/"), pre = +p;
@@ -149,12 +154,28 @@ function dev(kind, d, i) {
   let h = `<div class="dev" data-k="${kind}" data-i="${i}"><b>${esc(d.name)}</b><div class="fields">`;
   h += fld("name", "Name", d.name) + fld("serial", "Serial number", d.serial, "", "only-dev") + fld("loopback", "Loopback (BGP, router-id)", d.loopback);
   // WAN design: hub = one wan (wan1, always static); branch = wan1 + optional wan2, both DHCP, each with a tunnel to wan1 of every hub
-  if (hub) h += fld("wan1_intf", "wan1 port (ZTP)", d.wan1_intf) + fld("wan1_ip", "wan1 IP/prefix (static)", d.wan1_ip) + fld("wan1_gw", "wan1 gateway", d.wan1_gw);
-  else h += fld("wan1_intf", "wan1 port (ZTP, DHCP)", d.wan1_intf) + fld("wan2_intf", "wan2 port (DHCP; empty = none)", d.wan2_intf);
+  if (hub) {                                   // wan1 lives in ISP-HUB (/24): only the last octet; gateway = wan-emu
+    const oct = ((d.wan1_ip || "").split("/")[0].split(".")[3]) || "";
+    h += pfld("wan1_intf", "wan1 port (ZTP)", d.wan1_intf) +
+      `<div class="f"><label>wan1 IP (ISP-HUB /24)</label><div class="octet"><span class="mono" data-hubpre>${esc(hubNet().pre)}</span><input data-f="wan1_oct" data-ip="octet" type="number" min="1" max="254" value="${esc(oct)}"></div></div>` +
+      `<div class="f"><label>wan1 gateway (wan-emu)</label><input data-hubgw class="mono" value="${esc(hubNet().gw)}" disabled></div>`;
+  } else h += pfld("wan1_intf", "wan1 port (ZTP, DHCP)", d.wan1_intf) + pfld("wan2_intf", "wan2 port (DHCP)", d.wan2_intf, "(none)");
   h += `<div class="f only-fgt"><label>FortiFlex token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
-  (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += fld("lan" + j + "_intf", "LAN" + (j + 1) + " port", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
+  (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += pfld("lan" + j + "_intf", "LAN" + (j + 1) + " port", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
   return h + "</div></div>";
 }
+// ISP-HUB as typed in the WAN emulation section: "a.b.c." prefix of its /24 and the gateway (= wan-emu)
+function hubNet() {
+  const sub = (($("#wan-seg-hub-subnet") && $("#wan-seg-hub-subnet").value) || T.wanemu.segments.hub.subnet || "").trim();
+  const gw = (($("#wan-seg-hub-gw") && $("#wan-seg-hub-gw").value) || T.wanemu.segments.hub.gw || "").trim();
+  return { pre: sub.split("/")[0].split(".").slice(0, 3).join(".") + ".", gw };
+}
+function hubNetDraw() {
+  const n = hubNet();
+  document.querySelectorAll("[data-hubpre]").forEach((e) => (e.textContent = n.pre));
+  document.querySelectorAll("[data-hubgw]").forEach((e) => (e.value = n.gw));
+}
+["#wan-seg-hub-subnet", "#wan-seg-hub-gw"].forEach((id) => $(id).addEventListener("input", hubNetDraw));
 function draw() {
   const p = T.pve;
   $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub;
@@ -186,7 +207,9 @@ function collect() {
     const d = t[el.dataset.k][el.dataset.i], lans = (d.lans || []).map((l) => ({ ...l }));
     el.querySelectorAll("[data-f]").forEach((inp) => {
       const k = inp.dataset.f, v = inp.value.trim(), m = k.match(/^lan(\d+)_(intf|ip)$/);
-      if (m) (lans[+m[1]] ??= {})[m[2]] = v; else d[k] = v;
+      if (m) (lans[+m[1]] ??= {})[m[2]] = v;
+      else if (k === "wan1_oct") { const n = hubNet(); d.wan1_ip = v ? `${n.pre}${v}/24` : ""; d.wan1_gw = n.gw; }
+      else d[k] = v;
     });
     d.lans = lans;
   });
@@ -270,56 +293,101 @@ async function loadPve(msg) {
 }
 $("#btn_pve").onclick = () => loadPve();
 $("#pve_node").addEventListener("change", () => loadPve());
-function csvTokens() {
-  const devices = {};
-  document.querySelectorAll("[data-tok]").forEach((e) => { if (e.value.trim()) devices[e.dataset.tok] = e.value.trim(); });
-  return { fmg: $("#fm_token").value.trim(), devices };
+// ---- passwords: strong rule (same as model.password_problems) + show/hide ------------------------------------------
+function pwProblems(pw) {
+  pw = pw || "";
+  return [["at least 8 characters", pw.length >= 8], ["an uppercase letter", /[A-Z]/.test(pw)], ["a lowercase letter", /[a-z]/.test(pw)],
+    ["a digit", /[0-9]/.test(pw)], ["a special character", /[^A-Za-z0-9]/.test(pw)]].filter(([, ok]) => !ok).map(([w]) => w);
 }
-async function csvDownload(full) {
-  const r = await post("/api/csv/export", { topology: collect(), full, tokens: csvTokens() });
-  if (!r.ok) { $("#csv_res").textContent = "Export failed"; return; }
-  const url = URL.createObjectURL(await r.blob()), a = document.createElement("a");
-  a.href = url; a.download = full ? "sdwan-volledig.csv" : "sdwan-devices.csv"; a.click(); URL.revokeObjectURL(url);
-  $("#csv_res").textContent = full ? "Full export downloaded (settings + devices)." : "Downloaded: fill it in and import it again.";
+const PW_STRONG = { fmg_pass: () => ["all", "fmg"].includes(scope()), fgt_newpw: () => true };   // passwords the tool sets
+function pwHint(id) {
+  const el = $("#" + id), h = $("#" + id + "_hint"), v = el.value, p = pwProblems(v);
+  if (!PW_STRONG[id]()) { h.textContent = ""; el.classList.remove("bad"); return; }
+  h.className = "hint" + (id === "fmg_pass" ? " only-fmg" : "") + (v && !p.length ? " okc" : "");
+  h.textContent = !v ? "Strong password: 8+ characters with upper and lower case, a digit and a special character" : p.length ? "Still needs " + p.join(", ") : "✓ strong";
+  el.classList.toggle("bad", !!(v && p.length));
 }
-$("#btn_csv_dl").onclick = () => csvDownload(false);
-$("#btn_csv_full").onclick = () => csvDownload(true);
-const deepMerge = (a, b) => { for (const [k, v] of Object.entries(b)) a[k] = v && typeof v === "object" && !Array.isArray(v) && a[k] && typeof a[k] === "object" ? deepMerge({ ...a[k] }, v) : v; return a; };
-async function csvPost(f, apply) {
-  const fd = new FormData(); fd.append("file", f); fd.append("topology", JSON.stringify(collect())); fd.append("apply_settings", apply ? "1" : "");
-  const r = await fetch("/api/csv/import", { method: "POST", body: fd });
-  return [r, await r.json().catch(() => ({}))];
+function pwErrors() {
+  const out = [];
+  for (const [id, need] of Object.entries(PW_STRONG)) {
+    const el = $("#" + id);
+    if (!need() || !el.offsetParent || !el.value) continue;
+    const p = pwProblems(el.value);
+    if (p.length) out.push(`${id === "fmg_pass" ? "FortiManager" : "FortiGates"}: admin password is not strong, it needs ${p.join(", ")}`);
+  }
+  return out;
 }
-$("#btn_csv_up").onclick = () => $("#csv_file").click();
-$("#csv_file").onchange = async (ev) => {
+Object.keys(PW_STRONG).forEach((id) => $("#" + id).addEventListener("input", () => pwHint(id)));
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-eye]"); if (!b) return;
+  const i = $("#" + b.dataset.eye), show = i.type === "password";
+  i.type = show ? "text" : "password"; b.classList.toggle("on", show); b.setAttribute("aria-label", show ? "Hide password" : "Show password");
+});
+
+// ---- settings: export / import a JSON file, saved settings in the tool ------------------------------------------
+const setMsg = (m, bad) => { $("#set_res").className = "hint" + (bad ? " error" : ""); $("#set_res").textContent = m; };
+const setUi = () => ({ scope: scope(), fmg_user: $("#fmg_user").value });
+async function setApply(j, src) {
+  T = j.topology; draw(); markIpFields();
+  if (j.ui && j.ui.fmg_user) $("#fmg_user").value = j.ui.fmg_user;
+  const sc = j.ui && document.querySelector(`input[name="scope"][value="${j.ui.scope}"]`);
+  if (sc) { sc.checked = true; scopeApply(); }
+  if (T.pve.server_id) { $("#pve_server").value = T.pve.server_id; await loadPve(); }
+  setMsg(`✓ ${src} loaded` + (j.notes && j.notes.length ? ` (${j.notes.join("; ")})` : "") + ". Passwords and FortiFlex tokens are not part of settings.");
+}
+$("#btn_set_export").onclick = async () => {
+  const r = await post("/api/settings/export", { topology: collect(), ui: setUi() });
+  if (!r.ok) return setMsg("Export failed", true);
+  const name = (r.headers.get("content-disposition") || "").match(/filename="([^"]+)"/), url = URL.createObjectURL(await r.blob()), a = document.createElement("a");
+  a.href = url; a.download = name ? name[1] : "fgt-sdwan-settings.json"; a.click(); URL.revokeObjectURL(url);
+  setMsg("Settings exported. Import the file again to rebuild this form.");
+};
+$("#btn_set_import").onclick = () => $("#set_file").click();
+$("#set_file").onchange = async (ev) => {
   const f = ev.target.files[0]; ev.target.value = "";
   if (!f) return;
-  const fail = (j) => { $("#csv_res").textContent = "✕ " + (typeof j.detail === "string" ? j.detail : "import failed"); };
-  $("#csv_todo").hidden = true;
-  let [r, j] = await csvPost(f, false);
-  if (!r.ok) return fail(j);
-  let applied = false;
-  if (j.has_settings && confirm("This file also contains settings (ADOM, DNS, region, VRFs, FortiManager, Proxmox).\n\nOK = take over settings and devices\nCancel = take over only the devices (settings stay as they are in the tool now)")) {
-    [r, j] = await csvPost(f, true);
-    if (!r.ok) return fail(j);
-    applied = true;
-  }
-  const toks = Object.fromEntries([...document.querySelectorAll("[data-tok]")].map((e) => [e.dataset.tok, e.value]));
-  let nt = { ...collect(), hubs: j.hubs, edges: j.edges }, srv = null, extra = [];
-  if (applied) {
-    const { pve: sp = {}, ...rest } = j.settings, sname = sp.server_name; delete sp.server_name;
-    nt = deepMerge(JSON.parse(JSON.stringify(nt)), rest);
-    nt.pve = deepMerge(JSON.parse(JSON.stringify(nt.pve)), sp);
-    if (sname) { srv = SERVERS.find((s) => s.name === sname); if (srv) $("#pve_server").value = srv.id; else extra.push(`Proxmox server '${sname}' does not exist: pick or add one on the Servers page`); }
-  }
-  T = nt; draw(); markIpFields();
-  const imp = j.tokens || {};
-  document.querySelectorAll("[data-tok]").forEach((e) => { const v = imp[e.dataset.tok] || toks[e.dataset.tok]; if (v) e.value = v; });
-  if (j.fmg_token) $("#fm_token").value = j.fmg_token;
-  if (srv) await loadPve();
-  $("#csv_res").textContent = `✓ ${f.name}: ${j.summary}` + (Object.keys(imp).length || j.fmg_token ? ` · FortiFlex tokens: ${Object.keys(imp).length + (j.fmg_token ? 1 : 0)}` : "") + ([...j.notes, ...extra].length ? ` (${[...j.notes, ...extra].join("; ")})` : "");
-  if (j.todo.length) { $("#csv_todo").hidden = false; $("#csv_todo").textContent = "Still to fill in / correct: " + j.todo.join(" · "); }
+  let data;
+  try { data = JSON.parse(await f.text()); } catch (_) { return setMsg(`✕ ${f.name}: not a JSON file`, true); }
+  const r = await post("/api/settings/import", data), j = await json(r);
+  if (!r.ok) return setMsg(`✕ ${f.name}: ${typeof j.detail === "string" ? j.detail : "import failed"}`, true);
+  await setApply(j, f.name);
 };
+async function setList() {
+  const l = await (await fetch("/api/settings/saved")).json();
+  $("#set_list").innerHTML = l.length
+    ? `<table class="tbl"><thead><tr><th>Description</th><th>ADOM</th><th>FortiGates</th><th>Saved</th><th></th></tr></thead><tbody>` +
+      l.map((x) => `<tr><td>${esc(x.description)}</td><td class="mono">${esc(x.adom)}</td><td>${x.devices}</td><td class="mono">${esc(x.updated)}</td>` +
+        `<td class="actions-cell"><button data-sload="${x.id}">Load</button> <button data-supd="${x.id}" title="Overwrite with the current form">Update</button> <button class="icon danger" data-sdel="${x.id}" title="Delete"><span class="i"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></span></button></td></tr>`).join("") + "</tbody></table>"
+    : '<p class="muted">Nothing saved yet.</p>';
+  SAVED = l;
+}
+let SAVED = [];
+$("#btn_set_save").onclick = async () => {
+  const d = $("#set_desc").value.trim();
+  if (!d) { $("#set_desc").classList.add("bad"); return setMsg("Give the settings a description first", true); }
+  $("#set_desc").classList.remove("bad");
+  const r = await post("/api/settings/saved", { description: d, topology: collect(), ui: setUi() }), j = await json(r);
+  if (!r.ok) return setMsg("✕ " + (typeof j.detail === "string" ? j.detail : "save failed"), true);
+  $("#set_desc").value = ""; setMsg(`✓ Saved as '${d}'`); await setList();
+};
+$("#set_list").addEventListener("click", async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.sload) {
+    const r = await fetch("/api/settings/saved/" + b.dataset.sload), j = await json(r);
+    if (!r.ok) return setMsg("✕ " + (j.detail || "load failed"), true);
+    await setApply(j, `'${j.description}'`);
+  } else if (b.dataset.supd) {
+    const x = SAVED.find((s) => String(s.id) === b.dataset.supd);
+    if (!confirm(`Overwrite '${x.description}' with the current form?`)) return;
+    const r = await fetch("/api/settings/saved/" + x.id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description: x.description, topology: collect(), ui: setUi() }) });
+    setMsg(r.ok ? `✓ '${x.description}' updated` : "✕ update failed", !r.ok); await setList();
+  } else if (b.dataset.sdel) {
+    const x = SAVED.find((s) => String(s.id) === b.dataset.sdel);
+    if (!confirm(`Delete saved settings '${x.description}'?`)) return;
+    await fetch("/api/settings/saved/" + x.id, { method: "DELETE" }); setMsg(`'${x.description}' deleted`); await setList();
+  }
+});
+
 // ---- scope: all / only FortiManager / only FortiGates ------------------------
 const SCOPE_HINT = {
   all: "",
@@ -335,6 +403,7 @@ function scopeApply() {
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
   if (T) { flexFields(); topoDraw(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
+  Object.keys(PW_STRONG).forEach(pwHint);
   try { localStorage.setItem("fgt-sdwan-scope", s); } catch (_) {}
 }
 document.querySelectorAll('input[name="scope"]').forEach((i) => (i.onchange = scopeApply));
@@ -352,7 +421,7 @@ function stepsDraw(states = {}) {
 }
 $("#btn_deploy").onclick = async () => {
   showErr([]);
-  { const e = ipErrors(); if (e.length) return showErr(e); }
+  { const e = [...ipErrors(), ...pwErrors()]; if (e.length) return showErr(e); }
   const dry = false, sc = scope(), mf = ["fgt", "tpl", "dev", "lan"].includes(sc) ? "none" : "day0", mg = ["fmg", "tpl", "dev", "lan"].includes(sc) ? "none" : "day0";   // Day-0 for what is deployed
   const what = { all: "the FortiManager and FortiGate VMs", fmg: "the FortiManager VM", fgt: "the FortiGate VMs" }[sc];
   const ask = sc === "lan" ? "This creates or updates the LAN client containers on Proxmox (one per spoke). Continue?"
@@ -502,7 +571,7 @@ $("#srv_test").onclick = async () => {
   $("#orch").textContent = a.orchestrator_present ? "Orchestrator templates found: " + a.orchestrator : "⚠ Orchestrator templates not found at " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
   $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: false }]; draw(); markIpFields(); });
-  draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); route();
+  draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); setList(); route();
 })();
 
 

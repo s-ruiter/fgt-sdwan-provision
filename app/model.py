@@ -230,16 +230,40 @@ HUB_DROP = ("wan2_intf", "wan2_ip", "wan1_hub_ip")         # hubs have one wan
 EDGE_DROP = ("wan1_ip", "wan1_gw", "wan1_hub_ip", "wan2_ip")  # branch wans are always DHCP
 
 
+def password_problems(pw):
+    """What a password lacks to be strong: 8+ characters, upper and lower case, a digit and a special character.
+    The same rule is in the GUI (static/app.js pwProblems)."""
+    pw = pw or ""
+    checks = (("at least 8 characters", len(pw) >= 8), ("an uppercase letter", re.search(r"[A-Z]", pw)),
+              ("a lowercase letter", re.search(r"[a-z]", pw)), ("a digit", re.search(r"[0-9]", pw)),
+              ("a special character", re.search(r"[^A-Za-z0-9]", pw)))
+    return [what for what, ok in checks if not ok]
+
+
 def normalize_wans(t):
     """Enforce the WAN design on any input (GUI, API, old CSV): hub = wan1 static only, branch = wan1/wan2 DHCP."""
+    seg = ((t.get("wanemu") or {}).get("segments") or {}).get("hub") or {}
+    try:
+        hub_net = ipaddress.ip_network(str(seg.get("subnet", "")).strip())
+    except ValueError:
+        hub_net = None
     for h in t.get("hubs", []):
         h["wan1_mode"] = "static"
         for k in HUB_DROP:
             h.pop(k, None)
+        if hub_net is not None:                     # hub wan1 lives in ISP-HUB: its /24 and wan-emu as gateway
+            if seg.get("gw"):
+                h["wan1_gw"] = seg["gw"]
+            host = str(h.get("wan1_ip") or "").split("/")[0].strip()
+            if host:
+                h["wan1_ip"] = f"{host}/{hub_net.prefixlen}"
     for e in t.get("edges", []):
         e["wan1_mode"] = "dhcp"
         for k in EDGE_DROP:
             e.pop(k, None)
+    if not _multi(t):                                  # single-VRF: one LAN per device (LAN2 only exists per VRF)
+        for d in t.get("hubs", []) + t.get("edges", []):
+            d["lans"] = (d.get("lans") or [])[:1]
     return t
 
 

@@ -73,8 +73,8 @@ for d in bare["hubs"] + bare["edges"]:
 assert any("serial number" in x for x in model.validate(bare))                       # still required for FortiGates
 assert model.validate(bare, devices=False) == [], model.validate(bare, devices=False)
 nogw = copy.deepcopy(bare)
-nogw["hubs"][0]["wan1_gw"] = ""
-assert any("gateway" in x for x in model.validate(nogw, devices=False))
+nogw["hubs"][0]["wan1_gw"] = ""                    # filled in from ISP-HUB (wan-emu)
+assert model.validate(nogw, devices=False) == [] and nogw["hubs"][0]["wan1_gw"] == "100.127.200.1"
 bare_cfg = fmgtemplates.build_plan(bare, ORCH)
 mock_fmg.STATE["bodies"].clear()
 ev = []
@@ -325,6 +325,23 @@ r = req("fgt", fgt_tokens=TOKS, fgt_new_pw=PW, pve_token_secret="x")
 r.fmg.password = None
 main._apply_scope(r)
 assert any("FortiManager: admin password" in x for x in errors(r))                          # API login always needed
+# strong passwords for what the tool sets (new FortiManager, FortiGates); an existing FortiManager's login is as it is
+from app import model as _m  # noqa: E402
+assert _m.password_problems(PW) == []
+assert set(_m.password_problems("abc")) == {"at least 8 characters", "an uppercase letter", "a digit", "a special character"}
+assert _m.password_problems("Abcdefg1") == ["a special character"] and _m.password_problems("ABCDEFG1!") == ["a lowercase letter"]
+r = req("fgt", fgt_tokens=TOKS, fgt_new_pw="welkom123", pve_token_secret="x")
+main._apply_scope(r)
+assert any(x.startswith("FortiGates: admin password is not strong") and "uppercase" in x for x in errors(r)), errors(r)
+r = req("fmg", fmg_token="FMGTOKEN0123456789", pve_token_secret="x")
+r.fmg.password = "admin"
+main._apply_scope(r)
+assert any(x.startswith("FortiManager: admin password is not strong") for x in errors(r)), errors(r)
+r = req("tpl")
+r.fmg.password = "admin"                                                                    # existing FortiManager
+main._apply_scope(r)
+assert errors(r) == [], errors(r)
+print("OK  sterk wachtwoord verplicht voor nieuwe FortiManager en FortiGates (8+, hoofd/kleine letter, cijfer, teken); bestaande FMG niet")
 # LAN clients only: Proxmox + a root password; no FortiManager, no tokens, no images
 r = req("lan", pve_token_secret="x", client_pw="Client-pw1")
 r.fmg.password = None

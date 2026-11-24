@@ -11,8 +11,7 @@ ORCH = os.environ.get("ORCH_DIR", os.path.join(os.path.dirname(os.path.dirname(o
 
 
 def topo(multi=True, **extra):
-    t = model.merged(extra)
-    t["region"]["multi_vrf"] = multi
+    t = model.merged(dict(extra, region=dict(model.DEFAULTS["region"], multi_vrf=multi)))
     t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
     for i, d in enumerate(t["hubs"] + t["edges"]):
         d["serial"] = f"FGVMMLTM26{i:06d}"
@@ -45,8 +44,8 @@ assert model.validate(t) == [], model.validate(t)
 t["hubs"][0]["wan1_ip"] = ""
 assert any("hub: always static" in x for x in model.validate(t))
 t = topo()
-t["hubs"][0]["wan1_gw"] = ""
-assert any("gateway" in x for x in model.validate(t)) and any("gateway" in x for x in model.validate(t, devices=False))
+t["hubs"][0]["wan1_gw"] = ""                       # the hub gateway always comes from ISP-HUB (wan-emu)
+assert model.validate(t) == [] and t["hubs"][0]["wan1_gw"] == t["wanemu"]["segments"]["hub"]["gw"]
 t = topo()
 t["edges"][0]["wan2_intf"] = t["edges"][0]["wan1_intf"]
 assert any("another port" in x for x in model.validate(t))
