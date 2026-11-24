@@ -179,7 +179,7 @@ body { display: flex; flex-direction: column; min-height: 100vh; } main { flex: 
 @media (max-width: 600px) { .row { flex-direction: column; } .card { padding: 16px; } .nicrow .vlan { max-width: 88px; } }
 
 /* ---- fgt-sdwan-provision: aanvullingen op de Spawnpad-basis ---- */
-.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); column-gap: 16px; row-gap: 0; align-items: stretch; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); column-gap: 16px; row-gap: 0; align-items: stretch; }
 /* every field = 3 rows of the parent grid (label / control / hint): controls line up even when a label wraps or a hint follows */
 .fields > .f { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: 0; margin-bottom: 16px; }
 .fields > .f > label { align-self: end; }
@@ -199,8 +199,9 @@ h3 small, h2 small { font-weight: 400; text-transform: none; letter-spacing: 0; 
 .dev { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; background: var(--bg); }
 .dev + .dev { margin-top: 12px; }
 .dev > b { display: block; font: 600 12px/16px var(--mono); margin-bottom: 12px; }
-.dev .fields { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); column-gap: 12px; }
+.dev .fields { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); column-gap: 12px; }
 .dev .fields > .f { margin-bottom: 12px; }
+.dev .fields > .lan-first { grid-column-start: 1; }      /* LAN fields start a new row: same columns on hubs and branches */
 .tbl input { height: 32px; }
 .tbl td { height: 44px; padding-right: 12px; }
 .tbl td:last-child { padding-right: 0; }

@@ -15,7 +15,7 @@ const fld = (k, l, v, extra = "", cls = "") => `<div class="f${cls ? " " + cls :
 const PORTS = ["port1", "port2", "port3", "port4", "port5", "port6"];          // FortiGate-VM ports the tool uses
 const portOpts = (cur, none) => [...(none ? [["", none]] : []), ...[...new Set([...PORTS, ...(cur ? [cur] : [])])].map((p) => [p, p])]
   .map(([v, t]) => `<option value="${esc(v)}"${v === (cur || "") ? " selected" : ""}>${esc(t)}</option>`).join("");
-const pfld = (k, l, v, none) => `<div class="f"><label>${l}</label><select data-f="${k}">${portOpts(v, none)}</select></div>`;
+const pfld = (k, l, v, none, cls = "") => `<div class="f ${cls}"><label>${l}</label><select data-f="${k}">${portOpts(v, none)}</select></div>`;
 const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB");
 
 // ---- routing ----------------------------------------------------------------
@@ -162,7 +162,10 @@ function wanCollect() {
 function dev(kind, d, i) {
   const hub = kind === "hubs";
   let h = `<div class="dev" data-k="${kind}" data-i="${i}"><b>${esc(d.name)}</b><div class="fields">`;
-  h += fld("name", "Name", d.name) + fld("serial", "Serial number", d.serial, "", "only-dev") + fld("loopback", "Loopback (BGP, router-id)", d.loopback);
+  // same order on hub and branch cards, so their columns line up: identity first, then WAN, then LAN
+  h += fld("name", "Name", d.name) + fld("serial", "Serial number", d.serial, "", "only-dev") +
+    `<div class="f only-fgt"><label>FortiFlex token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>` +
+    fld("loopback", "Loopback (BGP, router-id)", d.loopback);
   // WAN design: hub = one wan (wan1, always static); branch = wan1 + optional wan2, both DHCP, each with a tunnel to wan1 of every hub
   if (hub) {                                   // wan1 lives in ISP-HUB (/24): only the last octet; gateway = wan-emu
     const oct = ((d.wan1_ip || "").split("/")[0].split(".")[3]) || "";
@@ -170,12 +173,11 @@ function dev(kind, d, i) {
       `<div class="f"><label>wan1 IP (ISP-HUB /24)</label><div class="octet"><span class="mono" data-hubpre>${esc(hubNet().pre)}</span><input data-f="wan1_oct" data-ip="octet" type="number" min="1" max="254" value="${esc(oct)}"></div></div>` +
       `<div class="f"><label>wan1 gateway (wan-emu)</label><input data-hubgw class="mono" value="${esc(hubNet().gw)}" disabled></div>`;
   } else h += pfld("wan1_intf", "wan1 port (ZTP, DHCP)", d.wan1_intf) + pfld("wan2_intf", "wan2 port (DHCP)", d.wan2_intf, "(none)");
-  h += `<div class="f only-fgt"><label>FortiFlex token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
   // single-VRF: one LAN; multi-VRF: one LAN per VRF (LAN2+ optional: port "(none)" = no LAN in that VRF)
   const vrfs = T.region.multi_vrf === false ? [null] : T.region.vrfs.length ? T.region.vrfs : [null];
   vrfs.forEach((v, j) => {
     const l = (d.lans || [])[j] || {}, tag = v ? ` (VRF ${v.id})` : "";
-    h += pfld("lan" + j + "_intf", `LAN${j + 1} port${tag}`, l.intf, j ? "(none)" : "") + fld("lan" + j + "_ip", `LAN${j + 1} IP/prefix${tag}`, l.ip);
+    h += pfld("lan" + j + "_intf", `LAN${j + 1} port${tag}`, l.intf, j ? "(none)" : "", j ? "" : "lan-first") + fld("lan" + j + "_ip", `LAN${j + 1} IP/prefix${tag}`, l.ip);
   });
   return h + "</div></div>";
 }
