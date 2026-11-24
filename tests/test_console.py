@@ -209,3 +209,23 @@ with c.websocket_connect("/api/console/client-site1-1") as ws:
     ws.send_text(json.dumps({"cols": 80, "rows": 24}))
     assert "deploy first" in read_until(ws, "deploy first")
 print("OK  /api/console: proxy (0:len:data, resize, bytes), auto-login 1x, getypt wachtwoord wint, fouten, sessie-einde")
+
+# ---- what the deployment keeps; the Access page lists the LAN clients; new FortiGate/FMG VMs get a serial console
+from app import model, provision_vms as pv  # noqa: E402
+
+t = model.merged({})
+cl = main._client_list(t)
+assert cl[0] == {"name": "client-site1-1", "ip": "10.0.1.10", "spoke": "site1-1"} and len(cl) == len(t["edges"]), cl
+db.put_secret(conn, "access_creds", json.dumps({"client": {"user": "root", "password": "Client-pw1", "list": cl}}))
+a = c.get("/api/access").json()
+assert a["clients"][0] == {"name": "client-site1-1", "ip": "10.0.1.10", "spoke": "site1-1", "password": True}, a
+assert "Client-pw1" not in c.get("/api/access").text
+assert c.post("/api/access/password", json={"name": "client-site1-1"}).json() == {"user": "root", "password": "Client-pw1"}
+assert c.post("/api/access/password", json={"name": "client-nope"}).status_code == 404
+assert main._console_keep({"pve": {"server_id": 7, "name_prefix": "lab1-"}}) == {"server_id": 7, "prefix": "lab1-"}
+assert main._console_keep({"pve": {"url": "https://x:8006"}}) is None                    # no saved server: no consoles
+cfg = {"disk_storage": "local-lvm"}
+for role in ("fgt", "fmg"):
+    p = pv.vm_params({"role": role, "cores": 1, "memory_mb": 1024, "extra_disks": [], "nics": []}, cfg, "local:import/x", None)
+    assert p["serial0"] == "socket" and p["vga"] == "serial0", (role, p)
+print("OK  uitrol bewaart client-login + console-doel; Access toont clients; FortiGate/FMG-VM's met seriële console")

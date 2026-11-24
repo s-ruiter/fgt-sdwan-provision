@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import json
 import os
 import threading
@@ -535,6 +536,27 @@ def _forwards():
     return json.loads(raw) if raw else {"host": "", "forwards": []}
 
 
+def _client_list(topo):
+    """The LAN clients of a deployment as the Access page lists them (same addresses as wanemu.net.client_params)."""
+    out = []
+    for e in topo["edges"]:
+        lan = (e.get("lans") or [{}])[0].get("ip")
+        if not lan:
+            continue
+        i = ipaddress.ip_interface(lan)
+        host = i.network.network_address + 10
+        if host == i.ip:
+            host += 1
+        out.append({"name": f"client-{e['name']}", "ip": str(host), "spoke": e["name"]})
+    return out
+
+
+def _console_keep(topo):
+    """Where the consoles find the deployment: the saved Proxmox server + the name prefix (None without a saved one)."""
+    sid = (topo.get("pve") or {}).get("server_id")
+    return {"server_id": sid, "prefix": topo["pve"].get("name_prefix") or ""} if sid else None
+
+
 @app.get("/api/access")
 def access():
     """What the Access page lists: GUI URL + SSH command per device; whether the tool knows the password."""
@@ -547,7 +569,9 @@ def access():
     fgts = [{"name": f["name"], "ip": f["ip"], "gui": f"https://{fw['host']}:{f['https']}/",
              "ssh": f"ssh -p {f['ssh']} {fg.get('user') or 'admin'}@{fw['host']}", "password": bool(fg.get("password"))}
             for f in fw["forwards"]]
-    return {"fmg": fmg, "fgts": fgts}
+    ci = cr.get("client") or {}
+    clients = [dict(x, password=bool(ci.get("password"))) for x in ci.get("list") or []]
+    return {"fmg": fmg, "fgts": fgts, "clients": clients}
 
 
 class AccessName(BaseModel):
@@ -563,6 +587,9 @@ def access_password(a: AccessName):
         return {"user": fm.get("user") or "admin", "password": fm["password"]}
     if any(f["name"] == a.name for f in fw["forwards"]) and fg.get("password"):
         return {"user": fg.get("user") or "admin", "password": fg["password"]}
+    ci = cr.get("client") or {}
+    if any(x["name"] == a.name for x in ci.get("list") or []) and ci.get("password"):
+        return {"user": ci.get("user") or "root", "password": ci["password"]}
     raise HTTPException(404, detail=f"no password kept for {a.name}")
 
 
@@ -1089,6 +1116,8 @@ def cleanup_run(c: CleanupReq):
             cr.pop("fmg", None)
         if gone_ct("wan-emu"):
             cr.pop("fgt", None)
+        if any(r["kind"] == "ct" and r["ok"] and "client-" in r["name"] for r in results):
+            cr.pop("client", None)
         db.put_secret(db.connect(DATA_DIR), "access_creds", json.dumps(cr) if cr else "")
         if gone_ct("trafficgen"):
             conn = db.connect(DATA_DIR)                      # the Traffic tab no longer points at a deleted Traffic-Gen
@@ -1164,7 +1193,12 @@ def deploy(r: DeployReq):
                          "user": s.admin_user or "admin", "password": r.fmg.password}
         if boot["fgt"] == "day0" and r.scope in ("all", "fgt") and s.fgt_new_pw:
             cr["fgt"] = {"user": s.admin_user or "admin", "password": s.fgt_new_pw}
+        if s.client_pw and (r.scope == "lan" or (boot["fgt"] == "day0" and r.scope in ("all", "fgt"))):
+            cr["client"] = {"user": "root", "password": s.client_pw, "list": _client_list(topo)}
         db.put_secret(db.connect(DATA_DIR), "access_creds", json.dumps(cr))
+        ck = _console_keep(topo)
+        if ck:
+            db.put_secret(db.connect(DATA_DIR), "console_target", json.dumps(ck))
     if not r.dry_run and topo.get("trafficgen", {}).get("enabled") and \
             (r.scope == "lan" or (boot["fgt"] == "day0" and r.scope in ("all", "fgt"))):
         conn = db.connect(DATA_DIR)                    # where the Traffic tab finds it (password: like the agent token)
