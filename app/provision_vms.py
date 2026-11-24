@@ -60,6 +60,30 @@ def fgt_nics(dev, cfg, wanemu, is_hub, index=None, link_no=None):
     return nics
 
 
+def _check_wan_layout(pve, node, specs, existing):
+    """A FortiGate VM that is reused must already have its WAN ports on the VLAN of its own link. A VM of the old layout
+    (one shared VLAN per ISP) keeps its old addresses: in the new VLAN it would lose FortiManager. Stop before changing
+    anything."""
+    for s in specs:
+        if s.get("role") != "fgt":
+            continue
+        v = existing.get(s.get("pve_name") or s["name"]) or existing.get(s["name"])
+        if not v:
+            continue
+        try:
+            cfg = pve.vm_config(node, int(v["vmid"])) or {}
+        except PveError:
+            continue
+        for i, nic in enumerate(s["nics"]):
+            if not nic.get("mac"):                                  # only the WAN ports (fixed MAC)
+                continue
+            m = re.search(r"tag=(\d+)", str(cfg.get(f"net{i}", "")))
+            have = int(m.group(1)) if m else None
+            if have != nic.get("vlan"):
+                raise PveError(f"{v['name']} (VM {v['vmid']}) was deployed with the old WAN layout (port{i + 1} on VLAN "
+                               f"{have}, now one VLAN per WAN: {nic.get('vlan')}): run Cleanup first, then deploy again")
+
+
 def deploy_names(t, scope, fmg_vm=None, fgt_vm=None):
     """Names of everything a deployment creates on Proxmox, in the order of its id block: FortiManager, wan-emu,
     hubs, spokes, LAN clients. fmg_vm / fgt_vm default to what the scope deploys (the pipeline passes the methods)."""
@@ -173,6 +197,7 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True, vmid
 
     try:
         existing = {v["name"]: v for v in pve.find_vms(TAG)}
+        _check_wan_layout(pve, node, specs, existing)              # before anything is changed
         todo = []
         for s in specs:
             pn = s.get("pve_name") or s["name"]

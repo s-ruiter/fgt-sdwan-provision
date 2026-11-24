@@ -197,6 +197,12 @@ class Pve:
     def create_ct(self, node, params):
         return self._req("POST", f"/nodes/{node}/lxc", data=params)
 
+    def ct_config(self, node, vmid):
+        return self._req("GET", f"/nodes/{node}/lxc/{vmid}/config")
+
+    def vm_config(self, node, vmid):
+        return self._req("GET", f"/nodes/{node}/qemu/{vmid}/config")
+
     def set_ct_config(self, node, vmid, params):
         return self._req("PUT", f"/nodes/{node}/lxc/{vmid}/config", data=params)
 

@@ -102,3 +102,36 @@ sh = Sh()
 setup.internet_check(sh, t)
 assert "-I 100.65.1.1" in sh.cmds[0], sh.cmds
 print("OK  wan-emu: NIC + DHCP per lijn, FortiGate-NIC's op het lijn-VLAN, FMG-routes per ISP-blok, forwards")
+
+# ---- re-deploy: a reused wan-emu gets the new NICs (old extra ones deleted); FortiGates of the old layout -> Cleanup
+from app.pve import Pve, PveError  # noqa: E402
+from tests import fake_proxmox as fp, fake_wanemu  # noqa: E402
+
+fp.reset()
+srv = fp.start(8091)
+try:
+    pve = Pve("http://127.0.0.1:8091", "root@pam!t", "secret", poll=0)
+    S = fp.STATE
+    t = lab()
+    t["pve"]["node"] = "pve1"
+    old = {f"net{k}": f"name=eth{k},bridge=vmbr1,tag={3199 + k}" for k in range(1, 10)}       # 9 NICs before
+    S["cts"]["121"] = {"vmid": 121, "params": dict(old, hostname="wan-emu", tags="fgt-sdwan"), "status": "running"}
+    sh = fake_wanemu.FakeShell(installed=True)
+    setup.deploy_wanemu(pve, t, {"ssh_key": setup.new_ssh_key(), "agent_token": "tok1234567890abcdef"}, lambda *a: None,
+                        connector=fake_wanemu.connector(sh), waiter=lambda *a: True)
+    p = S["cts"]["121"]["params"]
+    assert p["net3"].startswith("name=eth3,") and "tag=3211" in p["net3"] and "net8" not in p and "net9" not in p, p
+    # FortiGate VM of the old layout (wan on 3201 = old ISP-A) where site1-1 wan1 now needs 3211
+    S["vms"]["130"] = {"vmid": 130, "name": "site1-1", "status": "running",
+                       "params": {"tags": "fgt-sdwan", "net0": "virtio=02:AA:BB:CC:DD:01,bridge=vmbr1,tag=3201"}}
+    specs = [s for s in pv.build_specs(t, "pw", "pw", {}, None, "fgt") if s["name"] == "site1-1"]
+    before = dict(S["vms"]["130"]["params"])
+    try:
+        pv.deploy_vms(pve, t["pve"] | {"node": "pve1"}, specs, {}, lambda *a: None, "pve_fgt", {}, start=False)
+        raise AssertionError("expected an error for the old WAN layout")
+    except PveError as e:
+        assert "old WAN layout" in str(e) and "Cleanup" in str(e), str(e)
+    assert S["vms"]["130"]["params"] == before
+finally:
+    srv.shutdown()
+print("OK  opnieuw uitrollen: wan-emu krijgt nieuwe NIC's (oude extra weg); FortiGate in oude opzet -> eerst Cleanup")
