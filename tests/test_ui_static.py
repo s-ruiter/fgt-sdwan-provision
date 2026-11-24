@@ -83,7 +83,9 @@ for i in ("wanemu-fgts", "term_overlay", "term_user", "term_pw", "term_go", "ter
 assert 'type="password"' in html[html.index('id="term_pw"') - 80:html.index('id="term_pw"') + 40]
 for f in ("wanFwdLoad", "termOpen", "termStart", "termClose"):
     assert re.search(rf"(async\s+)?function\s+{f}\b", js), f
-assert "/api/wanemu/forwards" in js and "/api/term/" in js
+assert "/api/access" in js and "/api/access/password" in js and "/api/term/" in js
+assert 'data-nav="wanemu">Access &amp; WAN control' in html and "wanemu-show" in html             # renamed; link visibility
+assert html.index('id="wanemu-fgts"') < html.index('id="wanemu-presets"'), "remote access comes first"
 assert re.search(r"cdn\.jsdelivr\.net/npm/xterm@\d+\.\d+\.\d+/", js) and re.search(r"xterm-addon-fit@\d+\.\d+\.\d+/", js)
 assert "term_pw\").value = \"\"" in js.replace("'", '"'), "wachtwoordveld wordt na het verbinden leeggemaakt"
 print("OK  UI: FortiGates met 'GUI openen' en SSH in de browser (xterm.js vast versienummer), wachtwoord niet bewaard")
