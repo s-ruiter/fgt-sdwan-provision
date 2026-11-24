@@ -697,7 +697,7 @@ def _plan_vmids(topo, boot, scope, fmg_vm, fgt_vm):
         return
     pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
     boot["pve_client"] = pve
-    boot["vmids"] = pv.plan_vmids(pve, names, topo["pve"].get("first_vmid"))
+    boot["vmids"] = pv.plan_vmids(pve, names, topo["pve"].get("first_vmid"), topo["pve"].get("name_prefix") or "")
 
 
 def _clients(topo, boot, emit, step="clients"):

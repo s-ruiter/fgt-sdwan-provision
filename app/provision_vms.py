@@ -58,6 +58,7 @@ def fgt_nics(dev, cfg, wanemu, is_hub, index=None):
 def deploy_names(t, scope, fmg_vm=None, fgt_vm=None):
     """Names of everything a deployment creates on Proxmox, in the order of its id block: FortiManager, wan-emu,
     hubs, spokes, LAN clients. fmg_vm / fgt_vm default to what the scope deploys (the pipeline passes the methods)."""
+    from .model import pve_name
     fmg_vm = scope in ("all", "fmg") if fmg_vm is None else fmg_vm
     fgt_vm = scope in ("all", "fgt") if fgt_vm is None else fgt_vm
     out = [t["fmgr"].get("name") or "fmg"] if fmg_vm else []
@@ -69,13 +70,15 @@ def deploy_names(t, scope, fmg_vm=None, fgt_vm=None):
         out += [f"client-{e['name']}" for e in t["edges"] if (e.get("lans") or [{}])[0].get("ip")]
         if (t.get("trafficgen") or {}).get("enabled"):
             out.append("trafficgen")
-    return out
+    return [pve_name(t, n) for n in out]
 
 
-def plan_vmids(pve, names, first=None):
-    """{name: vmid} for the names that do not exist yet (tool VM/CT with that name: reused, keeps its id): the first
-    free block of consecutive ids from `first` (or 100), in the order given."""
-    have = {r.get("name") for r in pve.find_vms(TAG) + pve.find_cts(TAG)}
+def plan_vmids(pve, names, first=None, prefix=""):
+    """{name: vmid} for the names that do not exist yet (tool VM/CT with that name, or with that name without the
+    prefix: reused, keeps its id): the first free block of consecutive ids from `first` (or 100), in the order given."""
+    have = set()
+    for r in pve.find_vms(TAG) + pve.find_cts(TAG):
+        have |= {r.get("name"), prefix + str(r.get("name"))}
     new = [n for n in names if n not in have]
     if not new:
         return {}
@@ -97,13 +100,14 @@ def pick_vmid(pve, vmids, name):
 
 def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
     """VM specs for `which` in ('fmg', 'fgt'); user_data (secret!) is computed here and never logged."""
+    from .model import pve_name
     cfg, mode = topo["pve"], topo["pve"].get("license_mode", "cli")
     specs = []
     if which == "fmg":
         f = topo["fmgr"]
         fm = cfg["fmg"]
         cli = cloudinit.fmg_cli(topo, admin_fmg_pw)
-        specs.append({"name": f.get("name") or "fmg", "role": "fmg", "cores": fm["cores"], "memory_mb": fm["memory_mb"],
+        specs.append({"name": f.get("name") or "fmg", "pve_name": pve_name(topo, f.get("name") or "fmg"), "role": "fmg", "cores": fm["cores"], "memory_mb": fm["memory_mb"],
                       "nics": [{"bridge": fm.get("bridge") or cfg["default_bridge"], "vlan": fm.get("vlan")}],
                       "extra_disks": [fm["data_disk_gb"]],
                       "user_data": cloudinit.build_user_data(cli, fmg_token, cloudinit.license_mode("fmg", mode))})
@@ -112,7 +116,7 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
         hubs = {h["name"] for h in topo["hubs"]}
         for n, d in enumerate(topo["hubs"] + topo["edges"]):
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
-            specs.append({"name": d["name"], "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
+            specs.append({"name": d["name"], "pve_name": pve_name(topo, d["name"]), "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
                           "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n), "extra_disks": [],
                           "user_data": cloudinit.build_user_data(cli, tokens.get(d["name"]), cloudinit.license_mode("fgt", mode))})
     return specs
@@ -161,10 +165,16 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True, vmid
         existing = {v["name"]: v for v in pve.find_vms(TAG)}
         todo = []
         for s in specs:
-            if s["name"] in existing:
-                v = existing[s["name"]]
+            pn = s.get("pve_name") or s["name"]
+            if pn not in existing and s["name"] in existing:          # deployed before without (this) prefix: rename
+                v = existing.pop(s["name"])
+                pve.set_config(node, int(v["vmid"]), {"name": pn})
+                existing[pn] = dict(v, name=pn)
+                emit(step, "running", f"{s['name']}: VM {v['vmid']} renamed to {pn}")
+            if pn in existing:
+                v = existing[pn]
                 state[s["name"]] = {"vmid": int(v["vmid"]), "iso_volid": None}
-                emit(step, "running", f"{s['name']}: exists (VMID {v['vmid']}), reused")
+                emit(step, "running", f"{pn}: exists (VMID {v['vmid']}), reused")
             else:
                 todo.append(s)
         import_vol = {}
@@ -193,8 +203,9 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True, vmid
                     pve.wait_task(node, pve.upload(node, cfg["iso_storage"], iso_path, iso_name, "iso"))
                 iso_volid = f"{cfg['iso_storage']}:iso/{iso_name}"
                 uploaded.append((cfg["iso_storage"], iso_volid))
-            vmid = pick_vmid(pve, vmids, s["name"])
-            upid = pve.create_vm(node, vmid, s["name"], vm_params(s, cfg, import_vol[s["role"]], iso_volid))
+            pn = s.get("pve_name") or s["name"]
+            vmid = pick_vmid(pve, vmids, pn)
+            upid = pve.create_vm(node, vmid, pn, vm_params(s, cfg, import_vol[s["role"]], iso_volid))
             created.append(vmid)
             state[s["name"]] = {"vmid": vmid, "iso_volid": iso_volid}
             pending.append((s, vmid, upid))
@@ -204,7 +215,8 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True, vmid
         if start:
             for s in specs:
                 vmid = state[s["name"]]["vmid"]
-                if s in todo or any(v["name"] == s["name"] and v.get("status") != "running" for v in existing.values()):
+                if s in todo or any(v["name"] == (s.get("pve_name") or s["name"]) and v.get("status") != "running"
+                                    for v in existing.values()):
                     pve.wait_task(node, pve.start_vm(node, vmid))
                     emit(step, "running", f"{s['name']}: started")
         for storage, volid in uploaded:

@@ -114,7 +114,7 @@ function pveFill(p) {
   setSel("#pve_isostore", names(PVE_OPT.iso_storages), p.iso_storage);
   setSel("#pve_br", PVE_OPT.bridges, p.default_bridge);
   setSel("#fmg_br", PVE_OPT.bridges, p.fmg.bridge, "(default bridge)");
-  $("#pve_cpu").value = p.cpu_type; $("#pve_first").value = p.first_vmid ?? "";
+  $("#pve_cpu").value = p.cpu_type; $("#pve_first").value = p.first_vmid ?? ""; $("#pve_prefix").value = p.name_prefix ?? ""; prefixHint();
   $("#fgt_cores").value = p.fgt.cores; $("#fgt_mem").value = p.fgt.memory_mb;
   $("#fmg_cores").value = p.fmg.cores; $("#fmg_mem").value = p.fmg.memory_mb; $("#fmg_disk").value = p.fmg.data_disk_gb; $("#fmg_vlan").value = p.fmg.vlan ?? "";
   const opt = (v) => `<option value="">(default bridge)</option>` + [...new Set([...PVE_OPT.bridges, ...(v ? [v] : [])])].map((x) => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
@@ -126,6 +126,14 @@ function pveFill(p) {
     setSel("#wan-uplink-bridge", PVE_OPT.bridges, $("#wan-uplink-bridge").value || T.wanemu.uplink.bridge || "", "(same as WAN emulator bridge)");
   }
 }
+// Proxmox names of this deployment: prefix (a "-" is added) + name; FortiGate hostnames stay as they are
+function prefixHint() {
+  const raw = $("#pve_prefix").value.trim(), pre = raw && !raw.endsWith("-") ? raw + "-" : raw, ok = !raw || /^[A-Za-z0-9][A-Za-z0-9-]{0,20}$/.test(pre);
+  $("#pve_prefix").classList.toggle("bad", !ok);
+  const hub = (T && T.hubs && T.hubs[0] && T.hubs[0].name) || "site1-H1";
+  $("#pve_prefix_hint").textContent = !raw ? "" : ok ? `e.g. ${pre}${hub}, ${pre}wan-emu` : "Only letters, digits and '-' (max 20)";
+}
+$("#pve_prefix").addEventListener("input", prefixHint);
 const WAN_SEGS = ["hub", "a", "b"];
 function wanFill(w) {
   $("#wan-vmid").value = w.vmid ?? ""; $("#wan-storage").value = w.storage;
@@ -216,7 +224,7 @@ function collect() {
   t.pve = {
     server_id: $("#pve_server").value ? +$("#pve_server").value : null, url: "", token_id: "", verify_tls: true, node: $("#pve_node").value.trim(),
     disk_storage: $("#pve_dstore").value.trim(), import_storage: $("#pve_istore").value.trim(), iso_storage: $("#pve_isostore").value.trim(),
-    default_bridge: $("#pve_br").value.trim(), cpu_type: $("#pve_cpu").value.trim() || "host", license_mode: "cli", first_vmid: n($("#pve_first").value),   // FortiFlex: always `execute vm-license <token>` as the last CLI line
+    default_bridge: $("#pve_br").value.trim(), cpu_type: $("#pve_cpu").value.trim() || "host", license_mode: "cli", first_vmid: n($("#pve_first").value), name_prefix: $("#pve_prefix").value.trim(),   // FortiFlex: always `execute vm-license <token>` as the last CLI line
     fgt: { cores: +$("#fgt_cores").value, memory_mb: +$("#fgt_mem").value },
     fmg: { cores: +$("#fmg_cores").value, memory_mb: +$("#fmg_mem").value, data_disk_gb: +$("#fmg_disk").value, bridge: $("#fmg_br").value.trim(), vlan: n($("#fmg_vlan").value) },
     ports: Object.fromEntries([...document.querySelectorAll("[data-p]")].map((r) => [r.dataset.p, { bridge: r.querySelector("[data-f=bridge]").value.trim(), vlan: n(r.querySelector("[data-f=vlan]").value) }])),

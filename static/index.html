@@ -68,6 +68,7 @@
           <div class="f"><label>ISO storage</label><select id="pve_isostore"></select></div>
           <div class="f"><label>Default bridge</label><select id="pve_br"></select></div>
           <div class="f"><label>First VM ID (empty = automatic)</label><input id="pve_first" type="number" min="100" placeholder="lowest free block"></div>
+          <div class="f"><label>Name prefix (VMs/containers)</label><input id="pve_prefix" maxlength="21" placeholder="none, e.g. lab1" title="Put before every Proxmox VM/CT name of this deployment, e.g. lab1-site1-H1, lab1-wan-emu. FortiGate hostnames do not change. A deployment made without (or with another) prefix is renamed and reused."><div class="hint" id="pve_prefix_hint"></div></div>
           <div class="f"><label>CPU type</label><select id="pve_cpu"><option>host</option><option>x86-64-v2-AES</option><option>x86-64-v3</option><option>kvm64</option></select></div>
         </div>
         <div class="only-fmg">
