@@ -157,3 +157,16 @@ mv = model.merged({"region": dict(model.DEFAULTS["region"], multi_vrf=True)})
 assert len(mv["edges"][0]["lans"]) == 2                                                     # multi-VRF: LAN per VRF
 assert "LAN2" not in str(net.lan_vlans(h)) and net.bridge_needs(dict(h, wanemu=dict(h["wanemu"], uplink=LAB)))["vmbr0"].isdisjoint(range(3401, 3500))
 print("OK  hub wan1: gateway en /24 uit ISP-HUB; single-VRF alleen LAN1 (geen LAN2-VLAN meer)")
+
+# untagged uplink on a bridge where the host itself is in another network: the VLAN is missing (seen on PVE01:
+# vmbr0 untagged = 10.10.100.0/24, the uplink 10.10.106.0/24 is VLAN 106)
+br = {"vmbr0": {"iface": "vmbr0", "cidr": "10.10.100.13/24", "bridge_ports": "enp86s0"}}
+u = model.merged({"wanemu": {"uplink": {"bridge": "", "vlan": None, "ip": "10.10.106.250/24", "gw": "10.10.106.1"}}})
+pr = net.uplink_problems(u, br)
+assert len(pr) == 1 and "10.10.100.0/24" in pr[0] and "10.10.106.0/24" in pr[0] and "Uplink VLAN" in pr[0], pr
+u["wanemu"]["uplink"]["vlan"] = 106
+assert net.uplink_problems(u, br) == []                                          # tagged: fine
+u["wanemu"]["uplink"].update(vlan=None, ip="10.10.100.250/24", gw="10.10.100.1")
+assert net.uplink_problems(u, br) == []                                          # untagged in the host's own network
+assert net.uplink_problems(u, {"vmbr0": {"iface": "vmbr0"}}) == []               # host has no address there: unknown
+print("OK  uplink zonder VLAN in een ander netwerk dan de host op die bridge -> duidelijke fout vooraf")

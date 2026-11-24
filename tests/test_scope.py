@@ -287,6 +287,16 @@ for sc in ("fmg", "tpl", "dev"):
     main._check_bridges(t, rq(sc))               # no FortiGate VMs / clients: bridges not asked
 fake_proxmox.STATE["bridges"] = None
 main._check_bridges(t, rq("all"))                # default fake bridges are fine
+# uplink untagged while the host's own network on that bridge is another one: refused up front, no default VLAN
+fake_proxmox.STATE["bridges"] = [{"iface": "vmbr0", "type": "bridge", "bridge_ports": "eno1", "cidr": "10.10.100.13/24"}]
+tu = copy.deepcopy(t); tu["wanemu"]["uplink"]["vlan"] = None
+try:
+    main._check_bridges(tu, rq("all"))
+    raise AssertionError("expected 422")
+except HTTPException as e:
+    assert any("fill in the Uplink VLAN" in x and "10.10.100.0/24" in x for x in e.detail), e.detail
+main._check_bridges(t, rq("all"))                # with its VLAN (106 in this lab): fine
+fake_proxmox.STATE["bridges"] = None
 print("OK  bridges vooraf gecontroleerd: VLAN buiten bridge-vids -> duidelijke fout, niets aangemaakt (alles en LAN-clients; ook in de API vóór FortiFlex)")
 
 # ---------------------------------------------------------------- API: scope overrides the methods + validation
