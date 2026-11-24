@@ -62,12 +62,12 @@ DEFAULTS = {
         # LAN VLANs: LAN1 of FortiGate n on lan_vlan_base+1+n, LAN2 on lan2_vlan_base+1+n
         "lan_vlan_base": 3300, "lan2_vlan_base": 3400,
         "uplink": {"bridge": "", "vlan": None, "ip": "", "gw": ""},   # bridge "" = the WAN emulator bridge;   # lab-specific: filled in by the user (VLAN empty = untagged)
+        # one VLAN + /24 per FortiGate WAN: link n of an ISP = n-th /24 of its block (.1 wan-emu, .2 FortiGate) on
+        # VLAN vlan_base+n. Hub n wan1 -> ISP-HUB, spoke n wan1 -> ISP-A, spoke n wan2 -> ISP-B.
         "segments": {
-            "hub": {"name": "ISP-HUB", "vlan": 3200, "subnet": "100.127.200.0/24", "gw": "100.127.200.1"},
-            "a": {"name": "ISP-A", "vlan": 3201, "subnet": "100.127.201.0/24", "gw": "100.127.201.1",
-                  "res_start": 11, "pool": [100, 199]},
-            "b": {"name": "ISP-B", "vlan": 3202, "subnet": "100.127.202.0/24", "gw": "100.127.202.1",
-                  "res_start": 11, "pool": [100, 199]},
+            "hub": {"name": "ISP-HUB", "block": "100.64.0.0/16", "vlan_base": 3200},
+            "a": {"name": "ISP-A", "block": "100.65.0.0/16", "vlan_base": 3210},
+            "b": {"name": "ISP-B", "block": "100.66.0.0/16", "vlan_base": 3230},
         },
     },
     # optional Traffic-Gen container: management on the uplink network (own IP), traffic from the first spoke's LAN
@@ -249,23 +249,47 @@ def password_problems(pw):
     return [what for what, ok in checks if not ok]
 
 
-def normalize_wans(t):
-    """Enforce the WAN design on any input (GUI, API, old CSV): hub = wan1 static only, branch = wan1/wan2 DHCP."""
-    seg = ((t.get("wanemu") or {}).get("segments") or {}).get("hub") or {}
+def _link_net(t, seg, n):
+    """The n-th /24 (1-based) of an ISP block, or None when the block is invalid / too small."""
     try:
-        hub_net = ipaddress.ip_network(str(seg.get("subnet", "")).strip())
+        b = ipaddress.ip_network(str(((t.get("wanemu") or {}).get("segments") or {}).get(seg, {}).get("block", "")).strip())
     except ValueError:
-        hub_net = None
-    for h in t.get("hubs", []):
+        return None
+    if b.version != 4 or b.prefixlen > 23 or n >= 2 ** (24 - b.prefixlen):
+        return None
+    return ipaddress.ip_network((int(b.network_address) + n * 256, 24))
+
+
+def wan_links(t):
+    """Every FortiGate WAN as a link with its own /24 and VLAN, in a fixed order: hubs (wan1), then each spoke wan1
+    and wan2. [{id, name, seg, n, subnet, gw, ip, vlan}]; a link whose block is invalid is left out."""
+    seg = ((t.get("wanemu") or {}).get("segments") or {})
+    todo = [(h["name"], "hub", n, "wan1") for n, h in enumerate(t.get("hubs", []), start=1)]
+    for n, e in enumerate(t.get("edges", []), start=1):
+        todo.append((e["name"], "a", n, "wan1"))
+        if e.get("wan2_intf"):
+            todo.append((e["name"], "b", n, "wan2"))
+    out = []
+    for name, s, n, w in todo:
+        net = _link_net(t, s, n)
+        vb = seg.get(s, {}).get("vlan_base")
+        if net is None or not isinstance(vb, int):
+            continue
+        out.append({"id": f"{name}-{w}", "name": name, "seg": s, "n": n, "subnet": str(net),
+                    "gw": str(net.network_address + 1), "ip": str(net.network_address + 2), "vlan": vb + n})
+    return out
+
+
+def normalize_wans(t):
+    """Enforce the WAN design on any input (GUI, API, old CSV): hub = wan1 static only, branch = wan1/wan2 DHCP. The hub
+    wan1 address is derived: .2 of its own /24 in ISP-HUB, gateway .1 (the wan-emu)."""
+    for n, h in enumerate(t.get("hubs", []), start=1):
         h["wan1_mode"] = "static"
         for k in HUB_DROP:
             h.pop(k, None)
-        if hub_net is not None:                     # hub wan1 lives in ISP-HUB: its /24 and wan-emu as gateway
-            if seg.get("gw"):
-                h["wan1_gw"] = seg["gw"]
-            host = str(h.get("wan1_ip") or "").split("/")[0].strip()
-            if host:
-                h["wan1_ip"] = f"{host}/{hub_net.prefixlen}"
+        net = _link_net(t, "hub", n)
+        if net is not None:
+            h["wan1_ip"], h["wan1_gw"] = f"{net.network_address + 2}/24", str(net.network_address + 1)
     for e in t.get("edges", []):
         e["wan1_mode"] = "dhcp"
         for k in EDGE_DROP:
@@ -398,9 +422,25 @@ FIXED = {"platform": "FortiGate-VM64", "dns_primary": "1.1.1.1", "dns_secondary"
          "trafficgen": {"count": 10}}
 
 
+SEG_KEYS = ("hub", "a", "b")
+MAX_WAN_LINKS = 31                                       # Proxmox: 32 NICs per container, net0 is the uplink
+
+
+def old_segments(user):
+    """True when the input still has the old layout (one shared subnet per ISP: subnet/gw instead of block)."""
+    seg = ((user or {}).get("wanemu") or {}).get("segments") or {}
+    return any(isinstance(seg.get(k), dict) and ("subnet" in seg[k] or "gw" in seg[k]) for k in SEG_KEYS)
+
+
 def merged(user):
     t = copy.deepcopy(DEFAULTS)
-    for k, v in copy.deepcopy(user or {}).items():       # never share lists/dicts with the caller (or DEFAULTS)
+    user = copy.deepcopy(user or {})
+    seg = ((user.get("wanemu") or {}).get("segments")) if isinstance(user.get("wanemu"), dict) else None
+    if isinstance(seg, dict):                            # old layout (subnet/gw per ISP): back to the new defaults
+        for k in SEG_KEYS:
+            if isinstance(seg.get(k), dict) and ("subnet" in seg[k] or "gw" in seg[k]):
+                seg[k] = {"name": seg[k].get("name") or DEFAULTS["wanemu"]["segments"][k]["name"]}
+    for k, v in user.items():                            # never share lists/dicts with the caller (or DEFAULTS)
         if k in ("pve", "wanemu", "trafficgen") and isinstance(v, dict):
             _deep(t[k], v)
         elif v is not None:
@@ -417,7 +457,7 @@ def pve_name(t, name):
 
 
 def validate_wanemu(t):
-    """WAN emulator: segments, uplink and the hub addresses that must live in ISP-HUB."""
+    """WAN emulator: ISP blocks and VLAN ranges (one /24 + VLAN per WAN), uplink, port forwards."""
     w, err = t.get("wanemu", {}), []
     seg, up = w.get("segments", {}), w.get("uplink", {})
     n_fgt = len(t.get("hubs", [])) + len(t.get("edges", []))
@@ -425,24 +465,30 @@ def validate_wanemu(t):
     for lbl, b in (("bridge", w.get("bridge")), ("uplink bridge", up.get("bridge") or w.get("bridge"))):
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", str(b or "")):
             err.append(f"WAN emulation: {lbl} missing or invalid")
+    count = {"hub": len(t.get("hubs", [])), "a": len(t.get("edges", [])),
+             "b": len(t.get("edges", []))}                     # link numbers 1..count per ISP (wan2: spoke number)
+    isp_vlans = {}
     for key in ("hub", "a", "b"):
         g = seg.get(key, {})
         name = g.get("name", key)
         try:
-            n = ipaddress.ip_network(str(g.get("subnet", "")).strip())
+            n = ipaddress.ip_network(str(g.get("block", "")).strip())
+            ok = n.version == 4 and n.prefixlen <= 23 and count[key] < 2 ** (24 - n.prefixlen)
         except ValueError:
-            err.append(f"WAN emulation {name}: invalid subnet (a.b.c.0/nn)")
-            continue
-        nets[name] = n
-        if not _ip(g.get("gw", "")) or ipaddress.ip_address(g["gw"].strip()) not in n:
-            err.append(f"WAN emulation {name}: gateway missing or not in {n}")
-        if key != "hub":
-            lo, hi = (g.get("pool") or [0, 0])[:2]
-            rs = g.get("res_start")
-            if not all(isinstance(x, int) for x in (lo, hi, rs)) or not (0 < rs < lo <= hi < n.num_addresses - 1):
-                err.append(f"WAN emulation {name}: reservations and pool must be inside the subnet (start < pool)")
-            elif rs + len(t.get("edges", [])) - 1 >= lo:
-                err.append(f"WAN emulation {name}: too many spokes for the reservations (.{rs} to .{lo - 1})")
+            ok = False
+        if not ok:
+            err.append(f"WAN emulation {name}: block must be an IPv4 network like 100.65.0.0/16 with a /24 per "
+                       f"FortiGate ({count[key]} needed, numbered from 1)")
+        else:
+            nets[name] = n
+        vb = g.get("vlan_base")
+        if not isinstance(vb, int) or vb < 1 or vb + max(count[key], 1) > 4094:
+            err.append(f"WAN emulation {name}: VLAN base must be 1-{4094 - max(count[key], 1)}")
+        else:
+            isp_vlans[name] = range(vb + 1, vb + 1 + count[key])
+    if len(wan_links(t)) > MAX_WAN_LINKS:
+        err.append(f"WAN emulation: {len(wan_links(t))} WAN links, at most {MAX_WAN_LINKS} (one network card each on "
+                   "the wan-emu container; Proxmox allows 32 including the uplink)")
     try:
         ui = ipaddress.ip_interface(str(up.get("ip", "")).strip())
         if ui.network.prefixlen == 32 or not _ip(up.get("gw", "")) or ipaddress.ip_address(up["gw"].strip()) not in ui.network:
@@ -460,14 +506,22 @@ def validate_wanemu(t):
         rng = range(b + 1, b + 1 + n_fgt) if isinstance(b, int) else range(0)
         if not isinstance(b, int) or b < 1 or b + n_fgt > 4094:
             err.append(f"WAN emulation: LAN VLAN base {key} must be 1-{4094 - n_fgt}")
-        elif any(v in rng for v in [up.get("vlan")] + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]):
+        elif up.get("vlan") in rng or any(set(rng) & set(r) for r in isp_vlans.values()):
             err.append(f"WAN emulation: LAN VLANs {rng.start}-{rng.stop - 1} clash with the uplink or ISP VLANs")
     if isinstance(w.get("lan_vlan_base"), int) and isinstance(w.get("lan2_vlan_base"), int) and \
             abs(w["lan_vlan_base"] - w["lan2_vlan_base"]) < n_fgt:
         err.append("WAN emulation: the LAN VLANs for LAN1 and LAN2 overlap")
-    vlans = ([up["vlan"]] if up.get("vlan") not in (None, "") else []) + [seg.get(k, {}).get("vlan") for k in ("hub", "a", "b")]
-    if any(not isinstance(v, int) or not 1 <= v <= 4094 for v in vlans) or len(set(vlans)) != len(vlans):
-        err.append("WAN emulation: VLANs must be unique and 1-4094")
+    names = list(isp_vlans)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if set(isp_vlans[a]) & set(isp_vlans[b]):
+                err.append(f"WAN emulation: the VLANs of {a} and {b} overlap ({isp_vlans[a].start}-"
+                           f"{isp_vlans[a].stop - 1} / {isp_vlans[b].start}-{isp_vlans[b].stop - 1})")
+    uv = up.get("vlan")
+    if uv not in (None, "") and (not isinstance(uv, int) or not 1 <= uv <= 4094):
+        err.append("WAN emulation: uplink VLAN must be 1-4094")
+    elif uv not in (None, "") and any(uv in r for r in isp_vlans.values()):
+        err.append(f"WAN emulation: uplink VLAN {uv} is one of the ISP VLANs")
     ranges = []
     for key, lbl in (("fwd_https_base", "HTTPS"), ("fwd_ssh_base", "SSH")):
         b = w.get(key)
@@ -480,17 +534,6 @@ def validate_wanemu(t):
     for lbl, lo, hi in ranges:
         if lo <= w.get("agent_port", 8090) <= hi:
             err.append(f"WAN emulation: {lbl} port range {lo}-{hi} contains the agent port {w.get('agent_port', 8090)}")
-    hub = seg.get("hub", {})
-    hn = nets.get(hub.get("name", "hub"))
-    for h in t.get("hubs", []):
-        try:
-            inside = hn is not None and ipaddress.ip_interface(h.get("wan1_ip", "").strip()).ip in hn
-        except ValueError:
-            inside = False
-        if not inside:
-            err.append(f"{h.get('name')}: wan1 must be in ISP-HUB ({hn})")
-        elif (h.get("wan1_gw") or "").strip() != hub.get("gw"):
-            err.append(f"{h.get('name')}: wan1 gateway must be the ISP-HUB gateway {hub.get('gw')}")
     return err
 
 
