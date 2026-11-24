@@ -192,3 +192,16 @@ for v in ("--bg:", "--card:", "--text:", "--line:", "--topbar:"):
 assert ".topbar { background: var(--topbar)" in css
 assert re.search(r"function\s+themeSet\b", js) and "fgt-sdwan-theme" in js
 print("OK  UI: dark mode (knop in de navigatie, onthouden, volgt anders het systeem)")
+
+# alignment: every field grid keeps the same column width (auto-fill, no stretching of short rows), and hub and
+# branch cards have their fields in the same order (name, serial, FortiFlex token, loopback, WAN..., LAN...)
+css = open(os.path.join(root, "static", "style.css")).read()
+rule = re.search(r"\.fields \{[^}]*\}", css).group(0)
+assert "auto-fill" in rule and "auto-fit" not in rule, rule
+devrule = re.search(r"\.dev \.fields \{[^}]*\}", css).group(0)
+assert "auto-fill" in devrule and "auto-fit" not in devrule, devrule
+body = js[js.index("function dev(kind, d, i)"):js.index("function hubNet()")]
+order = [body.index(x) for x in ('"Name"', '"Serial number"', "FortiFlex token", '"Loopback (BGP, router-id)"', '"wan1_intf"', 'LAN${j + 1} port')]
+assert order == sorted(order), order
+assert "lan-first" in body and re.search(r"\.dev \.fields > \.lan-first \{[^}]*grid-column-start: 1", css), "LAN velden op een eigen regel"
+print("OK  UI: velden lijnen uit over alle kaarten (auto-fill); hub- en branchkaarten in dezelfde volgorde, LAN op een eigen regel")
