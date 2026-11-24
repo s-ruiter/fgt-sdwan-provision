@@ -223,8 +223,9 @@ def mgmt_cli(dev, pe=PE_VRF):
     (seq 100, zone underlay) is refused ("Duplicate routes (1 and 100) on SD-WAN and/or non-SD-WAN interfaces", FMG
     8.0.2 install). The gateway goes on the SD-WAN member instead (see _hub_gateway)."""
     lines = []
-    if pe:
-        lines += ["config system central-management", f"  set vrf-select {pe}", "end"]
+    if pe:      # the FortiGate's own traffic to FMG and DNS leaves in the PE-VRF, where the WANs are
+        lines += ["config system central-management", f"  set vrf-select {pe}", "end",
+                  "config system dns", f"  set vrf-select {pe}", "end"]
     return "\n".join(lines)
 
 
@@ -280,6 +281,10 @@ def build_plan(topo, orch_dir):
         r["sdwan"] = _subst(r["sdwan"], lit)
         if r["kind"] == "hub":
             _hub_gateway(r["sdwan"], per[r["proto"]]["dev"])
+        if model.pe_vrf(topo):      # health-check probes in the PE-VRF (in VRF 0 they had no route / failed RPF)
+            for hc in r["sdwan"].get("health-check", []):
+                if hc.get("detect-mode") != "remote":
+                    hc["vrf"] = model.pe_vrf(topo)
         r["static"] = sd.get("router static", [])
         for row in r["static"]:
             row.setdefault("dst", ["0.0.0.0", "0.0.0.0"])

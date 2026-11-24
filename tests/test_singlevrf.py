@@ -112,3 +112,16 @@ assert "edit 4112" not in text(ft.build_plan(off, ORCH))
 ov = topo(True); ov["edges"][0]["lans"][1]["ip"] = "10.0.1.129/25"
 assert any("overlap" in e for e in model.validate(ov)), model.validate(ov)
 print("OK  multi-VRF: naar PE zonder NAT + return route per LAN in de PE-VRF; overlappende LAN's per FortiGate geweigerd")
+
+# multi-VRF: the FortiGate's own traffic (SD-WAN health checks, DNS) has to run in the PE-VRF, where the WANs and
+# tunnels are; in VRF 0 the HUB check (10.200.99.1) failed the hub's reverse path check and the Internet check could
+# not resolve www.fortinet.com (measured on site1-1; 'set vrf 1' + dns 'vrf-select 1' made all checks alive)
+for r in pm["roles"]:
+    for hc in r["sdwan"].get("health-check", []):
+        assert hc.get("vrf") == (None if hc.get("detect-mode") == "remote" else 1), (r["name"], hc)   # remote: no probes
+    mg = "\n".join(x for n, x, _ in r["cli"] if n.endswith("00-Mgmt"))
+    assert re.search(r"config system dns\s+set vrf-select 1\s+end", mg), (r["name"], mg)
+for r in ps["roles"]:
+    assert all("vrf" not in hc for hc in r["sdwan"].get("health-check", []))
+assert "vrf-select" not in text(ps)
+print("OK  multi-VRF: health checks en DNS in de PE-VRF; single-VRF ongewijzigd")
