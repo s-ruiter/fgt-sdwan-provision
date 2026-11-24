@@ -19,6 +19,15 @@ class SaveIn(BaseModel):
     description: str
     topology: dict
     ui: dict = {}
+    passwords: dict = {}                       # kept with a save in the tool (database 0600), never in an export
+
+
+PASSWORDS = ("fmg_pass", "fgt_newpw", "client_pw", "tg_pw")     # form fields whose value may be kept
+
+
+def _with_passwords(f, pw):
+    f["passwords"] = {k: str(v) for k, v in (pw or {}).items() if k in PASSWORDS and v}
+    return f
 
 
 def conn():
@@ -73,7 +82,7 @@ def saved_list():
 @router.post("/saved")
 def saved_add(r: SaveIn):
     c = conn()
-    f = settings_io.to_file(r.topology, _server_name(c, r.topology), r.ui)
+    f = _with_passwords(settings_io.to_file(r.topology, _server_name(c, r.topology), r.ui), r.passwords)
     s = settings_io.summary(f["topology"])
     return {"id": db.save_settings(c, _desc(r.description), s["adom"], s["devices"], f)}
 
@@ -81,7 +90,7 @@ def saved_add(r: SaveIn):
 @router.put("/saved/{sid}")
 def saved_update(sid: int, r: SaveIn):
     c = conn()
-    f = settings_io.to_file(r.topology, _server_name(c, r.topology), r.ui)
+    f = _with_passwords(settings_io.to_file(r.topology, _server_name(c, r.topology), r.ui), r.passwords)
     s = settings_io.summary(f["topology"])
     if db.save_settings(c, _desc(r.description), s["adom"], s["devices"], f, sid) is None:
         raise HTTPException(404, detail="saved settings not found")
@@ -94,7 +103,8 @@ def saved_get(sid: int):
     row: Optional[dict] = db.get_settings(c, sid)
     if row is None:
         raise HTTPException(404, detail="saved settings not found")
-    return dict(_load(c, row["data"]), id=sid, description=row["description"])
+    return dict(_load(c, row["data"]), id=sid, description=row["description"],
+                passwords=row["data"].get("passwords") or {})
 
 
 @router.delete("/saved/{sid}")

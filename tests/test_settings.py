@@ -80,6 +80,20 @@ assert c.get(f"/api/settings/saved/{sid}").status_code == 404 and len(c.get("/ap
 assert c.put("/api/settings/saved/9999", json={"description": "x", "topology": t}).status_code == 404
 print("OK  opgeslagen instellingen: beschrijving verplicht, lijst (nieuwste eerst), laden, bijwerken, verwijderen; geen secrets")
 
+# passwords are kept with a save in the tool (database 0600), returned on load, never listed or exported
+PWS = {"fmg_pass": "Fmg-Admin-pw1!", "fgt_newpw": "Fgt-Admin-pw1!", "client_pw": "Client-pw1", "tg_pw": "Tg-Admin-pw1!"}
+r = c.post("/api/settings/saved", json={"description": "with passwords", "topology": t, "passwords": dict(PWS, evil="x", fmg_pass="Fmg-Admin-pw1!")})
+pid = r.json()["id"]
+got = c.get(f"/api/settings/saved/{pid}").json()
+assert got["passwords"] == PWS, got["passwords"]                                    # only the known fields
+assert "Fmg-Admin-pw1!" not in c.get("/api/settings/saved").text
+c.put(f"/api/settings/saved/{pid}", json={"description": "with passwords", "topology": t, "passwords": {"fgt_newpw": "New-Fgt-pw2!"}})
+assert c.get(f"/api/settings/saved/{pid}").json()["passwords"] == {"fgt_newpw": "New-Fgt-pw2!"}   # update replaces them
+assert c.get(f"/api/settings/saved/{lst[0]['id']}").json()["passwords"] == {}           # saved without: none
+r = c.post("/api/settings/export", json={"topology": t, "passwords": PWS})
+assert r.status_code == 200 and "Fmg-Admin-pw1!" not in r.text and "passwords" not in r.json()
+print("OK  wachtwoorden: bewaard bij opslaan in de tool, terug bij laden, niet in de lijst of de export")
+
 # the export module does not depend on the API
 assert settings_io.FORMAT == "fgt-sdwan-settings"
 print("alle settings-tests geslaagd")

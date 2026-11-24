@@ -178,12 +178,13 @@
       <div id="deploy_status" class="card" hidden></div>
 
       <div class="card" id="sec_settings">
-        <h2>Settings <small>(the whole form: topology, FortiManager, Proxmox, WAN emulation; never passwords or tokens)</small></h2>
+        <h2>Settings <small>(the whole form: topology, FortiManager, Proxmox, WAN emulation; never FortiFlex tokens)</small></h2>
         <div class="btnrow">
           <button id="btn_set_export">Export settings</button>
           <button id="btn_set_import">Import settings</button><input type="file" id="set_file" accept=".json,application/json" hidden>
           <span class="hint" id="set_res"></span>
         </div>
+        <div class="hint">The exported file contains no passwords. <b>Saved in this tool</b> also keeps the passwords you filled in (FortiManager, FortiGates, LAN clients, Traffic-Gen) in the tool's database, and fills them in again on Load.</div>
         <h3>Saved in this tool</h3>
         <div class="fields">
           <div class="f"><label>Description</label><input id="set_desc" maxlength="200" placeholder="e.g. Lab 2 hubs, 3 spokes, single-VRF"></div>

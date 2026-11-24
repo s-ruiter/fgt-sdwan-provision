@@ -359,20 +359,26 @@ document.addEventListener("click", (e) => {
 // ---- settings: export / import a JSON file, saved settings in the tool ------------------------------------------
 const setMsg = (m, bad) => { $("#set_res").className = "hint" + (bad ? " error" : ""); $("#set_res").textContent = m; };
 const setUi = () => ({ scope: scope(), fmg_user: $("#fmg_user").value });
+const SET_PW = ["fmg_pass", "fgt_newpw", "client_pw", "tg_pw"];                   // kept with a save in the tool
+const setPw = () => Object.fromEntries(SET_PW.map((id) => [id, $("#" + id).value]).filter(([, v]) => v));
 async function setApply(j, src) {
   T = j.topology; draw(); markIpFields();
   if (j.ui && j.ui.fmg_user) $("#fmg_user").value = j.ui.fmg_user;
   const sc = j.ui && document.querySelector(`input[name="scope"][value="${j.ui.scope}"]`);
   if (sc) { sc.checked = true; scopeApply(); }
   if (T.pve.server_id) { $("#pve_server").value = T.pve.server_id; await loadPve(); }
-  setMsg(`✓ ${src} loaded` + (j.notes && j.notes.length ? ` (${j.notes.join("; ")})` : "") + ". Passwords and FortiFlex tokens are not part of settings.");
+  const pw = j.passwords || {};
+  SET_PW.forEach((id) => { if (pw[id]) $("#" + id).value = pw[id]; });
+  Object.keys(PW_STRONG).forEach(pwHint);
+  setMsg(`✓ ${src} loaded` + (j.notes && j.notes.length ? ` (${j.notes.join("; ")})` : "") +
+    (Object.keys(pw).length ? ", passwords filled in. FortiFlex tokens are not part of settings." : ". Passwords and FortiFlex tokens were not part of it."));
 }
 $("#btn_set_export").onclick = async () => {
   const r = await post("/api/settings/export", { topology: collect(), ui: setUi() });
   if (!r.ok) return setMsg("Export failed", true);
   const name = (r.headers.get("content-disposition") || "").match(/filename="([^"]+)"/), url = URL.createObjectURL(await r.blob()), a = document.createElement("a");
   a.href = url; a.download = name ? name[1] : "fgt-sdwan-settings.json"; a.click(); URL.revokeObjectURL(url);
-  setMsg("Settings exported. Import the file again to rebuild this form.");
+  setMsg("Settings exported (without passwords). Import the file again to rebuild this form.");
 };
 $("#btn_set_import").onclick = () => $("#set_file").click();
 $("#set_file").onchange = async (ev) => {
@@ -398,7 +404,7 @@ $("#btn_set_save").onclick = async () => {
   const d = $("#set_desc").value.trim();
   if (!d) { $("#set_desc").classList.add("bad"); return setMsg("Give the settings a description first", true); }
   $("#set_desc").classList.remove("bad");
-  const r = await post("/api/settings/saved", { description: d, topology: collect(), ui: setUi() }), j = await json(r);
+  const r = await post("/api/settings/saved", { description: d, topology: collect(), ui: setUi(), passwords: setPw() }), j = await json(r);
   if (!r.ok) return setMsg("✕ " + (typeof j.detail === "string" ? j.detail : "save failed"), true);
   $("#set_desc").value = ""; setMsg(`✓ Saved as '${d}'`); await setList();
 };
@@ -411,7 +417,7 @@ $("#set_list").addEventListener("click", async (e) => {
   } else if (b.dataset.supd) {
     const x = SAVED.find((s) => String(s.id) === b.dataset.supd);
     if (!confirm(`Overwrite '${x.description}' with the current form?`)) return;
-    const r = await fetch("/api/settings/saved/" + x.id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description: x.description, topology: collect(), ui: setUi() }) });
+    const r = await fetch("/api/settings/saved/" + x.id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description: x.description, topology: collect(), ui: setUi(), passwords: setPw() }) });
     setMsg(r.ok ? `✓ '${x.description}' updated` : "✕ update failed", !r.ok); await setList();
   } else if (b.dataset.sdel) {
     const x = SAVED.find((s) => String(s.id) === b.dataset.sdel);
