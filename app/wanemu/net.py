@@ -187,7 +187,8 @@ def ct_params(t, vmid, ssh_pubkey):
     """Body for POST /nodes/{node}/lxc."""
     w = t["wanemu"]
     up, seg = w["uplink"], w["segments"]
-    p = {"vmid": vmid, "hostname": w["hostname"], "ostemplate": w["template"], "storage": w["storage"],
+    from ..model import pve_name
+    p = {"vmid": vmid, "hostname": pve_name(t, w["hostname"]), "ostemplate": w["template"], "storage": w["storage"],
          "rootfs": f"{w['storage']}:{w['disk_gb']}", "cores": w["cores"], "memory": w["memory_mb"], "swap": 0,
          "unprivileged": 0 if WANEMU_PRIVILEGED else 1, "onboot": 1, "start": 0, "tags": TAG_VM,
          # Debian 13 (systemd 257) in a CT: without nesting /tmp, /run/lock and mqueue fail to mount (spike on PVE01)
@@ -212,7 +213,8 @@ def client_params(t, spoke, vmid, password):
     host = lan.network.network_address + 10
     if host == lan.ip:
         host += 1
-    return {"vmid": vmid, "hostname": f"client-{spoke['name']}", "ostemplate": w["template"], "storage": w["storage"],
+    from ..model import pve_name
+    return {"vmid": vmid, "hostname": pve_name(t, f"client-{spoke['name']}"), "ostemplate": w["template"], "storage": w["storage"],
             "rootfs": f"{w['storage']}:2", "cores": 1, "memory": 256, "swap": 0, "unprivileged": 1,
             "features": "nesting=1", "onboot": 1, "start": 0, "tags": TAG_VM, "password": password,
             "nameserver": " ".join(x for x in (t.get("dns_primary"), t.get("dns_secondary")) if x),

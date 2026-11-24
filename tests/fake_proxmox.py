@@ -199,6 +199,7 @@ class H(BaseHTTPRequestHandler):
                 return self._send({"status": vm["status"]})
             if method == "PUT" and sub == "/config":
                 vm["params"].update({k: v[0] for k, v in parse_qs(body.decode()).items()})
+                vm["name"] = vm["params"].get("name", vm["name"])
                 return self._send(None)
         m = re.fullmatch(r"/nodes/pve1/tasks/([^/]+)/(status|log)", path)
         if m:

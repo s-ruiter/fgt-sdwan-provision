@@ -79,7 +79,8 @@ def ct_params(t, vmid, ssh_pubkey, template):
     w, g, up = t["wanemu"], t["trafficgen"], t["wanemu"]["uplink"]
     lan1 = net.lan_vlans(t)[spoke(t)["name"]][0]
     net0 = f"name=eth0,bridge={up.get('bridge') or w['bridge']}" + (f",tag={up['vlan']}" if up.get("vlan") else "")
-    return {"vmid": vmid, "hostname": HOSTNAME, "ostemplate": template, "storage": w["storage"],
+    from .model import pve_name
+    return {"vmid": vmid, "hostname": pve_name(t, HOSTNAME), "ostemplate": template, "storage": w["storage"],
             "rootfs": f"{w['storage']}:4", "cores": 2, "memory": 1024, "swap": 256, "unprivileged": 1,
             "features": "nesting=1", "onboot": 1, "start": 0, "tags": TAG_VM, "ssh-public-keys": ssh_pubkey,
             "description": "Traffic-Gen: traffic generator in the LAN of the first spoke (fgt-sdwan-provision)",
@@ -156,7 +157,9 @@ def deploy(pve, t, ssh_key, password, emit, step="clients", connector=None, wait
     ip = str(ipaddress.ip_interface(t["trafficgen"]["ip"]).ip)
     connector = connector or (lambda host, pem: ParamikoShell(host, pem))
     waiter = waiter or wait_tcp
-    found = [c for c in pve.find_cts(TAG_VM) if c.get("name") == HOSTNAME]
+    from .model import pve_name
+    from .wanemu.setup import find_ct
+    found = find_ct(pve, pve_name(t, HOSTNAME), HOSTNAME)
     created = not found
     if found:
         vmid = int(found[0]["vmid"])
@@ -167,7 +170,7 @@ def deploy(pve, t, ssh_key, password, emit, step="clients", connector=None, wait
         pve.set_ct_config(node, vmid, params)
     else:
         from .provision_vms import pick_vmid
-        vmid = int(pick_vmid(pve, vmids, HOSTNAME))
+        vmid = int(pick_vmid(pve, vmids, pve_name(t, HOSTNAME)))
         tmpl = ensure_template(pve, t, emit, step, template=TEMPLATE)
         emit(step, "running", f"Traffic-Gen: creating CT {vmid} ({tmpl.rsplit('/', 1)[-1]})")
         pve.wait_task(node, pve.create_ct(node, ct_params(t, vmid, public_key(ssh_key), tmpl)))

@@ -169,6 +169,12 @@ def _ensure_template(pve, node, vol, emit, step):
     return f"{storage}:vztmpl/{want}"
 
 
+def find_ct(pve, name, old):
+    """Containers of this tool named `name`, else the one under its name without (this) prefix (renamed on update)."""
+    cts = pve.find_cts(TAG_VM)
+    return [c for c in cts if c.get("name") == name] or [c for c in cts if c.get("name") == old]
+
+
 def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=None, vmids=None):
     """Create or reuse + provision the container. Returns {'vmid', 'created', 'internet'}."""
     from ..bootstrap import wait_tcp
@@ -176,13 +182,16 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
     ip = _uplink_ip(t)
     connector = connector or (lambda host, pem: ParamikoShell(host, pem))
     waiter = waiter or wait_tcp
-    found = [c for c in pve.find_cts(TAG_VM) if c.get("name") == w["hostname"]]
+    from ..model import pve_name
+    name = pve_name(t, w["hostname"])
+    found = find_ct(pve, name, w["hostname"])
     created = not found
     if found:
         vmid = int(found[0]["vmid"])
-        emit(step, "running", f"{w['hostname']}: exists (CT {vmid}), updating its configuration")
+        emit(step, "running", f"{name}: exists (CT {vmid}), updating its configuration"
+                              + (f" (renamed from {found[0]['name']})" if found[0].get("name") != name else ""))
         if w.get("vmid") and int(w["vmid"]) != vmid:
-            emit(step, "running", f"{w['hostname']}: CT id {w['vmid']} ignored, the existing CT {vmid} is used "
+            emit(step, "running", f"{name}: CT id {w['vmid']} ignored, the existing CT {vmid} is used "
                                   "(a CT id cannot change; delete CT {vmid} for a new one)".replace("{vmid}", str(vmid)))
         params = {k: v for k, v in net.ct_params(t, vmid, "").items() if k not in CREATE_ONLY}
         if pve.ct_status(node, vmid) == "running":
@@ -190,15 +199,15 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
         pve.set_ct_config(node, vmid, params)
     else:
         from ..provision_vms import pick_vmid
-        vmid = int(w.get("vmid") or pick_vmid(pve, vmids, w["hostname"]))
+        vmid = int(w.get("vmid") or pick_vmid(pve, vmids, name))
         ensure_template(pve, t, emit, step)
-        emit(step, "running", f"{w['hostname']}: creating CT {vmid} ({w['template'].split('/')[-1]})")
+        emit(step, "running", f"{name}: creating CT {vmid} ({w['template'].split('/')[-1]})")
         pve.wait_task(node, pve.create_ct(node, net.ct_params(t, vmid, public_key(secrets["ssh_key"]))))
     try:
         pve.wait_task(node, pve.start_ct(node, vmid))
-        emit(step, "running", f"{w['hostname']}: started, waiting for SSH on {ip}")
+        emit(step, "running", f"{name}: started, waiting for SSH on {ip}")
         if not waiter(ip, 22, True, 180):
-            raise WanEmuError(f"{w['hostname']} not reachable via SSH on {ip}:22 (check uplink VLAN "
+            raise WanEmuError(f"{name} not reachable via SSH on {ip}:22 (check uplink VLAN "
                               f"{w['uplink']['vlan']} and gateway {w['uplink']['gw']})")
         sh = connector(ip, secrets["ssh_key"])
         try:
@@ -208,7 +217,7 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
             sh.close()
     except Exception as e:
         if created:
-            emit(step, "running", f"{w['hostname']}: provisioning failed, deleting CT {vmid}")
+            emit(step, "running", f"{name}: provisioning failed, deleting CT {vmid}")
             try:
                 pve.wait_task(node, pve.stop_ct(node, vmid))
             except Exception:
@@ -219,7 +228,7 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
                 pass
         if isinstance(e, WanEmuError):
             raise
-        raise WanEmuError(f"{w['hostname']}: {e}") from e
+        raise WanEmuError(f"{name}: {e}") from e
     if not internet:
         emit(step, "warn", "no internet from ISP-A: check NAT on wan-emu and the uplink "
                            f"{w['uplink']['gw']} (the FortiGates will not get a FortiFlex licence)")
@@ -229,15 +238,20 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
 def deploy_clients(pve, t, password, emit, step="clients", vmids=None):
     """One LAN client CT per branch (client-<name>), reused by name + tag (network config updated). Returns
     [{name, vmid, created, ip}]. No packages are installed: Proxmox cannot run commands in a CT."""
+    from ..model import pve_name
     node = t["pve"]["node"]
     have = {c.get("name"): int(c["vmid"]) for c in pve.find_cts(TAG_VM)}
-    if any(f"client-{e['name']}" not in have and (e.get("lans") or [{}])[0].get("ip") for e in t["edges"]):
+    for e in t["edges"]:                            # deployed before without (this) prefix: reused, renamed on update
+        old, new = f"client-{e['name']}", pve_name(t, f"client-{e['name']}")
+        if new not in have and old in have:
+            have[new] = have.pop(old)
+    if any(pve_name(t, f"client-{e['name']}") not in have and (e.get("lans") or [{}])[0].get("ip") for e in t["edges"]):
         ensure_template(pve, t, emit, step)                         # a new client needs the CT template
     out = []
     for e in t["edges"]:
         if not (e.get("lans") or [{}])[0].get("ip"):
             continue
-        name = f"client-{e['name']}"
+        name = pve_name(t, f"client-{e['name']}")
         if name in have:
             vmid = have[name]
             p = {k: v for k, v in net.client_params(t, e, vmid, password).items() if k not in CREATE_ONLY | {"password"}}

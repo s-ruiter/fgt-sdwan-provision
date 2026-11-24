@@ -47,6 +47,7 @@ DEFAULTS = {
         "disk_storage": "", "import_storage": "", "iso_storage": "",
         "default_bridge": "vmbr0", "cpu_type": "host", "license_mode": "cli",
         "first_vmid": None,                 # start of the id block of a deployment (None = lowest free block from 100)
+        "name_prefix": "",                  # prefix for the Proxmox VM/CT names of this deployment ("" = none; "-" added)
         "ports": {f"port{i}": {"bridge": "", "vlan": None} for i in range(1, 9)},
         "fmg": {"bridge": "", "vlan": None, "cores": 4, "memory_mb": 16384, "data_disk_gb": 100},
         "fgt": {"cores": 2, "memory_mb": 2048},
@@ -398,7 +399,14 @@ def merged(user):
         elif v is not None:
             t[k] = v
     _deep(t, copy.deepcopy(FIXED))
+    pre = str(t["pve"].get("name_prefix") or "").strip()
+    t["pve"]["name_prefix"] = pre + "-" if pre and not pre.endswith("-") else pre
     return normalize_wans(t)
+
+
+def pve_name(t, name):
+    """Proxmox name of a VM/CT of this deployment: the name prefix + the name (device names do not change)."""
+    return ((t.get("pve") or {}).get("name_prefix") or "") + name
 
 
 def validate_wanemu(t):
@@ -506,6 +514,9 @@ def validate_pve(t, wanemu=True):
         for k in keys:
             if not isinstance(d.get(k), int) or d[k] < 1:
                 err.append(f"Proxmox: {lbl} {k} must be a positive integer")
+    pre = c.get("name_prefix") or ""
+    if pre and not re.match(r"^[A-Za-z0-9][A-Za-z0-9-]{0,20}$", pre):
+        err.append("Proxmox: Name prefix may only contain letters, digits and '-' (max 20, e.g. lab1)")
     fv = c.get("first_vmid")
     if fv not in (None, "") and not (isinstance(fv, int) and 100 <= fv <= 999999000):
         err.append("Proxmox: First VM ID must be 100-999999000 (or empty = automatic)")
