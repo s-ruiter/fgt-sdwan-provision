@@ -72,8 +72,11 @@ def open_session(row, console, pve_name):
         except requests.RequestException as e:
             raise ConsoleError(f"Proxmox not reachable: {type(e).__name__}") from None
         if r.status_code != 200:
-            raise ConsoleError(f"console login refused for {console['user']} (wrong user or password; 2FA is not "
-                               "supported)")
+            u = console["user"]
+            hint = " root is root@pam, not root@pve." if u.split("@")[0] == "root" and not u.endswith("@pam") else ""
+            raise ConsoleError(f"console login refused for {u}: wrong user, realm or password (realm after the @: "
+                               f"pam = Linux user of the Proxmox host, pve = Proxmox user; 2FA is not supported).{hint} "
+                               "Change it under Servers > edit")
         t = r.json()["data"]
         headers = {"Cookie": f"PVEAuthCookie={t['ticket']}"}
         try:

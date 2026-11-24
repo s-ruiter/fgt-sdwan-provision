@@ -99,6 +99,8 @@ try:
     err("lab1-site1-3", None, "add a console user to the Proxmox server")
     err("lab1-site1-1", cu, "no serial port")
     err("lab1-site1-3", {"user": "fgtsdwan@pve", "password": "wrong"}, "console login refused")
+    err("lab1-site1-3", {"user": "root@pve", "password": "x"}, "root is root@pam")              # wrong realm for root
+    err("lab1-site1-3", {"user": "fgtsdwan@pve", "password": "wrong"}, "pam = Linux user of the Proxmox host")
     S["termproxy_403"] = True
     err("lab1-client-site1-1", None, "lacks VM.Console")
     err("lab1-site1-3", cu, "lacks VM.Console")
