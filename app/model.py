@@ -77,7 +77,7 @@ DEFAULTS = {
         "lan_summary": "10.0.0.0/8",         # single-VRF only (multi-VRF: per VRF)
         "vrfs": [
             {"id": 11, "lan_summary": "10.0.0.0/14", "dia": True},
-            {"id": 12, "lan_summary": "10.0.0.0/14", "dia": False},
+            {"id": 12, "lan_summary": "10.0.0.0/14", "dia": True},
         ],
     },
     "hubs": [
@@ -261,9 +261,9 @@ def normalize_wans(t):
         e["wan1_mode"] = "dhcp"
         for k in EDGE_DROP:
             e.pop(k, None)
-    if not _multi(t):                                  # single-VRF: one LAN per device (LAN2 only exists per VRF)
-        for d in t.get("hubs", []) + t.get("edges", []):
-            d["lans"] = (d.get("lans") or [])[:1]
+    for d in t.get("hubs", []) + t.get("edges", []):
+        lans = [l for j, l in enumerate(d.get("lans") or []) if j == 0 or l.get("intf")]   # LAN2+ without a port: none
+        d["lans"] = lans if _multi(t) else lans[:1]    # single-VRF: one LAN per device (LAN2 only exists per VRF)
     return t
 
 
@@ -389,7 +389,7 @@ FIXED = {"platform": "FortiGate-VM64", "dns_primary": "1.1.1.1", "dns_secondary"
 
 def merged(user):
     t = copy.deepcopy(DEFAULTS)
-    for k, v in (user or {}).items():
+    for k, v in copy.deepcopy(user or {}).items():       # never share lists/dicts with the caller (or DEFAULTS)
         if k in ("pve", "wanemu") and isinstance(v, dict):
             _deep(t[k], v)
         elif v is not None:

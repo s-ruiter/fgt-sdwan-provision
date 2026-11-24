@@ -53,3 +53,17 @@ print("OK  single-VRF: alles in VRF 0, geen vrf-select")
 from app import model as _m  # noqa: E402
 assert _m.DEFAULTS["region"]["multi_vrf"] is False and not _m._multi(_m.merged({}))
 print("OK  standaard: single-VRF")
+
+# multi-VRF: DIA on for every VRF by default; the templates follow the choice per VRF (leak to the PE-VRF + default
+# route only for a VRF with DIA); the WAN members themselves are always DIA
+assert all(v["dia"] is True for v in _m.DEFAULTS["region"]["vrfs"])
+on = topo(True)
+off = topo(True); off["region"]["vrfs"][1]["dia"] = False
+t_on, t_off = text(ft.build_plan(on, ORCH)), text(ft.build_plan(off, ORCH))
+assert "vrf11_leak" in t_on and "vrf12_leak" in t_on and "edit 4012" in t_on
+assert "vrf11_leak" in t_off and "vrf12_leak" not in t_off and "edit 4012" not in t_off
+assert "'dia': true" in _m.build(on)[0].split("wan2_intf")[1][:80]                     # spoke wan2: DIA too
+# LAN2+ per VRF is optional: no port = no LAN in that VRF (also not sent to the templates)
+o = topo(True); o["edges"][0]["lans"][1]["intf"] = ""
+assert len(_m.merged(o)["edges"][0]["lans"]) == 1 and model.validate(_m.merged(o)) == []
+print("OK  multi-VRF: DIA standaard aan per VRF, templates volgen de keuze; LAN2 zonder poort = geen LAN")
