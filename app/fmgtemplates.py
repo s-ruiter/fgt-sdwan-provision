@@ -320,8 +320,22 @@ def build_plan(topo, orch_dir):
             if miss:
                 raise ValueError(f"{dn}: variables missing for role {role}: {sorted(set(miss))}")
         r["ippool_map"] = {dn: _ippool_values(r["ippools"], per[dn]["reg"]) for dn in r["devices"]}
-    return {"roles": roles, "variables": variables, "warnings": warnings, "per": per,
+    plan = {"roles": roles, "variables": variables, "warnings": warnings, "per": per,
             "dns": [topo["dns_primary"], topo.get("dns_secondary", "")], "adom_meta": {}}
+    check_dyn_ifaces(plan)
+    return plan
+
+
+def check_dyn_ifaces(plan):
+    """Every interface/zone a policy uses must exist on the device: an SD-WAN zone or something a CLI template creates
+    (edit "<name>"). Otherwise FortiManager aborts the policy install ('Dynamic interface ... mapping undefined')."""
+    for r in plan["roles"]:
+        cli = "\n".join(x for _, x, _ in r["cli"])
+        have = {z["name"] for z in r["sdwan"].get("zone", [])} | set(re.findall(r'edit "([^"]+)"', cli))
+        missing = [n for n in r["dyn_ifaces"] if n not in have]
+        if missing:
+            raise ValueError(f"{r['name']}: firewall policies use {', '.join(missing)}, which no template creates on "
+                             "the device: FortiManager would abort the policy install")
 
 
 LEAK1_RE = re.compile(r'edit "vrf(\d+)_leak1"(.*?)\n\s*next', re.S)
