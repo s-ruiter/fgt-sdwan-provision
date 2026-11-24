@@ -285,6 +285,8 @@ def build_plan(topo, orch_dir):
             for hc in r["sdwan"].get("health-check", []):
                 if hc.get("detect-mode") != "remote":
                     hc["vrf"] = model.pe_vrf(topo)
+        if r["kind"] == "edge":
+            add_demo_rules(r["sdwan"])
         r["static"] = sd.get("router static", [])
         for row in r["static"]:
             row.setdefault("dst", ["0.0.0.0", "0.0.0.0"])
@@ -336,6 +338,39 @@ def check_dyn_ifaces(plan):
         if missing:
             raise ValueError(f"{r['name']}: firewall policies use {', '.join(missing)}, which no template creates on "
                              "the device: FortiManager would abort the policy install")
+
+
+# Demo SD-WAN rules for the Traffic-Gen apps (spokes with two WANs: member 1 = wan1, member 2 = wan2). The apps are
+# matched with ISDB internet services; the keywords are resolved against the FortiManager's list at deployment
+# (fmgapply.resolve_isdb), because the exact names differ per FortiOS version.
+DEMO_RULES = [
+    {"id": 2, "name": "O365", "mode": "priority", "priority-members": ["2", "1"], "health-check": "Internet",
+     "keywords": ["office365", "office 365", "outlook", "sharepoint", "onedrive"]},
+    {"id": 3, "name": "Collab", "mode": "sla", "priority-members": ["2", "1"], "sla": [{"health-check": "Internet", "id": 1}],
+     "keywords": ["teams", "zoom", "webex", "google meet", "meet", "slack"]},
+    {"id": 4, "name": "Streaming-Social", "mode": "priority", "priority-members": ["1"], "health-check": "Internet",
+     "keywords": ["netflix", "youtube", "spotify", "disney", "prime video", "primevideo", "twitch", "facebook",
+                  "instagram", "whatsapp", "linkedin", "twitter", "tiktok", "reddit"]},
+    {"id": 5, "name": "Updates-Downloads", "mode": "load-balance", "priority-members": ["1", "2"],
+     "keywords": ["windows update", "windowsupdate", "apple update", "software update", "speedtest", "ookla"]},
+    {"id": 6, "name": "SaaS", "mode": "priority", "priority-members": ["1", "2"], "health-check": "Internet",
+     "link-cost-factor": "latency",
+     "keywords": ["salesforce", "google workspace", "gsuite", "dropbox", "box", "github", "aws", "adobe", "servicenow"]},
+]
+INTERNET_SLA = {"id": 1, "latency-threshold": 150, "jitter-threshold": 30, "packetloss-threshold": 2}
+
+
+def add_demo_rules(sdwan):
+    """Spoke SD-WAN with two underlay members: demo rules between Corporate (1) and the rest; SLA on 'Internet'."""
+    under = [m for m in sdwan.get("members", []) if m.get("zone") == "underlay"]
+    hcs = {h["name"]: h for h in sdwan.get("health-check", [])}
+    if len(under) != 2 or "Internet" not in hcs:
+        return
+    rows = [{k: v for k, v in r.items() if k != "keywords"} | {"_isdb_keywords": list(r["keywords"])} for r in DEMO_RULES]
+    sv = sdwan.setdefault("service", [])
+    pos = next((i + 1 for i, x in enumerate(sv) if x.get("id") == 1), 0)
+    sv[pos:pos] = [dict(x) for x in rows]
+    hcs["Internet"]["sla"] = [dict(INTERNET_SLA)]
 
 
 LEAK1_RE = re.compile(r'edit "vrf(\d+)_leak1"(.*?)\n\s*next', re.S)
