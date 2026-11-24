@@ -407,6 +407,86 @@ def _agent_call(fn):
         raise HTTPException(e.status, detail=str(e))
 
 
+# ---- Traffic tab: the deployed Traffic-Gen, through its web API (only the traffic test) ---------------------------
+TRAFFIC_SCHEME = "https"                       # Traffic-Gen serves HTTPS with its own certificate (tests: http)
+TRAFFIC_START = ("duration_minutes", "threads_per_ip", "intensity", "groups")
+TRAFFIC_CONFIG = ("duration_minutes", "threads_per_ip", "intensity", "groups", "disabled_apps", "tls_verify")
+
+
+def _traffic():
+    from .traffic_client import TrafficClient
+    conn = db.connect(DATA_DIR)
+    addr, pw = db.get_secret(conn, "trafficgen_addr"), db.get_secret(conn, "trafficgen_password")
+    if not addr or not pw:
+        raise HTTPException(409, detail="No Traffic-Gen deployed yet: tick 'Also deploy Traffic-Gen' (LAN clients) and deploy")
+    return TrafficClient(addr, pw, scheme=TRAFFIC_SCHEME)
+
+
+def _traffic_call(fn):
+    from .traffic_client import TrafficError
+    try:
+        return fn()
+    except TrafficError as e:
+        raise HTTPException(e.status, detail=str(e))
+
+
+@app.get("/api/traffic/status")
+def traffic_status():
+    conn = db.connect(DATA_DIR)
+    if not (db.get_secret(conn, "trafficgen_addr") and db.get_secret(conn, "trafficgen_password")):
+        return {"deployed": False}
+    from .traffic_client import TrafficError
+    cl = _traffic()
+    out = {"deployed": True, "url": cl.base, "reachable": True, "error": ""}
+    try:
+        out["state"] = cl.state()
+    except TrafficError as e:
+        out.update(reachable=False, error=str(e))
+    return out
+
+
+@app.get("/api/traffic/state")
+def traffic_state():
+    cl = _traffic()
+    return _traffic_call(cl.state)
+
+
+@app.get("/api/traffic/config")
+def traffic_config():
+    cl = _traffic()
+    return _traffic_call(cl.config)
+
+
+@app.post("/api/traffic/config")
+def traffic_set_config(body: dict = Body(...)):
+    cl = _traffic()
+    return _traffic_call(lambda: cl.set_config({k: v for k, v in body.items() if k in TRAFFIC_CONFIG}))
+
+
+@app.get("/api/traffic/apps")
+def traffic_apps():
+    cl = _traffic()
+    return _traffic_call(cl.apps)
+
+
+@app.get("/api/traffic/log")
+def traffic_log(n: int = 60):
+    cl = _traffic()
+    return _traffic_call(lambda: cl.log(max(1, min(n, 300))))
+
+
+@app.post("/api/traffic/start")
+def traffic_start(body: dict = Body(...)):
+    cl = _traffic()
+    return _traffic_call(lambda: cl.start({k: v for k, v in body.items() if k in TRAFFIC_START}))
+
+
+@app.post("/api/traffic/stop")
+def traffic_stop():
+    cl = _traffic()
+    return _traffic_call(cl.stop)
+
+
 @app.get("/api/wanemu/links")
 def wanemu_links():
     from .wanemu.client import PRESETS
@@ -804,9 +884,14 @@ def cleanup_run(c: CleanupReq):
                                   only=set(c.only) if c.only is not None else None)
         except PveError as e:
             raise HTTPException(502, detail=str(e))
-        if any(r["kind"] == "ct" and r["name"] == "wan-emu" and r["ok"] for r in results):
+        gone_ct = lambda n: any(r["kind"] == "ct" and r["ok"] and (r["name"] == n or r["name"].endswith("-" + n)) for r in results)
+        if gone_ct("wan-emu"):
             conn = db.connect(DATA_DIR)                      # the WAN emulation page no longer points at a deleted wan-emu
             for k in ("wanemu_addr", "wanemu_forwards"):
+                db.put_secret(conn, k, "")
+        if gone_ct("trafficgen"):
+            conn = db.connect(DATA_DIR)                      # the Traffic tab no longer points at a deleted Traffic-Gen
+            for k in ("trafficgen_addr", "trafficgen_password"):
                 db.put_secret(conn, k, "")
         if c.stop_licences:                                  # only the licences of devices that are really gone now
             gone = {r["name"] for r in results if r["kind"] == "vm" and r["ok"]}
@@ -871,6 +956,11 @@ def deploy(r: DeployReq):
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
             "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw, "client_pw": s.client_pw, "tg_pw": s.tg_pw}
+    if not r.dry_run and topo.get("trafficgen", {}).get("enabled") and \
+            (r.scope == "lan" or (boot["fgt"] == "day0" and r.scope in ("all", "fgt"))):
+        conn = db.connect(DATA_DIR)                    # where the Traffic tab finds it (password: like the agent token)
+        db.put_secret(conn, "trafficgen_addr", f"{model.split_cidr(topo['trafficgen']['ip'])[0]}:8443")
+        db.put_secret(conn, "trafficgen_password", s.tg_pw)
     if r.scope == "lan" and not r.dry_run and topo.get("trafficgen", {}).get("enabled"):
         boot["wanemu_secrets"] = _wanemu_secrets()     # Traffic-Gen is installed over SSH with the tool's key
     if boot["fgt"] == "day0" and r.scope not in ("fmg", "tpl", "dev") and not r.dry_run:

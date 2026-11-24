@@ -21,6 +21,7 @@
         <a href="#/progress" data-nav="progress">Progress</a>
         <a href="#/images" data-nav="images">Images</a>
         <a href="#/wanemu" data-nav="wanemu">WAN emulation</a>
+        <a href="#/traffic" data-nav="traffic">Traffic</a>
         <a href="#/fortiflex" data-nav="fortiflex">FortiFlex</a>
         <a href="#/servers" data-nav="servers">Servers</a>
         <a href="#/cleanup" data-nav="cleanup">Cleanup</a>
@@ -248,6 +249,34 @@
           </div>
           <div id="term_box" class="term-box"></div>
         </div>
+      </div>
+    </section>
+
+    <section id="v_traffic" hidden>
+      <h1>Traffic</h1>
+      <div id="tr_err"></div>
+      <div class="card">
+        <h2><span class="num">01</span>Traffic-Gen <small id="tr_where"></small></h2>
+        <div class="hint" id="tr_intro">Realistic user traffic (Microsoft 365, Teams, streaming, SaaS, SD-WAN probes, …) from the LAN of the first spoke, through the SD-WAN. Combine it with the <a href="#/wanemu" style="color:var(--accent)">WAN emulation</a> page: degrade a link and watch what happens to the traffic.</div>
+        <div class="fields tr-ctl">
+          <div class="f"><label>Duration</label><select id="tr_dur"><option value="5">5 min</option><option value="10">10 min</option><option value="30">30 min</option><option value="60">1 hour</option><option value="120">2 hours</option><option value="0">Until stopped</option></select></div>
+          <div class="f"><label>Intensity</label><select id="tr_int"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+          <div class="f"><label>Sessions per source IP</label><input id="tr_thr" type="number" min="1" max="20"></div>
+          <div class="f"><label>&nbsp;</label><div class="btnrow"><button id="tr_start" class="primary">Start</button><button id="tr_stop">Stop</button></div></div>
+        </div>
+        <div class="hint" id="tr_run"></div>
+      </div>
+      <div class="card">
+        <h2><span class="num">02</span>Traffic mix <small>(relative weight per group; 0 = off)</small></h2>
+        <div class="btnrow"><button data-trp="default">Default mix</button><button data-trp="nosec">No security test</button><button data-trp="sec">Security test only</button><button id="tr_save">Save mix</button><span class="hint" id="tr_mixmsg"></span></div>
+        <div class="tr-mix" id="tr_mix"></div>
+        <div class="hint">Web filter, Malware and IOC send harmless test traffic (EICAR, WICAR, DGA-like DNS) to check the FortiGate security profiles; they are off in the default mix. Only use this where you are allowed to.</div>
+      </div>
+      <div class="card">
+        <h2><span class="num">03</span>Live</h2>
+        <div class="tr-tiles" id="tr_tiles"></div>
+        <div class="tr-cols"><div><h3>Per application</h3><div id="tr_apps"></div></div><div><h3>Per source IP</h3><div id="tr_src"></div></div></div>
+        <h3>Latest requests</h3><div id="tr_log"></div>
       </div>
     </section>
 

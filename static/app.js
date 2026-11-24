@@ -21,7 +21,7 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 // ---- routing ----------------------------------------------------------------
 function route() {
   const [r, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
-  const VIEWS = ["deploy", "progress", "wanemu", "fortiflex", "images", "servers", "cleanup", "about"];
+  const VIEWS = ["deploy", "progress", "wanemu", "traffic", "fortiflex", "images", "servers", "cleanup", "about"];
   const view = VIEWS.includes(r) ? r : "deploy";
   for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
@@ -32,6 +32,8 @@ function route() {
   if (view === "cleanup") clLoad();
   clearInterval(WAN_TIMER); WAN_TIMER = null;
   if (view === "wanemu") { wanLoad(); wanFwdLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
+  clearInterval(TR_TIMER); TR_TIMER = null;
+  if (view === "traffic") { trOpen(); TR_TIMER = setInterval(trPoll, 2000); }
 }
 window.addEventListener("hashchange", route);
 let WAN_TIMER = null, WAN = { links: [], presets: {} }, FLEX = { enabled: false };
@@ -966,3 +968,87 @@ function themeSet(t) {
 }
 $("#theme_btn").title = document.documentElement.dataset.theme === "dark" ? "Light mode" : "Dark mode";
 $("#theme_btn").onclick = () => themeSet(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+
+
+// ---- Traffic tab: the deployed Traffic-Gen through the tool (only the traffic test) --------------------------------
+let TR_TIMER = null, TR_CFG = null, TR_ON = false;          // TR_ON: a reachable Traffic-Gen is deployed
+const TR_GROUPS = [["office365", "Microsoft 365"], ["collab", "Collaboration"], ["streaming", "Streaming"], ["social", "Social"],
+  ["saas", "SaaS"], ["web", "Web"], ["updates", "Updates"], ["download", "Downloads"], ["sdwan", "SD-WAN probes"],
+  ["webfilter", "Web filter test"], ["malware", "Malware test"], ["ioc", "IOC / botnet"]];
+const TR_SEC = ["webfilter", "malware", "ioc"];
+const TR_DEF = { office365: 25, collab: 20, streaming: 20, social: 10, saas: 10, web: 10, updates: 3, download: 2, sdwan: 5, webfilter: 0, malware: 0, ioc: 0 };
+const trErr = (m) => { $("#tr_err").innerHTML = m ? `<div class="error">✕ ${esc(m)}</div>` : ""; };
+const trMB = (b) => ((b || 0) / 1e6).toFixed(1);
+function trMixDraw(groups) {
+  $("#tr_mix").innerHTML = TR_GROUPS.map(([g, l]) => `<div class="wan-f"><label>${l} <output>${groups[g] ?? 0}</output></label><input type="range" min="0" max="100" step="1" data-trg="${g}" value="${groups[g] ?? 0}"></div>`).join("");
+}
+const trMix = () => Object.fromEntries([...document.querySelectorAll("[data-trg]")].map((i) => [i.dataset.trg, +i.value]));
+$("#tr_mix").addEventListener("input", (e) => { if (e.target.dataset.trg) e.target.previousElementSibling.querySelector("output").textContent = e.target.value; });
+document.querySelectorAll("[data-trp]").forEach((b) => (b.onclick = () => {
+  const m = trMix(), k = b.dataset.trp;
+  if (k === "default") trMixDraw(TR_DEF);
+  else if (k === "nosec") trMixDraw(Object.fromEntries(Object.entries(m).map(([g, w]) => [g, TR_SEC.includes(g) ? 0 : w])));
+  else trMixDraw(Object.fromEntries(Object.entries(m).map(([g, w]) => [g, TR_SEC.includes(g) ? (w || 10) : 0])));
+  $("#tr_mixmsg").textContent = "Mix changed: click Save mix or start a test to use it.";
+}));
+async function trOpen() {
+  trErr("");
+  const r = await fetch("/api/traffic/status"), j = await json(r);
+  const off = !j.deployed;
+  $("#tr_where").innerHTML = off ? "" : `(<a href="${esc(j.url)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(j.url.replace(/^https?:\/\//, ""))}</a>, its own GUI)`;
+  TR_ON = !off && j.reachable;
+  ["#tr_start", "#tr_stop", "#tr_save"].forEach((id) => ($(id).disabled = !TR_ON));
+  if (off) { trErr("No Traffic-Gen deployed yet: on the Deploy page tick 'Also deploy Traffic-Gen' (card LAN clients) and deploy."); trMixDraw(TR_DEF); return; }
+  if (!j.reachable) { trErr(j.error); return; }
+  const c = await (await fetch("/api/traffic/config")).json();
+  TR_CFG = c;
+  $("#tr_dur").value = [5, 10, 30, 60, 120, 0].includes(c.duration_minutes) ? c.duration_minutes : 10;
+  $("#tr_int").value = c.intensity || "medium"; $("#tr_thr").value = c.threads_per_ip || 2;
+  trMixDraw(c.groups || TR_DEF);
+  trShow(j.state);
+}
+async function trPoll() {
+  if (!TR_ON) return;
+  const r = await fetch("/api/traffic/state"), j = await json(r);
+  if (!r.ok) return trErr(typeof j.detail === "string" ? j.detail : "Traffic-Gen not reachable");
+  trErr(""); trShow(j);
+  const l = await fetch("/api/traffic/log?n=25");
+  if (l.ok) trLogDraw(await l.json());
+}
+function trShow(s) {
+  if (!s) return;
+  const t = s.totals || {}, run = !!s.running;
+  $("#tr_start").disabled = run; $("#tr_stop").disabled = !run;
+  const left = run && s.deadline ? Math.max(0, Math.round((s.deadline - s.now) / 60)) : null;
+  $("#tr_run").innerHTML = run ? `<span class="dot st-running"></span> Running from ${s.sources || "?"} source IP(s), intensity ${esc(s.intensity || "")}` + (left !== null ? `, ${left} min left` : ", until stopped")
+    : s.has_run ? "Stopped. The figures below are from the last run." : "Not started yet.";
+  const ser = s.series || [], a = ser[ser.length - 1], b = ser[Math.max(0, ser.length - 6)];
+  const rps = a && b && a[0] > b[0] ? ((a[1] - b[1]) / (a[0] - b[0])).toFixed(1) : "0";
+  const mbps = a && b && a[0] > b[0] ? (((a[2] - b[2]) * 8) / 1e6 / (a[0] - b[0])).toFixed(2) : "0";
+  const tile = (v, l) => `<div class="tr-tile"><b>${v}</b><span>${l}</span></div>`;
+  $("#tr_tiles").innerHTML = tile(t.requests || 0, "requests") + tile(t.ok || 0, "ok") + tile(t.blocked || 0, "blocked") +
+    tile(t.error || 0, "errors") + tile(rps, "req/s") + tile(mbps, "Mbit/s") + tile(trMB(t.bytes), "MB total");
+  const rows = (o) => Object.entries(o || {}).sort((x, y) => (y[1].requests || 0) - (x[1].requests || 0));
+  const tbl = (o, first) => rows(o).length ? `<table class="tbl"><thead><tr><th>${first}</th><th>Requests</th><th>OK</th><th>Blocked</th><th>Errors</th><th>MB</th></tr></thead><tbody>` +
+    rows(o).slice(0, 25).map(([k, c]) => `<tr><td class="mono">${esc(k)}</td><td>${c.requests || 0}</td><td>${c.ok || 0}</td><td>${c.blocked || 0}</td><td>${(c.error || 0) + (c.missed || 0)}</td><td>${trMB(c.bytes)}</td></tr>`).join("") + "</tbody></table>"
+    : '<p class="muted">No traffic yet.</p>';
+  $("#tr_apps").innerHTML = tbl(s.apps, "Application"); $("#tr_src").innerHTML = tbl(s.src, "Source IP");
+}
+function trLogDraw(l) {
+  $("#tr_log").innerHTML = l.length ? `<table class="tbl"><thead><tr><th>Time</th><th>Source</th><th>Application</th><th>Target</th><th>Result</th></tr></thead><tbody>` +
+    l.map((x) => `<tr><td class="mono">${esc(x.ts || "")}</td><td class="mono">${esc(x.src || "")}</td><td>${esc(x.app || "")}</td><td class="mono tr-url">${esc(x.url || "")}</td><td>${esc(x.result || "")}${x.status ? " " + esc(String(x.status)) : ""}</td></tr>`).join("") + "</tbody></table>"
+    : '<p class="muted">No requests yet.</p>';
+}
+const trBody = () => ({ duration_minutes: +$("#tr_dur").value, intensity: $("#tr_int").value, threads_per_ip: Math.min(20, Math.max(1, +$("#tr_thr").value || 2)), groups: trMix() });
+$("#tr_start").onclick = async () => {
+  if (!Object.values(trMix()).some((w) => w > 0)) return trErr("Every group is at 0: give at least one group a weight.");
+  $("#tr_start").disabled = true;
+  const r = await post("/api/traffic/start", trBody()), j = await json(r);
+  if (!r.ok) { $("#tr_start").disabled = false; return trErr(typeof j.detail === "string" ? j.detail : "start failed"); }
+  trErr(""); $("#tr_mixmsg").textContent = ""; trPoll();
+};
+$("#tr_stop").onclick = async () => { const r = await post("/api/traffic/stop", {}); if (!r.ok) trErr("stop failed"); trPoll(); };
+$("#tr_save").onclick = async () => {
+  const r = await post("/api/traffic/config", trBody()), j = await json(r);
+  $("#tr_mixmsg").textContent = r.ok ? "✓ Mix saved in Traffic-Gen" : "✕ " + (j.detail || "save failed");
+};

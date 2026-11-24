@@ -57,14 +57,17 @@ fp.reset()
 srv = fp.start(8087)
 S = fp.STATE
 S["vms"]["108"] = {"vmid": 108, "name": "fmg", "params": {"tags": "fgt-sdwan"}, "status": "stopped"}
-S["cts"]["111"] = {"vmid": 111, "params": {"hostname": "wan-emu", "tags": "fgt-sdwan"}, "status": "stopped"}
+S["cts"]["111"] = {"vmid": 111, "params": {"hostname": "lab1-wan-emu", "tags": "fgt-sdwan"}, "status": "stopped"}   # name prefix
+S["cts"]["112"] = {"vmid": 112, "params": {"hostname": "lab1-trafficgen", "tags": "fgt-sdwan"}, "status": "stopped"}
 conn = db.connect(os.environ["DATA_DIR"])
 sid = conn.execute("INSERT INTO servers(name,url,token_id,token_secret,verify_tls) VALUES('pve','http://127.0.0.1:8087','root@pam!t','secret',0)").lastrowid
 conn.commit()
 db.put_secret(conn, "wanemu_addr", "10.10.106.250:8090")
 db.put_secret(conn, "wanemu_forwards", json.dumps({"host": "x", "forwards": []}))
+db.put_secret(conn, "trafficgen_addr", "10.10.106.249:8443")
+db.put_secret(conn, "trafficgen_password", "Tg-Admin-pw1!")
 r = main.cleanup_plan(main.CleanupReq(server_id=sid, node="pve1"))
-assert [i["name"] for i in r["items"]] == ["fmg", "wan-emu"]
+assert [i["name"] for i in r["items"]] == ["fmg", "lab1-wan-emu", "lab1-trafficgen"], r["items"]
 try:
     main.cleanup_run(main.CleanupReq(server_id=sid, node="pve1", confirm="delete"))
     raise SystemExit("zonder 'DELETE' hoort het te weigeren")
@@ -74,6 +77,7 @@ assert "108" in S["vms"]
 r = main.cleanup_run(main.CleanupReq(server_id=sid, node="pve1", confirm="DELETE"))
 assert all(x["ok"] for x in r["results"]) and not S["vms"] and not S["cts"]
 assert db.get_secret(conn, "wanemu_addr") in (None, "") and db.get_secret(conn, "wanemu_forwards") in (None, "")
+assert db.get_secret(conn, "trafficgen_addr") in (None, "") and db.get_secret(conn, "trafficgen_password") in (None, "")
 srv.shutdown()
 print("OK  API: plan via opgeslagen server, verwijderen alleen met 'DELETE', WAN-emulatie-adres in de tool gewist")
 
