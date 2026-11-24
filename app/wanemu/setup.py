@@ -208,7 +208,8 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
         emit(step, "running", f"{name}: started, waiting for SSH on {ip}")
         if not waiter(ip, 22, True, 180):
             raise WanEmuError(f"{name} not reachable via SSH on {ip}:22 (check uplink VLAN "
-                              f"{w['uplink']['vlan']} and gateway {w['uplink']['gw']})")
+                              f"{w['uplink'].get('vlan') or 'untagged'} on {w['uplink'].get('bridge') or w['bridge']} and gateway "
+                              f"{w['uplink']['gw']}; is the Uplink VLAN filled in?)")
         sh = connector(ip, secrets["ssh_key"])
         try:
             provision(sh, t, secrets["agent_token"], emit, step)

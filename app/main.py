@@ -173,6 +173,8 @@ def _check_bridges(topo, r):
     except PveError as e:
         raise HTTPException(422, detail=[f"Proxmox: cannot read the bridges of node {topo['pve']['node']}: {e}"])
     problems = net.bridge_problems(net.bridge_needs(topo, fgts, True), info)
+    if fgts or (r.scope == "lan" and (topo.get("trafficgen") or {}).get("enabled")):
+        problems += net.uplink_problems(topo, info)
     if problems:
         raise HTTPException(422, detail=[f"Proxmox: {x}" for x in problems] +
                             ["Choose the bridges under WAN emulation: the uplink bridge to your lab, the WAN emulator "

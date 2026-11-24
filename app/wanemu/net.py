@@ -126,6 +126,24 @@ def bridge_problems(need, info):
     return out
 
 
+def uplink_problems(t, info):
+    """The uplink is untagged on a bridge where the PVE host has an address in another network: then the uplink VLAN
+    is almost certainly missing (wan-emu would land in the host's network and never be reachable)."""
+    w = t["wanemu"]
+    up, b = w["uplink"], w["uplink"].get("bridge") or w["bridge"]
+    host = str((info.get(b) or {}).get("cidr") or "")
+    if up.get("vlan") or not host:
+        return []
+    try:
+        hnet, unet = ipaddress.ip_interface(host).network, ipaddress.ip_interface(str(up.get("ip", ""))).network
+    except ValueError:
+        return []
+    if unet.overlaps(hnet):
+        return []
+    return [f"WAN emulation uplink is untagged on {b}, but untagged {b} is the network {hnet} (the Proxmox host's "
+            f"address) and the uplink IP is in {unet}: fill in the Uplink VLAN of {unet}"]
+
+
 def forwards(t):
     """Port forwards on wan-emu: FortiGate n -> its WAN1 address, HTTPS base+n -> 443, SSH base+n -> 22."""
     w = t["wanemu"]

@@ -683,7 +683,10 @@ def _check_bridges(topo, boot, fgts, clients):
     from .wanemu import net
     if boot.get("dry") or not (fgts or clients) or not boot.get("pve_client"):
         return
-    problems = net.bridge_problems(net.bridge_needs(topo, fgts, clients), boot["pve_client"].bridge_info(topo["pve"]["node"]))
+    info = boot["pve_client"].bridge_info(topo["pve"]["node"])
+    problems = net.bridge_problems(net.bridge_needs(topo, fgts, clients), info)
+    if fgts or (topo.get("trafficgen") or {}).get("enabled"):
+        problems += net.uplink_problems(topo, info)
     if problems:
         raise FmgError("Proxmox bridges: " + "; ".join(problems) + ". Choose the bridges under WAN emulation "
                        "(uplink bridge to the lab, bridge for the ISP segments and LAN VLANs) - nothing was created.")
