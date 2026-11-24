@@ -646,6 +646,15 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     # real FortiGates (Alles / Alleen FortiGates): VM + Day-0 (hub static wan1, licence, FMG link), register, online
     names = [d["name"] for d, _ in devices]
     if m_fgt == "day0":
+        if not boot.get("dry"):                       # reused FortiGates on another WAN layout: stop before the wan-emu
+            pve = boot.get("pve_client") or pv.make_pve(topo["pve"], boot["pve_secret"])
+            boot["pve_client"] = pve
+            from .pve import PveError
+            try:
+                pv.check_wan_layout(pve, topo)
+            except PveError as e:
+                emit("pve_wan", "error", str(e))
+                raise FmgError(str(e)) from None
         _wanemu(topo, boot, emit, fmg=fmg)
         _pve_vms(topo, boot, "fgt", "pve_fgt", emit, state)
         emit("bootstrap_fgt", "running", "waiting until the FortiGates are licensed and register with FortiManager")

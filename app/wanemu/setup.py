@@ -195,10 +195,11 @@ def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=
             emit(step, "running", f"{name}: CT id {w['vmid']} ignored, the existing CT {vmid} is used "
                                   "(a CT id cannot change; delete CT {vmid} for a new one)".replace("{vmid}", str(vmid)))
         params = {k: v for k, v in net.ct_params(t, vmid, "").items() if k not in CREATE_ONLY}
+        from ..pve import PveError
         try:                                       # a NIC per WAN link: remove the ones of an earlier, larger layout
             cur = pve.ct_config(node, vmid) or {}
-        except Exception:
-            cur = {}
+        except PveError as e:
+            raise WanEmuError(f"{name}: cannot read its configuration (CT {vmid}) to replace its WAN NICs: {e}") from None
         extra = sorted((k for k in cur if re.fullmatch(r"net\d+", k) and k not in params), key=lambda k: int(k[3:]))
         if extra:
             params["delete"] = ",".join(extra)

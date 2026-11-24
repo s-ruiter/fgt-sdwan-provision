@@ -145,6 +145,8 @@ class H(BaseHTTPRequestHandler):
             if method == "GET" and sub == "/status/current":
                 return self._send({"status": ct["status"]})
             if method == "GET" and sub == "/config":
+                if STATE.get("fail_ct_config_get"):
+                    return self._send(None, 500, "config read failed: simulated")
                 return self._send(dict(ct["params"]))
             if method == "PUT" and sub == "/config":
                 f = {k: v[0] for k, v in parse_qs(body.decode()).items()}

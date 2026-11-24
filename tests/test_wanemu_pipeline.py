@@ -27,7 +27,7 @@ con = connector(sh)
 r = setup.deploy_wanemu(pve, t, SEC, emit, connector=con, waiter=waiter)
 assert r["created"] is True and r["internet"] is True and r["vmid"] in (100, 101)
 ct = fake_proxmox.STATE["cts"][str(r["vmid"])]
-assert ct["status"] == "running" and ct["params"]["net3"] == "name=eth3,bridge=vmbr0,tag=3211,ip=100.65.1.1/24,firewall=0"
+assert ct["status"] == "running" and ct["params"]["net3"].startswith("name=eth3,bridge=vmbr0,tag=3211,ip=100.65.1.1/24,firewall=0,hwaddr=")
 assert ct["params"]["ssh-public-keys"] == setup.public_key(key) and con.seen[0][0] == "10.10.106.250"
 assert "apt-get install -y -q dnsmasq nftables iproute2 python3" in " ".join(sh.cmds)
 assert "dhcp-host=" in sh.files["/etc/dnsmasq.d/wan-emu.conf"][0]

@@ -199,4 +199,22 @@ left = {v["name"] for v in fake_proxmox.STATE["vms"].values()}
 assert left == {"fmg"}, left
 assert [u for u in fake_proxmox.STATE["uploads"] if ":vztmpl/" not in u] == [], list(fake_proxmox.STATE["uploads"])
 print("OK  rollback: mislukte FortiGate-batch verwijdert zijn VM's + ISO's/imports; FMG blijft staan")
+
+# ---------------------------------------------------------------- old WAN layout: refused BEFORE the wan-emu changes
+fake_proxmox.reset()
+events.clear()
+S = fake_proxmox.STATE
+S["cts"]["150"] = {"vmid": 150, "status": "running",
+                   "params": {"hostname": "wan-emu", "tags": "fgt-sdwan", "net1": "name=eth1,bridge=vmbr0,tag=3200"}}
+S["vms"]["151"] = {"vmid": 151, "name": "site1-1", "status": "running",
+                   "params": {"tags": "fgt-sdwan", "net0": "virtio=02:AA:BB:CC:DD:01,bridge=vmbr0,tag=3201"}}
+ct_before = dict(S["cts"]["150"]["params"])
+try:
+    pipeline(t, cfg, Fmg(FMG, "admin", NEWPW), emit, boot())
+    raise AssertionError("moest weigeren")
+except Exception as e:
+    assert "Cleanup" in str(e) and "VLAN 3201" in str(e) and "3211" in str(e), e
+assert S["cts"]["150"]["params"] == ct_before and S["cts"]["150"]["status"] == "running"     # wan-emu untouched
+assert not any(m == "PUT" and "/lxc/150/config" in pth for m, pth in S["calls"]), [c for c in S["calls"] if "150" in c[1]]
+print("OK  oude WAN-opzet: geweigerd vóór de wan-emu wordt aangepast (oude lab blijft heel)")
 print("alle day-0 pipeline-tests geslaagd")

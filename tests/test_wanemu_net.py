@@ -29,7 +29,7 @@ assert f"dhcp-host={net.mac_for('site1-1', 1)},100.65.1.2" in c and "dhcp-option
 assert "dhcp-option=tag:eth3,option:dns-server,1.1.1.1,8.8.8.8" in c
 p = net.ct_params(t, 130, "ssh-ed25519 AAAA test")
 assert p["net0"] == "name=eth0,bridge=vmbr0,tag=106,ip=10.10.106.250/24,gw=10.10.106.1", p["net0"]
-assert p["net3"] == "name=eth3,bridge=vmbr0,tag=3211,ip=100.65.1.1/24,firewall=0", p["net3"]
+assert p["net3"].startswith("name=eth3,bridge=vmbr0,tag=3211,ip=100.65.1.1/24,firewall=0,hwaddr="), p["net3"]
 assert p["unprivileged"] == 1 and p["hostname"] == "wan-emu" and "fgt-sdwan" in p["tags"] and p["vmid"] == 130
 assert p["ostemplate"].startswith("local:vztmpl/debian-13") and p["ssh-public-keys"] == "ssh-ed25519 AAAA test"
 at = net.agent_topology(t)

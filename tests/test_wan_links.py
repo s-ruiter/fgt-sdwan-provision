@@ -64,8 +64,8 @@ ln = net.links(t)
 assert [x["iface"] for x in ln] == [f"eth{k}" for k in range(1, 8)] and ln[2]["id"] == "site1-1-wan1"
 ct = net.ct_params(t, 130, "k")
 br = t["wanemu"]["bridge"]
-assert ct["net3"] == f"name=eth3,bridge={br},tag=3211,ip=100.65.1.1/24,firewall=0", ct["net3"]
-assert ct["net1"] == f"name=eth1,bridge={br},tag=3201,ip=100.64.1.1/24,firewall=0" and "net8" not in ct
+assert ct["net3"].startswith(f"name=eth3,bridge={br},tag=3211,ip=100.65.1.1/24,firewall=0"), ct["net3"]
+assert ct["net1"].startswith(f"name=eth1,bridge={br},tag=3201,ip=100.64.1.1/24,firewall=0") and "net8" not in ct
 dm = net.dnsmasq_conf(t)
 assert "interface=eth3" in dm and "dhcp-range=set:eth3,100.65.1.100,100.65.1.199,255.255.255.0,12h" in dm, dm
 assert "dhcp-option=tag:eth3,option:router,100.65.1.1" in dm
@@ -101,6 +101,10 @@ class Sh:
 sh = Sh()
 setup.internet_check(sh, t)
 assert "-I 100.65.1.1" in sh.cmds[0], sh.cmds
+# the wan-emu NICs keep their MAC across re-deploys (the FortiGates' ARP entry for .1 stays valid)
+ct2 = net.ct_params(lab(), 131, "k")
+assert all("hwaddr=" in ct[f"net{k}"] for k in range(1, 8)) and ct["net3"] == ct2["net3"]
+assert len({ct[f"net{k}"].split("hwaddr=")[1].split(",")[0] for k in range(1, 8)}) == 7
 print("OK  wan-emu: NIC + DHCP per lijn, FortiGate-NIC's op het lijn-VLAN, FMG-routes per ISP-blok, forwards")
 
 # ---- re-deploy: a reused wan-emu gets the new NICs (old extra ones deleted); FortiGates of the old layout -> Cleanup
@@ -130,8 +134,17 @@ try:
         pv.deploy_vms(pve, t["pve"] | {"node": "pve1"}, specs, {}, lambda *a: None, "pve_fgt", {}, start=False)
         raise AssertionError("expected an error for the old WAN layout")
     except PveError as e:
-        assert "old WAN layout" in str(e) and "Cleanup" in str(e), str(e)
+        assert "VLAN 3201" in str(e) and "needs VLAN 3211" in str(e) and "Cleanup" in str(e), str(e)
     assert S["vms"]["130"]["params"] == before
+    # the CT config cannot be read: an error, not silently keeping stale NICs
+    S["fail_ct_config_get"] = True
+    try:
+        setup.deploy_wanemu(pve, t, {"ssh_key": setup.new_ssh_key(), "agent_token": "tok1234567890abcdef"}, lambda *a: None,
+                            connector=fake_wanemu.connector(sh), waiter=lambda *a: True)
+        raise AssertionError("expected WanEmuError")
+    except setup.WanEmuError as e:
+        assert "configuration" in str(e), str(e)
+    S["fail_ct_config_get"] = False
 finally:
     srv.shutdown()
 print("OK  opnieuw uitrollen: wan-emu krijgt nieuwe NIC's (oude extra weg); FortiGate in oude opzet -> eerst Cleanup")

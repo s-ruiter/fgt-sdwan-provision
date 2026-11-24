@@ -60,10 +60,27 @@ def fgt_nics(dev, cfg, wanemu, is_hub, index=None, link_no=None):
     return nics
 
 
+def wan_specs(topo):
+    """Only what the WAN layout check needs per FortiGate: name, Proxmox name, NICs (no passwords, no user data)."""
+    from .model import pve_name
+    nh, out = len(topo["hubs"]), []
+    for n, d in enumerate(topo["hubs"] + topo["edges"]):
+        out.append({"name": d["name"], "pve_name": pve_name(topo, d["name"]), "role": "fgt",
+                    "nics": fgt_nics(d, topo["pve"], topo["wanemu"], n < nh, n, n + 1 if n < nh else n - nh + 1)})
+    return out
+
+
+def check_wan_layout(pve, topo):
+    """Run before anything is changed (also before the wan-emu): reused FortiGate VMs must have their WAN ports on the
+    VLAN of their own link. Raises PveError."""
+    _check_wan_layout(pve, topo["pve"]["node"], wan_specs(topo), {v["name"]: v for v in pve.find_vms(TAG)})
+
+
 def _check_wan_layout(pve, node, specs, existing):
-    """A FortiGate VM that is reused must already have its WAN ports on the VLAN of its own link. A VM of the old layout
-    (one shared VLAN per ISP) keeps its old addresses: in the new VLAN it would lose FortiManager. Stop before changing
-    anything."""
+    """A FortiGate VM that is reused must already have its WAN ports on the VLAN of its own link. A reused VM keeps its
+    own configuration (addresses, FMG link): moved to another VLAN it would lose FortiManager. This happens with an
+    older deployment (one shared VLAN per ISP) and when the WAN numbering changes (a hub/spoke added, removed or moved,
+    another VLAN base). Stop before changing anything."""
     for s in specs:
         if s.get("role") != "fgt":
             continue
@@ -82,8 +99,10 @@ def _check_wan_layout(pve, node, specs, existing):
             m = re.search(r"tag=(\d+)", str(cfg[f"net{i}"]))
             have = int(m.group(1)) if m else None
             if have != nic.get("vlan"):
-                raise PveError(f"{v['name']} (VM {v['vmid']}) was deployed with the old WAN layout (port{i + 1} on VLAN "
-                               f"{have}, now one VLAN per WAN: {nic.get('vlan')}): run Cleanup first, then deploy again")
+                raise PveError(f"{v['name']} (VM {v['vmid']}): WAN port port{i + 1} is on VLAN {have}, this deployment "
+                               f"needs VLAN {nic.get('vlan')} (one VLAN per WAN, numbered by the order of the hubs/spokes "
+                               "and the VLAN base). It was deployed before with another WAN layout, or FortiGates were "
+                               "added, removed or reordered: run Cleanup first, then deploy again")
 
 
 def deploy_names(t, scope, fmg_vm=None, fgt_vm=None):

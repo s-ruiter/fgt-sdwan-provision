@@ -212,7 +212,8 @@ def ct_params(t, vmid, ssh_pubkey):
          "net0": f"name=eth0,bridge={up.get('bridge') or w['bridge']}" + (f",tag={up['vlan']}" if up.get("vlan") else "")
                  + f",ip={up['ip']},gw={up['gw']}"}
     for k, x in enumerate(links(t), start=1):          # one NIC per WAN link (Proxmox: net0..net31)
-        p[f"net{k}"] = f"name={x['iface']},bridge={w['bridge']},tag={x['vlan']},ip={x['gw']}/24,firewall=0"
+        p[f"net{k}"] = (f"name={x['iface']},bridge={w['bridge']},tag={x['vlan']},ip={x['gw']}/24,firewall=0,"
+                        f"hwaddr={mac_for(w['hostname'] + '-link', k).upper()}")   # stable across re-deploys
     return p
 
 
