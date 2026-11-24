@@ -538,7 +538,7 @@ let SERVERS = [], EDIT = null;
 function srvReset() {
   EDIT = null; $("#srv_form_title").textContent = "Add server";
   for (const id of ["name", "url", "tid", "secret"]) $("#srv_" + id).value = "";
-  $("#srv_secret").placeholder = ""; $("#srv_tls").checked = true; $("#srv_cancel").hidden = true; $("#srv_res").textContent = ""; $("#srv_res").className = "hint";
+  $("#srv_secret").placeholder = ""; $("#srv_console_user").value = ""; $("#srv_console_pw").value = ""; $("#srv_console_pw").placeholder = ""; $("#srv_tls").checked = true; $("#srv_cancel").hidden = true; $("#srv_res").textContent = ""; $("#srv_res").className = "hint";
 }
 function srvDraw() {
   $("#srv_list").innerHTML = SERVERS.length
@@ -582,6 +582,7 @@ $("#srv_list").addEventListener("click", async (e) => {
     const s = SERVERS.find((x) => String(x.id) === t.dataset.se);
     EDIT = s.id; $("#srv_form_title").textContent = `Edit server: ${s.name}`;
     $("#srv_name").value = s.name; $("#srv_url").value = s.url; $("#srv_tid").value = s.token_id; $("#srv_secret").value = ""; $("#srv_secret").placeholder = "leave unchanged";
+    $("#srv_console_user").value = s.console_user || ""; $("#srv_console_pw").value = ""; $("#srv_console_pw").placeholder = s.has_console_password ? "leave unchanged" : "";
     $("#srv_tls").checked = s.verify_tls; $("#srv_cancel").hidden = false; $("#srv_name").scrollIntoView({ block: "center" });
   } else if (t.dataset.st) {
     const out = $("#srv_t" + t.dataset.st); out.className = "hint"; out.textContent = "…";
@@ -590,7 +591,8 @@ $("#srv_list").addEventListener("click", async (e) => {
   }
 });
 $("#srv_cancel").onclick = srvReset;
-const srvBody = () => ({ name: $("#srv_name").value.trim(), url: $("#srv_url").value.trim(), token_id: $("#srv_tid").value.trim(), token_secret: $("#srv_secret").value || null, verify_tls: $("#srv_tls").checked });
+const srvBody = () => ({ name: $("#srv_name").value.trim(), url: $("#srv_url").value.trim(), token_id: $("#srv_tid").value.trim(), token_secret: $("#srv_secret").value || null, verify_tls: $("#srv_tls").checked,
+  console_user: $("#srv_console_user").value.trim(), console_password: $("#srv_console_pw").value || null });
 $("#srv_save").onclick = async () => {
   showErr([], "#srv_err");
   const r = await fetch(EDIT ? "/api/servers/" + EDIT : "/api/servers", { method: EDIT ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(srvBody()) }), j = await json(r);
@@ -621,16 +623,18 @@ const WAN_F = [["delay_ms", "Latency", "ms", 0, 1000, 1], ["jitter_ms", "Jitter"
 function wanErr(msg) { $("#wanemu-err").innerHTML = msg ? `<div class="error">✕ ${esc(msg)}</div>` : ""; }   // no scroll: the page refreshes every 10 s
 // ---- FortiGates via wan-emu: GUI via port forward, SSH in the browser (xterm.js) ----------------------------------
 const XTERM = "https://cdn.jsdelivr.net/npm/xterm@5.3.0/", XFIT = "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/";
-let TERM = null, TERM_WS = null, TERM_NAME = "";
 // remote access: FortiManager first, then the FortiGates; GUI link, copy the kept password, SSH (auto-login when kept)
 async function wanFwdLoad() {
   const r = await fetch("/api/access"), j = await json(r);
   if (!r.ok) { $("#wanemu-fgts").innerHTML = `<div class="hint">${esc(errList(j).join(" "))}</div>`; return; }
   const row = (d, key, kind) => `<div class="fgt-row"><b>${esc(d.name)}</b><span class="hint">${kind}</span><span class="mono">${esc(d.ip)}</span>` +
-    `<a href="${esc(d.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` +
-    (d.password ? `<button data-cpw="${esc(key)}" title="Copy the admin password to the clipboard">Copy password</button>` : "") +
-    `<button data-ssh="${esc(key)}" data-auto="${d.password ? 1 : ""}">SSH</button><span class="hint mono">${esc(d.ssh)}</span></div>`;
-  const rows = (j.fmg ? row(j.fmg, "@fmg", "FortiManager") : "") + j.fgts.map((f) => row(f, f.name, "FortiGate")).join("");
+    (d.gui ? `<a href="${esc(d.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` : "") +
+    (d.password ? `<button data-cpw="${esc(key)}" title="Copy the password to the clipboard">Copy password</button>` : "") +
+    (d.ssh ? `<button data-ssh="${esc(key)}" data-auto="${d.password ? 1 : ""}">SSH</button>` : "") +
+    `<button data-console="${esc(key)}" title="Proxmox console (also when the network to the device is down)">Console</button>` +
+    (d.ssh ? `<span class="hint mono">${esc(d.ssh)}</span>` : "") + `</div>`;
+  const rows = (j.fmg ? row(j.fmg, "@fmg", "FortiManager") : "") + j.fgts.map((f) => row(f, f.name, "FortiGate")).join("") +
+    (j.clients || []).map((c) => row(c, c.name, `LAN client · ${esc(c.spoke)}`)).join("");
   $("#wanemu-fgts").innerHTML = rows || '<div class="hint">Nothing deployed yet: deploy the FortiManager and FortiGates first.</div>';
 }
 // clipboard: the modern API needs https (the tool usually runs on plain http) and may refuse after an await, so fall
@@ -651,43 +655,88 @@ function loadOnce(tag, attrs) {
     document.head.appendChild(e);
   });
 }
-function termOpen(name, auto) {
-  TERM_NAME = name; $("#term_title").textContent = `SSH to ${name === "@fmg" ? "FortiManager" : name}`;
-  $("#term_overlay").hidden = false; $("#term_form").hidden = false; $("#term_box").innerHTML = "";
-  if (auto) { $("#term_pw").value = ""; termStart(); }         // the tool logs in with the kept password
-  else $("#term_pw").focus();
+// sessions: several terminals (SSH via /api/term, Proxmox console via /api/console) in tabs; minimize keeps them open
+const SESS = new Map();
+let SESS_CUR = null, XTERM_OK = false;
+const sessLabel = (n) => (n === "@fmg" ? "FortiManager" : n);
+function sessTabs() {
+  const tab = (s) => `<button data-stab="${esc(s.key)}" class="${s.key === SESS_CUR ? "on" : ""} ${s.closed ? "closed" : ""}">${esc(s.title)}<span class="x" data-sclose="${esc(s.key)}" title="End this session">×</span></button>`;
+  $("#sess_tabs").innerHTML = [...SESS.values()].map(tab).join("");
+  $("#sess_bar").innerHTML = [...SESS.values()].map((s) => `<button data-stab="${esc(s.key)}" class="${s.closed ? "closed" : ""}">▴ ${esc(s.title)}</button>`).join("");
 }
-let TERM_FIT = null, TERM_BUSY = false;
-const termResize = () => TERM && TERM_FIT && TERM_FIT.fit();
-window.addEventListener("resize", termResize);                  // one listener for every session
-async function termStart() {
-  if (TERM_BUSY || TERM) return;                                // Enter twice while loading: one session only
-  TERM_BUSY = true;
+function sessOpen(kind, name, auto) {
+  const key = `${kind}:${name}`;
+  const old = SESS.get(key);
+  if (old && old.closed) sessClose(key);                        // ended (e.g. the CT restarted): connect again
+  else if (old) return sessShow(key);                           // the same device again: its existing session
+  const el = document.createElement("div"); el.className = "term-pane"; $("#term_box").appendChild(el);
+  SESS.set(key, { key, kind, name, el, title: `${kind === "console" ? "Console" : "SSH"} ${sessLabel(name)}`, term: null, ws: null, fit: null, closed: false, needsForm: !auto });
+  sessShow(key);
+  if (auto) sessStart(SESS.get(key), "", "");                    // the tool logs in with the kept password
+}
+async function sessStart(s, user, pw) {
+  if (!s || s.term) return;
   try {
-    await loadOnce("link", { rel: "stylesheet", href: XTERM + "css/xterm.css" });
-    await loadOnce("script", { src: XTERM + "lib/xterm.js" }); await loadOnce("script", { src: XFIT + "lib/xterm-addon-fit.js" });
-  } catch (e) { TERM_BUSY = false; $("#term_box").innerHTML = `<div class="error">✕ ${esc(e.message)} (does the browser have internet access?)</div>`; return; }
-  const user = $("#term_user").value.trim() || "admin", pw = $("#term_pw").value;
-  $("#term_pw").value = "";                                     // not kept in the page
-  $("#term_form").hidden = true;
-  TERM = new window.Terminal({ cursorBlink: true, fontSize: 13 });
-  $("#term_box").innerHTML = "";
-  TERM_FIT = new window.FitAddon.FitAddon(); TERM.loadAddon(TERM_FIT); TERM.open($("#term_box")); TERM_FIT.fit();
-  TERM_BUSY = false;
-  const term = TERM, ws = TERM_WS = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/term/${encodeURIComponent(TERM_NAME)}`);
+    if (!XTERM_OK) {
+      await loadOnce("link", { rel: "stylesheet", href: XTERM + "css/xterm.css" });
+      await loadOnce("script", { src: XTERM + "lib/xterm.js" }); await loadOnce("script", { src: XFIT + "lib/xterm-addon-fit.js" });
+      XTERM_OK = true;
+    }
+  } catch (e) { s.el.innerHTML = `<div class="error">✕ ${esc(e.message)} (does the browser have internet access?)</div>`; return; }
+  if (SESS.get(s.key) !== s || s.term) return;                   // closed (or started) while xterm was loading
+  const term = s.term = new window.Terminal({ cursorBlink: true, fontSize: 13 });
+  s.fit = new window.FitAddon.FitAddon(); term.loadAddon(s.fit); term.open(s.el); s.fit.fit();
+  const path = s.kind === "console" ? "/api/console/" : "/api/term/";
+  const ws = s.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${path}${encodeURIComponent(s.name)}`);
   ws.onopen = () => ws.send(JSON.stringify({ user, password: pw, cols: term.cols, rows: term.rows }));
-  ws.onmessage = (e) => term.write(e.data);                     // bound to this session's terminal, not a later one
-  ws.onclose = () => { if (TERM === term) term.write("\r\n[connection closed]\r\n"); };
+  ws.onmessage = (e) => term.write(e.data);
+  ws.onclose = () => { if (SESS.get(s.key) === s) { term.write("\r\n[connection closed]\r\n"); s.closed = true; sessTabs(); } };
   term.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ data: d })));
   term.onResize(({ cols, rows }) => ws.readyState === 1 && ws.send(JSON.stringify({ resize: [cols, rows] })));
-  term.focus();
+  if (SESS_CUR === s.key) term.focus();
 }
-function termClose() {
-  if (TERM_WS) { try { TERM_WS.close(); } catch (_) {} TERM_WS = null; }
-  if (TERM) { TERM.dispose(); TERM = null; TERM_FIT = null; }
-  TERM_BUSY = false;
-  $("#term_pw").value = ""; $("#term_overlay").hidden = true;
+function sessShow(key) {
+  if (!SESS.has(key)) return;
+  SESS_CUR = key; $("#sess_panel").hidden = false; $("#sess_bar").hidden = true;
+  const cur = SESS.get(key);
+  $("#term_form").hidden = !cur.needsForm;                       // the password form belongs to this session only
+  if (cur.needsForm) { $("#term_pw").value = ""; $("#term_user").value = cur.kind === "console" && cur.name.startsWith("client-") ? "root" : "admin"; setTimeout(() => $("#term_pw").focus(), 0); }
+  for (const s of SESS.values()) s.el.hidden = s.key !== key;
+  sessTabs();
+  const s = SESS.get(key);
+  if (s.fit) { s.fit.fit(); s.term.focus(); }
 }
+function sessMin() {
+  $("#sess_panel").hidden = true; $("#sess_bar").hidden = SESS.size === 0; sessTabs();
+}
+function sessClose(key) {
+  const s = SESS.get(key || SESS_CUR);
+  if (!s) return;
+  SESS.delete(s.key);                                           // first: onclose of this session no longer redraws
+  if (s.ws) { try { s.ws.close(); } catch (_) {} }
+  if (s.term) s.term.dispose();
+  s.el.remove();
+  if (s.needsForm) $("#term_pw").value = "";
+  const next = [...SESS.keys()].pop();
+  if (next) sessShow(next); else { SESS_CUR = null; $("#sess_panel").hidden = true; $("#sess_bar").hidden = true; }
+}
+window.addEventListener("resize", () => { const s = SESS.get(SESS_CUR); if (s && s.fit && !$("#sess_panel").hidden) s.fit.fit(); });
+function sessGo() {
+  const s = SESS.get(SESS_CUR); if (!s || !s.needsForm) return;
+  const user = $("#term_user").value.trim() || "admin", pw = $("#term_pw").value;
+  $("#term_pw").value = "";                                     // not kept in the page
+  s.needsForm = false; $("#term_form").hidden = true;
+  sessStart(s, user, pw);
+}
+const sessClick = (e) => {
+  const x = e.target.closest("[data-sclose]");
+  if (x) { e.stopPropagation(); return sessClose(x.dataset.sclose); }
+  const t = e.target.closest("[data-stab]");
+  if (t) sessShow(t.dataset.stab);
+};
+$("#sess_tabs").addEventListener("click", sessClick);
+$("#sess_bar").addEventListener("click", sessClick);
+$("#sess_min").onclick = sessMin;
 $("#wanemu-fgts").addEventListener("click", async (e) => {
   const c = e.target.closest("[data-cpw]");
   if (c) {
@@ -699,11 +748,13 @@ $("#wanemu-fgts").addEventListener("click", async (e) => {
     return;
   }
   const b = e.target.closest("[data-ssh]");
-  if (b) termOpen(b.dataset.ssh, !!b.dataset.auto);
+  if (b) return sessOpen("ssh", b.dataset.ssh, !!b.dataset.auto);
+  const k = e.target.closest("[data-console]");
+  if (k) sessOpen("console", k.dataset.console, true);          // the tool logs in itself when it knows the password
 });
-$("#term_go").onclick = termStart;
-$("#term_pw").addEventListener("keydown", (e) => { if (e.key === "Enter") termStart(); });
-$("#term_close").onclick = termClose;
+$("#term_go").onclick = sessGo;
+$("#term_pw").addEventListener("keydown", (e) => { if (e.key === "Enter") sessGo(); });
+$("#term_close").onclick = () => sessClose();
 async function wanLoad() {
   const r = await fetch("/api/wanemu/links"), j = await r.json().catch(() => ({}));
   if (!r.ok) { wanErr(j.detail || `HTTP ${r.status}`); $("#wanemu-links").innerHTML = ""; return; }

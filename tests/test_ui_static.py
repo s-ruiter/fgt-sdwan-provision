@@ -77,18 +77,32 @@ assert "flexPlanTable(plan)" in ds[:ds.index("\n}")], "deployStatus tekent het p
 assert dep.index("/api/fortiflex/check") < dep.index('post("/api/deploy"'), "eerst opzoeken (zichtbaar), dan de uitrol"
 print("OK  UI: uitrol met FortiFlex toont eerst het licentieplan per device en een teller tijdens het ophalen")
 
-# WAN-emulatie: FortiGates with "GUI openen" (port forward) and SSH in the browser (xterm.js, pinned version)
-for i in ("wanemu-fgts", "term_overlay", "term_user", "term_pw", "term_go", "term_box", "term_close", "term_title"):
+# remote access: several terminal sessions (SSH + Proxmox console) in tabs, minimizable to a bar at the bottom
+for i in ("wanemu-fgts", "sess_panel", "sess_tabs", "sess_min", "sess_bar", "term_user", "term_pw", "term_go", "term_box", "term_close"):
     assert f'id="{i}"' in html, i
 assert 'type="password"' in html[html.index('id="term_pw"') - 80:html.index('id="term_pw"') + 40]
-for f in ("wanFwdLoad", "termOpen", "termStart", "termClose"):
+for f in ("wanFwdLoad", "sessOpen", "sessStart", "sessShow", "sessMin", "sessClose"):
     assert re.search(rf"(async\s+)?function\s+{f}\b", js), f
-assert "/api/access" in js and "/api/access/password" in js and "/api/term/" in js
-assert 'data-nav="wanemu">Access &amp; WAN control' in html and "wanemu-show" in html             # renamed; link visibility
+assert "/api/access" in js and "/api/access/password" in js and "/api/term/" in js and "/api/console/" in js
+assert "data-console=" in js and "data-ssh=" in js and "j.clients" in js
 assert html.index('id="wanemu-fgts"') < html.index('id="wanemu-presets"'), "remote access comes first"
 assert re.search(r"cdn\.jsdelivr\.net/npm/xterm@\d+\.\d+\.\d+/", js) and re.search(r"xterm-addon-fit@\d+\.\d+\.\d+/", js)
 assert "term_pw\").value = \"\"" in js.replace("'", '"'), "wachtwoordveld wordt na het verbinden leeggemaakt"
-print("OK  UI: FortiGates met 'GUI openen' en SSH in de browser (xterm.js vast versienummer), wachtwoord niet bewaard")
+assert 'id="sess_bar"' in html and ".sess-bar" in open(os.path.join(root, "static", "style.css")).read()
+# sessions stay reachable on every page: panel and bar outside the page sections
+for i in ("sess_panel", "sess_bar"):
+    pos = html.index(f'id="{i}"')
+    assert html.rfind("<section", 0, pos) < html.rfind("</section>", 0, pos), f"{i} is inside a page section"
+assert "needsForm" in js, "the password form belongs to its own session"
+assert "SESS.get(s.key) !== s" in js, "a session closed while xterm loads opens nothing"
+assert re.search(r"if \(old && old\.closed\)", js), "an ended session is reopened, not shown dead"
+# console user per Proxmox server (VM consoles), password field + hint that it is stored encrypted
+for i in ("srv_console_user", "srv_console_pw"):
+    assert f'id="{i}"' in html, i
+assert 'type="password"' in html[html.index('id="srv_console_pw"') - 80:html.index('id="srv_console_pw"') + 60]
+assert "encrypted" in html[html.index('id="srv_console_user"') - 400:html.index('id="srv_console_pw"') + 600]
+assert "console_user:" in js and "console_password:" in js
+print("OK  UI: meerdere sessies (SSH + console) in tabs, minimaliseren, Console-knoppen, console-gebruiker per server")
 
 # WAN-emulatie: releasing a slider / toggling "link down" applies at once (no hidden "Toepassen" step), with feedback
 ch = js[js.index('$("#v_wanemu").addEventListener("change"'):]

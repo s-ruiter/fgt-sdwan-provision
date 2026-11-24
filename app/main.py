@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import json
 import os
 import threading
@@ -535,6 +536,27 @@ def _forwards():
     return json.loads(raw) if raw else {"host": "", "forwards": []}
 
 
+def _client_list(topo):
+    """The LAN clients of a deployment as the Access page lists them (same addresses as wanemu.net.client_params)."""
+    out = []
+    for e in topo["edges"]:
+        lan = (e.get("lans") or [{}])[0].get("ip")
+        if not lan:
+            continue
+        i = ipaddress.ip_interface(lan)
+        host = i.network.network_address + 10
+        if host == i.ip:
+            host += 1
+        out.append({"name": f"client-{e['name']}", "ip": str(host), "spoke": e["name"]})
+    return out
+
+
+def _console_keep(topo):
+    """Where the consoles find the deployment: the saved Proxmox server + the name prefix (None without a saved one)."""
+    sid = (topo.get("pve") or {}).get("server_id")
+    return {"server_id": sid, "prefix": topo["pve"].get("name_prefix") or ""} if sid else None
+
+
 @app.get("/api/access")
 def access():
     """What the Access page lists: GUI URL + SSH command per device; whether the tool knows the password."""
@@ -547,7 +569,9 @@ def access():
     fgts = [{"name": f["name"], "ip": f["ip"], "gui": f"https://{fw['host']}:{f['https']}/",
              "ssh": f"ssh -p {f['ssh']} {fg.get('user') or 'admin'}@{fw['host']}", "password": bool(fg.get("password"))}
             for f in fw["forwards"]]
-    return {"fmg": fmg, "fgts": fgts}
+    ci = cr.get("client") or {}
+    clients = [dict(x, password=bool(ci.get("password"))) for x in ci.get("list") or []]
+    return {"fmg": fmg, "fgts": fgts, "clients": clients}
 
 
 class AccessName(BaseModel):
@@ -563,6 +587,9 @@ def access_password(a: AccessName):
         return {"user": fm.get("user") or "admin", "password": fm["password"]}
     if any(f["name"] == a.name for f in fw["forwards"]) and fg.get("password"):
         return {"user": fg.get("user") or "admin", "password": fg["password"]}
+    ci = cr.get("client") or {}
+    if any(x["name"] == a.name for x in ci.get("list") or []) and ci.get("password"):
+        return {"user": ci.get("user") or "root", "password": ci["password"]}
     raise HTTPException(404, detail=f"no password kept for {a.name}")
 
 
@@ -678,6 +705,163 @@ async def term(ws: WebSocket, name: str):
             chan.close()
         if closer is not None:
             closer()
+
+
+# ---- Proxmox console in the browser: websocket <-> Proxmox vncwebsocket (termproxy). LAN clients (LXC) via the API
+# token, FortiGates/FortiManager (VMs) via the console user of the Proxmox server. Same browser messages as /api/term.
+from . import console as _console  # noqa: E402
+
+CONSOLE_OPEN = _console.open_session
+CONSOLE_SERVER = lambda sid: db.get_server(db.connect(DATA_DIR), sid)  # noqa: E731
+CONSOLE_KEEPALIVE = 30
+CONSOLE_LOGIN_WINDOW = (30, 10)        # auto-login: user prompt within 30 s of connecting, password within 10 s after
+CONSOLE_TICKET_TIMEOUT = 10
+
+
+def _console_target(name):
+    """-> (proxmox name, server row, console user or None, kept login {user, password})."""
+    raw = db.get_secret(db.connect(DATA_DIR), "console_target")
+    tgt = json.loads(raw) if raw else {}
+    if not tgt.get("server_id"):
+        raise _console.ConsoleError("no deployment known yet: deploy first")
+    row = CONSOLE_SERVER(tgt["server_id"])
+    if row is None:
+        raise _console.ConsoleError("the Proxmox server of the deployment no longer exists in the tool")
+    cr = _creds()
+    clients = {x["name"] for x in (cr.get("client") or {}).get("list") or []}
+    if name == "@fmg" and (cr.get("fmg") or {}).get("host"):
+        fm = cr["fmg"]
+        dev, kept = fm.get("name") or "fmg", fm
+    elif name in clients:
+        dev, kept = name, cr.get("client") or {}
+    elif any(f["name"] == name for f in _forwards()["forwards"]):
+        dev, kept = name, cr.get("fgt") or {}
+    else:                                       # only devices of this deployment, never an arbitrary VM/CT
+        raise _console.ConsoleError(f"unknown device {name}: not part of the deployment")
+    try:
+        cons = db.get_console(db.connect(DATA_DIR), tgt["server_id"], DATA_DIR)
+    except ValueError as e:
+        raise _console.ConsoleError(str(e)) from None
+    return (tgt.get("prefix") or "") + dev, row, cons, kept
+
+
+@app.websocket("/api/console/{name}")
+async def console_ws(ws: WebSocket, name: str):
+    import codecs
+    import ssl
+    import websockets
+    await ws.accept()
+
+    async def say(m):
+        try:
+            await ws.send_text(f"\r\n\x1b[31m[{m}]\x1b[0m\r\n")
+        except Exception:
+            pass
+
+    async def close():
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    try:
+        try:
+            start = json.loads(await ws.receive_text())
+            cols, rows = int(start.get("cols") or 80), int(start.get("rows") or 24)
+        except (ValueError, TypeError, AttributeError):
+            await say("invalid start message")
+            return await close()
+        try:
+            pve_name, row, cons, kept = await asyncio.to_thread(_console_target, name)
+            sess = await asyncio.to_thread(CONSOLE_OPEN, row, cons, pve_name)
+        except _console.ConsoleError as e:
+            await say(str(e))
+            return await close()
+        except Exception as e:                                      # never a silent close
+            await say(f"console error: {type(e).__name__}")
+            return await close()
+        user = start.get("user") or kept.get("user") or ("root" if name.startswith("client-") else "admin")
+        pw = start.get("password") or kept.get("password") or ""
+        start = kept = None                                           # passwords not kept around
+        ctx = None
+        if sess["ws_url"].startswith("wss://"):
+            ctx = ssl.create_default_context()
+            if not sess["ssl_verify"]:
+                ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+        try:
+            px = await websockets.connect(sess["ws_url"], additional_headers=sess["headers"], ssl=ctx,
+                                          subprotocols=["binary"], open_timeout=15, max_size=None)
+        except Exception as e:
+            await say(f"no console connection to Proxmox ({type(e).__name__})")
+            return await close()
+        try:
+            await px.send(sess["auth_line"])
+            try:
+                ok = await asyncio.wait_for(px.recv(), CONSOLE_TICKET_TIMEOUT)
+            except asyncio.TimeoutError:
+                await say("Proxmox did not answer the console ticket")
+                return await close()
+            if not (ok if isinstance(ok, bytes) else ok.encode()).startswith(b"OK"):
+                await say("Proxmox refused the console ticket")
+                return await close()
+            await px.send(f"1:{cols}:{rows}:")
+            dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
+            t0 = time.monotonic()
+            state = {"tail": "", "user": False, "pw": False, "user_at": 0.0, "off": not pw}
+
+            async def send(data):
+                await px.send(f"0:{len(data.encode())}:{data}")
+
+            async def out():
+                async for m in px:
+                    t = dec.decode(m if isinstance(m, bytes) else m.encode())
+                    await ws.send_text(t)
+                    if state["off"]:
+                        continue
+                    now = time.monotonic()
+                    if (not state["user"] and now - t0 > CONSOLE_LOGIN_WINDOW[0]) or \
+                            (state["user"] and now - state["user_at"] > CONSOLE_LOGIN_WINDOW[1]):
+                        state["off"] = True                            # too late: never answer a later prompt
+                        continue
+                    state["tail"] = (state["tail"] + t)[-200:]
+                    if not state["user"] and state["tail"].rstrip().endswith("login:"):
+                        state.update(user=True, tail="", user_at=now)
+                        await send(user + "\r")
+                    elif state["user"] and state["tail"].rstrip().endswith("Password:"):
+                        state.update(pw=True, off=True, tail="")
+                        await send(pw + "\r")
+
+            async def inp():
+                while True:
+                    m = json.loads(await ws.receive_text())
+                    if "data" in m:
+                        state["off"] = True                            # the user types: the auto-login steps aside
+                        await send(str(m["data"]))
+                    elif "resize" in m:
+                        await px.send(f"1:{int(m['resize'][0])}:{int(m['resize'][1])}:")
+
+            async def keep():
+                while True:
+                    await asyncio.sleep(CONSOLE_KEEPALIVE)
+                    await px.send("2")
+
+            tasks = [asyncio.create_task(x()) for x in (out, inp, keep)]
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for x in tasks:
+                x.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            ended = tasks[0] in done or any(isinstance(x.exception(), websockets.ConnectionClosed)
+                                            for x in done if not x.cancelled() and x.exception())
+            if ended:                                                  # Proxmox ended the console
+                await say("session ended")
+                await close()
+        except websockets.ConnectionClosed:                            # Proxmox closed before/while setting up
+            await say("session ended")
+            await close()
+        finally:
+            await px.close()
+    except Exception:
+        pass
 
 
 @app.post("/api/wanemu/reset")
@@ -951,6 +1135,8 @@ def cleanup_run(c: CleanupReq):
             cr.pop("fmg", None)
         if gone_ct("wan-emu"):
             cr.pop("fgt", None)
+        if any(r["kind"] == "ct" and r["ok"] and "client-" in r["name"] for r in results):
+            cr.pop("client", None)
         db.put_secret(db.connect(DATA_DIR), "access_creds", json.dumps(cr) if cr else "")
         if gone_ct("trafficgen"):
             conn = db.connect(DATA_DIR)                      # the Traffic tab no longer points at a deleted Traffic-Gen
@@ -1026,7 +1212,12 @@ def deploy(r: DeployReq):
                          "user": s.admin_user or "admin", "password": r.fmg.password}
         if boot["fgt"] == "day0" and r.scope in ("all", "fgt") and s.fgt_new_pw:
             cr["fgt"] = {"user": s.admin_user or "admin", "password": s.fgt_new_pw}
+        if s.client_pw and (r.scope == "lan" or (boot["fgt"] == "day0" and r.scope in ("all", "fgt"))):
+            cr["client"] = {"user": "root", "password": s.client_pw, "list": _client_list(topo)}
         db.put_secret(db.connect(DATA_DIR), "access_creds", json.dumps(cr))
+        ck = _console_keep(topo)
+        if ck:
+            db.put_secret(db.connect(DATA_DIR), "console_target", json.dumps(ck))
     if not r.dry_run and topo.get("trafficgen", {}).get("enabled") and \
             (r.scope == "lan" or (boot["fgt"] == "day0" and r.scope in ("all", "fgt"))):
         conn = db.connect(DATA_DIR)                    # where the Traffic tab finds it (password: like the agent token)

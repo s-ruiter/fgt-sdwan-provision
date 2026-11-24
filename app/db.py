@@ -135,6 +135,42 @@ def put_secret(conn, name, value):
     conn.commit()
 
 
+# ---- console user per Proxmox server (VM consoles): password encrypted with the secret box, never returned --------
+def _console_key(sid):
+    return f"pve_console:{sid}"
+
+
+def get_console(conn, sid, data_dir):
+    """{"user", "password"} (decrypted) or None when no console user is set."""
+    import json
+    from . import secretbox
+    raw = get_secret(conn, _console_key(sid))
+    if not raw:
+        return None
+    d = json.loads(raw)
+    return {"user": d["user"], "password": secretbox.unseal(data_dir, d["pw"])} if d.get("user") else None
+
+
+def console_user(conn, sid):
+    """(user, has_password) without decrypting."""
+    import json
+    raw = get_secret(conn, _console_key(sid))
+    d = json.loads(raw) if raw else {}
+    return d.get("user") or "", bool(d.get("pw"))
+
+
+def put_console(conn, sid, data_dir, user, password=None):
+    """user "" clears; password None/"" keeps the stored one (same user or not)."""
+    import json
+    from . import secretbox
+    if not user:
+        return put_secret(conn, _console_key(sid), "")
+    raw = get_secret(conn, _console_key(sid))
+    old = json.loads(raw) if raw else {}
+    pw = secretbox.seal(data_dir, password) if password else old.get("pw", "")
+    put_secret(conn, _console_key(sid), json.dumps({"user": user, "pw": pw}))
+
+
 # ---- deployment jobs: persisted so progress survives a page refresh and a service restart -------------------------
 def save_job(conn, job):
     """job = {id, created, title, state, dry_run, steps{}, events[]}; events are already masked (no secrets)."""

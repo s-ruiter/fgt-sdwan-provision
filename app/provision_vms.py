@@ -131,6 +131,9 @@ def vm_params(spec, cfg, import_volid, iso_volid):
         # hangs silently after "Loading /rootfs.gz...ok" (seen on PVE 9.1 + FGT-VM 8.0.2). Fortinet's Proxmox guide uses
         # the GUI default, VirtIO SCSI single. (The FortiManager VM boots fine on LSI and is left as it is.)
         p["scsihw"] = "virtio-scsi-single"
+    # serial console: the tool's console (Proxmox termproxy needs serial0) and a text console with paste in the
+    # Proxmox GUI; FortiOS and FortiManager both log in on serial0 (tested: 'site1-3 login:', 'fmg login:')
+    p["serial0"], p["vga"] = "socket", "serial0"
     if iso_volid:
         p["ide2"] = f"{iso_volid},media=cdrom"
     for i, gb in enumerate(spec["extra_disks"], start=1):

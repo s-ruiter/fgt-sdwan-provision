@@ -52,10 +52,28 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()
             return self.wfile.write(out)
-        STATE["auth"] = self.headers.get("Authorization", "")
-        if not self.headers.get("Authorization", "").startswith("PVEAPIToken="):
-            return self._send(None, 401, "No ticket")
         body = self._body()
+        if path == "/access/ticket" and method == "POST":              # console user login (VM consoles)
+            f = {k: v[0] for k, v in parse_qs(body.decode()).items()}
+            if STATE.get("console_users", {}).get(f.get("username")) != f.get("password"):
+                return self._send(None, 401, "authentication failure")
+            t = f"PVE:{f['username']}:TICKET"
+            STATE.setdefault("tickets", {})[t] = f["username"]
+            return self._send({"ticket": t, "CSRFPreventionToken": "CSRF-" + f["username"], "username": f["username"]})
+        cookie = re.search(r"PVEAuthCookie=([^;]+)", self.headers.get("Cookie", ""))
+        STATE["auth"] = self.headers.get("Authorization", "") or (f"cookie:{cookie.group(1)}" if cookie else "")
+        if cookie and cookie.group(1) in STATE.get("tickets", {}):
+            if method != "GET" and self.headers.get("CSRFPreventionToken") != "CSRF-" + STATE["tickets"][cookie.group(1)]:
+                return self._send(None, 401, "Permission check failed (invalid csrf token)")
+        elif not self.headers.get("Authorization", "").startswith("PVEAPIToken="):
+            return self._send(None, 401, "No ticket")
+        m = re.fullmatch(r"/nodes/pve1/(lxc|qemu)/(\d+)/termproxy", path)
+        if m and method == "POST":
+            if STATE.get("termproxy_403"):
+                return self._send(None, 403, "Permission check failed (/vms/" + m.group(2) + ", VM.Console)")
+            user = STATE["tickets"][cookie.group(1)] if cookie else self.headers["Authorization"].split("=")[1]
+            STATE.setdefault("termproxies", []).append((m.group(1), int(m.group(2)), user))
+            return self._send({"port": "5900", "ticket": "PVEVNC:abc/def+==", "user": user, "upid": self._upid()})
         with LOCK:
             return self._handle(method, path, q, body)
 
@@ -91,9 +109,9 @@ class H(BaseHTTPRequestHandler):
             return self._send(str(n))
         if path == "/cluster/resources":
             return self._send([{"vmid": v["vmid"], "name": v["name"], "tags": v["params"].get("tags", ""),
-                                "status": v["status"], "type": "qemu"} for v in vms.values()] +
+                                "status": v["status"], "type": "qemu", "node": "pve1"} for v in vms.values()] +
                               [{"vmid": c["vmid"], "name": c["params"].get("hostname"), "tags": c["params"].get("tags", ""),
-                                "status": c["status"], "type": "lxc"} for c in STATE["cts"].values()])
+                                "status": c["status"], "type": "lxc", "node": "pve1"} for c in STATE["cts"].values()])
         cts = STATE["cts"]
         if path == "/nodes/pve1/lxc" and method == "POST":
             f = {k: v[0] for k, v in parse_qs(body.decode()).items()}
@@ -197,6 +215,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(self._upid())
             if method == "GET" and sub == "/status/current":
                 return self._send({"status": vm["status"]})
+            if method == "GET" and sub == "/config":
+                return self._send(dict(vm["params"], name=vm["name"]))
             if method == "PUT" and sub == "/config":
                 vm["params"].update({k: v[0] for k, v in parse_qs(body.decode()).items()})
                 vm["name"] = vm["params"].get("name", vm["name"])
