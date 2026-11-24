@@ -79,7 +79,7 @@ def pol(plan, role):
 for role in ("HUB1", "HUB2"):
     hp = pol(pm, role)
     names = [p[0] for p in hp]
-    assert ("Internet (to PE)", ["lan_zone"], ["vrfs_leak_zone"], "enable") in hp, hp
+    assert ("Internet (to PE)", ["lan_zone"], ["vrfs_leak_zone"], "disable") in hp, hp
     assert ("Internet (DIA)", ["pevrf_leak_zone"], ["underlay"], "enable") in hp, hp
     assert names.index("Internet (to PE)") < names.index("Internet (DIA)")
     assert not any(p[1] == ["lan_zone"] and p[2] == ["underlay"] for p in hp)
@@ -89,5 +89,26 @@ for role in ("HUB1", "HUB2"):
     assert ("Internet (DIA)", ["lan_zone"], ["underlay"], "enable") in pol(ps, role)
     assert "Internet (to PE)" not in [p[0] for p in pol(ps, role)]
 sp = pol(pm, "SPOKES") or pol(pm, "SPOKES-1")
-assert ("Internet (DIA)", ["pevrf_leak_zone"], ["underlay"], "enable") in sp and ("Internet (to PE)", ["lan_zone"], ["vrfs_leak_zone"], "enable") in sp
+assert ("Internet (DIA)", ["pevrf_leak_zone"], ["underlay"], "enable") in sp and ("Internet (to PE)", ["lan_zone"], ["vrfs_leak_zone"], "disable") in sp
 print("OK  multi-VRF hub: DIA via leak (lan_zone -> vrfs_leak_zone, pevrf_leak_zone -> underlay); single-VRF ongewijzigd")
+
+# multi-VRF DIA/RIA from a LAN: no NAT from the VRF to the PE-VRF. FortiOS treats an address the FortiGate NATs to
+# (leak IP or ip-pool) as local: the reply in the PE-VRF is delivered to the FortiGate itself instead of over the leak
+# link (flow trace 'find a route: flag=80000000 gw-0.0.0.0 via root', measured on site1-1, FortiOS VM). Instead the
+# PE-VRF gets a return route per LAN with DIA: LAN subnet -> vrfN_leak0, gateway = the vrfN_leak1 address.
+for r in pm["roles"]:
+    to_pe = [p for p in r["policies"] if p["name"] == "Internet (to PE)"]
+    assert to_pe and all(p.get("nat") == "disable" and "ippool" not in p for p in to_pe), (r["name"], to_pe)
+    cli = "\n".join(x for _, x, _ in r["cli"])
+    assert re.search(r'edit 4111\s+set dst \$\(lan_ip_subnet\)\s+set gateway 10\.200\.255\.22\s+set device "vrf11_leak0"', cli), (r["name"], cli[-600:])
+    if r["kind"] == "edge":
+        assert re.search(r'edit 4112\s+set dst \$\(lan2_ip_subnet\)\s+set gateway 10\.200\.255\.24\s+set device "vrf12_leak0"', cli)
+e1 = m["edges"][0]["name"]
+assert pm["variables"]["lan_ip_subnet"][e1] == "10.0.1.0 255.255.255.0" and pm["variables"]["lan2_ip_subnet"][e1] == "10.0.101.0 255.255.255.0"
+assert "4111" not in text(ps) and "_subnet" not in "".join(ps["variables"])
+# a VRF without DIA: no leak, no return route
+assert "edit 4112" not in text(ft.build_plan(off, ORCH))
+# the return routes need distinct LAN subnets per FortiGate across its VRFs
+ov = topo(True); ov["edges"][0]["lans"][1]["ip"] = "10.0.1.129/25"
+assert any("overlap" in e for e in model.validate(ov)), model.validate(ov)
+print("OK  multi-VRF: naar PE zonder NAT + return route per LAN in de PE-VRF; overlappende LAN's per FortiGate geweigerd")

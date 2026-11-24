@@ -206,6 +206,12 @@ def validate(t, devices=True, fmg_vm=True):
                     err.append(f"{n}: LAN{k+1} invalid IP/prefix")
             if _multi(t) and len(d.get("lans", [])) > len(r.get("vrfs", [])):
                 err.append(f"{n}: more LANs than VRFs")
+            if _multi(t):                          # the PE-VRF routes back to each LAN (DIA without NAT): no overlap
+                nets = [ipaddress.ip_interface(l["ip"]).network for l in d.get("lans", [])
+                        if l.get("intf") and _cidr(l.get("ip", ""))]
+                if any(a.overlaps(b) for i, a in enumerate(nets) for b in nets[i + 1:]):
+                    err.append(f"{n}: LAN subnets overlap; in multi-VRF every LAN of a FortiGate needs its own subnet "
+                               "(internet access from the VRFs is routed back per LAN subnet)")
             if not d.get("wan1_intf"):
                 err.append(f"{n}: wan1 port (e.g. port1) is required: the ZTP/FMG connection runs over it")
             if kind == "hubs":                     # hubs: wan1 always static (branches dial in to this address)

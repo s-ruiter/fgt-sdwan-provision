@@ -13,6 +13,7 @@ values are computed here. Result per role (HUB1, HUB2, SPOKES ...):
 SD-WAN and firewall come from Orchestrator files `optional/11` and `optional/12`, converted from CLI to the
 FortiManager JSON structure (`cli_to_json`).
 """
+import ipaddress
 import json
 import os
 import re
@@ -236,6 +237,7 @@ def build_plan(topo, orch_dir):
     for name, (d, is_hub) in devs.items():
         meta = (inv["Hub"] if is_hub else inv["Edge"])[name]
         s = render_device(orch_dir, project, meta, is_hub)
+        _leak_return_routes(s, meta, topo)
         if not is_hub:
             rename_edge_tunnels(s)
         mg = mgmt_cli(d, model.pe_vrf(topo))
@@ -292,6 +294,11 @@ def build_plan(topo, orch_dir):
         r["policies"] = fw.get("firewall policy", [])
         if r["kind"] == "hub":
             _hub_leak_dia(r, s)
+        for p in r["policies"]:
+            if p.get("name") == "Internet (to PE)":            # no NAT into the PE-VRF, see _leak_return_routes
+                p["nat"] = "disable"
+                for k in ("ippool", "poolname"):
+                    p.pop(k, None)
         r["ippools"] = fw.get("firewall ippool", [])
         zones = {z["name"] for z in r["sdwan"].get("zone", [])}
         names = set()
@@ -312,6 +319,34 @@ def build_plan(topo, orch_dir):
             "dns": [topo["dns_primary"], topo.get("dns_secondary", "")], "adom_meta": {}}
 
 
+LEAK1_RE = re.compile(r'edit "vrf(\d+)_leak1"(.*?)\n\s*next', re.S)
+
+
+def _leak_return_routes(s, meta, topo):
+    """Multi-VRF: traffic from a LAN VRF to the PE-VRF (DIA, RIA) goes without NAT. With NAT (the Orchestrator's
+    'Internet (to PE)') FortiOS treats the address it NATs to (leak IP or ip-pool) as local: the reply in the PE-VRF is
+    delivered to the FortiGate itself and never goes back over the leak link (flow trace: 'find a route:
+    flag=80000000 gw-0.0.0.0 via root'). So the PE-VRF needs a route back to every LAN with DIA: LAN subnet ->
+    vrfN_leak0, gateway = the vrfN_leak1 address. The LAN subnet is a per-device variable (lanX_ip_subnet)."""
+    if not model._multi(topo):
+        return
+    lan_of = {v["id"]: model._lan_var(k, "ip") for k, v in enumerate(topo["region"]["vrfs"])}
+    reg = s["reg"]
+    for fname, text in s["core"].items():
+        rows = []
+        for vrf, body in LEAK1_RE.findall(text):
+            ip = re.search(r"set ip (\S+)/31", body)
+            lv = lan_of.get(int(vrf))
+            if not ip or not lv or not model._cidr(meta.get(lv) or ""):
+                continue
+            net = ipaddress.ip_interface(meta[lv]).network
+            var = reg.var(f"{lv}_subnet", "ip", f"{net.network_address} {net.netmask}")
+            rows += [f"    edit {4100 + int(vrf)}", f"      set dst {var}", f"      set gateway {ip.group(1)}",
+                     f'      set device "vrf{vrf}_leak0"', "    next"]
+        if rows:
+            s["core"][fname] = text + "\n" + "\n".join(["config router static"] + rows + ["end"])
+
+
 LEAK_ZONE_RE = re.compile(r'edit "pevrf_leak_zone"\s*\n\s*set interface \S')
 
 
@@ -327,7 +362,7 @@ def _hub_leak_dia(r, s):
     if dia is None or any(p.get("name") == "Internet (to PE)" for p in pols):
         return
     to_pe = {k: v for k, v in dia.items() if k != "policyid"}
-    to_pe.update(name="Internet (to PE)", srcintf=["lan_zone"], dstintf=["vrfs_leak_zone"],
+    to_pe.update(name="Internet (to PE)", srcintf=["lan_zone"], dstintf=["vrfs_leak_zone"], nat="disable",
                  policyid=max(int(p.get("policyid", 0)) for p in pols) + 10)
     dia["srcintf"] = ["pevrf_leak_zone"]
     pols.insert(pols.index(dia), to_pe)
