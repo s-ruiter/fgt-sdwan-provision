@@ -100,7 +100,10 @@ assert re.search(r"if \(old && old\.closed\)", js), "an ended session is reopene
 for i in ("srv_console_user", "srv_console_pw"):
     assert f'id="{i}"' in html, i
 assert 'type="password"' in html[html.index('id="srv_console_pw"') - 80:html.index('id="srv_console_pw"') + 60]
-assert "encrypted" in html[html.index('id="srv_console_user"') - 400:html.index('id="srv_console_pw"') + 600]
+assert "encrypted" in html[html.index('id="srv_console_user"') - 400:html.index('id="srv_console_pw"') + 800]
+# console fields on their own row (own grid), the explanation below it, not inside a field (keeps the rows even)
+grid = html[html.rindex('<div class="fields">', 0, html.index('id="srv_console_user"')):html.index('id="srv_console_pw"')]
+assert 'id="srv_secret"' not in grid and '<div class="hint">' not in grid, "console velden in een eigen rij, zonder hint in het veld"
 assert "console_user:" in js and "console_password:" in js
 print("OK  UI: meerdere sessies (SSH + console) in tabs, minimaliseren, Console-knoppen, console-gebruiker per server")
 

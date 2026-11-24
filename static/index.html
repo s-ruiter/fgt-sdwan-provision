@@ -218,9 +218,13 @@
           <div class="f"><label>URL</label><input id="srv_url" placeholder="https://pve.example:8006"></div>
           <div class="f"><label>API token ID</label><input id="srv_tid" placeholder="user@pam!name"></div>
           <div class="f"><label>API token secret</label><input id="srv_secret" type="password" autocomplete="new-password"></div>
-          <div class="f"><label>Console user (optional)</label><input id="srv_console_user" placeholder="fgtsdwan@pve" autocomplete="off"><div class="hint">Only for the FortiGate/FortiManager consoles (Proxmox does not give VM consoles to an API token). Advice: its own Proxmox user with only VM.Console (role PVEVMUser on /vms). Empty = no VM consoles.</div></div>
-          <div class="f"><label>Console password</label><div class="pw"><input id="srv_console_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="srv_console_pw" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint">Stored encrypted (key file on the tool host); never shown again.</div></div>
         </div>
+        <h3>VM consoles <small>(optional: FortiGate and FortiManager consoles on the Access page)</small></h3>
+        <div class="fields">
+          <div class="f"><label>Console user</label><input id="srv_console_user" placeholder="fgtsdwan@pve" autocomplete="off"></div>
+          <div class="f"><label>Console password</label><div class="pw"><input id="srv_console_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="srv_console_pw" title="Show / hide the password" aria-label="Show password"></button></div></div>
+        </div>
+        <div class="hint">Proxmox does not give VM consoles to an API token, so the tool logs in with this user. Advice: its own Proxmox user with only VM.Console (role PVEVMUser on /vms). The password is stored encrypted (key file on the tool host) and never shown again. Empty = no VM consoles; SSH and the LAN client consoles work without it.</div>
         <div class="inline"><input type="checkbox" id="srv_tls" checked><label for="srv_tls">Verify the TLS certificate (turn off for a self-signed certificate)</label></div>
         <div class="btnrow"><button id="srv_test">Test</button><span class="hint" id="srv_res"></span></div>
         <div class="actions"><button id="srv_cancel" hidden>Cancel</button><button id="srv_save" class="primary">Save</button></div>
