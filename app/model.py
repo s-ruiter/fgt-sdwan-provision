@@ -69,6 +69,8 @@ DEFAULTS = {
                   "res_start": 11, "pool": [100, 199]},
         },
     },
+    # optional Traffic-Gen container: management on the uplink network (own IP), traffic from the first spoke's LAN
+    "trafficgen": {"enabled": False, "ip": "", "count": 10},
     "region": {
         "name": "West",
         "bgp_as": 65001,
@@ -384,13 +386,14 @@ def _deep(base, over):
 FIXED = {"platform": "FortiGate-VM64", "dns_primary": "1.1.1.1", "dns_secondary": "8.8.8.8",
          "wan1_access": "ping https ssh fgfm", "lo_summary": "10.200.0.0/14",
          "region": {"name": "West", "bgp_as": 65001, "lo_summary": "10.200.1.0/24"},
-         "wanemu": {"template": DEFAULTS["wanemu"]["template"]}}   # CT template: not a user choice
+         "wanemu": {"template": DEFAULTS["wanemu"]["template"]},   # CT template: not a user choice
+         "trafficgen": {"count": 10}}
 
 
 def merged(user):
     t = copy.deepcopy(DEFAULTS)
     for k, v in copy.deepcopy(user or {}).items():       # never share lists/dicts with the caller (or DEFAULTS)
-        if k in ("pve", "wanemu") and isinstance(v, dict):
+        if k in ("pve", "wanemu", "trafficgen") and isinstance(v, dict):
             _deep(t[k], v)
         elif v is not None:
             t[k] = v

@@ -66,7 +66,7 @@ STEPS = [
     ("pve_fgt", "FortiGate VMs", "Image to Proxmox, per FortiGate a VM with Day-0 ISO (wan1: hub static IP + gateway, branch DHCP; DNS, FMG link, FortiFlex licence), started"),
     ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wait until they are licensed and online in FMG; or via SSH on existing VMs"),
     ("install", "Install", "Quick install (device settings) per device, then Re-install policy per role; real FortiGates once they are online"),
-    ("clients", "LAN clients", "Per spoke a container on the LAN1 VLAN (.10, spoke as gateway) to test traffic; operated from the Proxmox console"),
+    ("clients", "LAN clients", "Per spoke a container on the LAN1 VLAN (.10, spoke as gateway) to test traffic; operated from the Proxmox console. Optional: Traffic-Gen in the LAN of the first spoke"),
 ]
 
 
@@ -95,6 +95,7 @@ class Secrets(BaseModel):
     fgt_initial_pw: str = ""
     fgt_new_pw: str = ""                       # admin password to set on the forced first-login change
     client_pw: str = ""                        # root password of the LAN client containers
+    tg_pw: str = ""                            # admin password of the Traffic-Gen web GUI (optional container)
     admin_user: str = "admin"
     pve_token_secret: str = ""                 # Proxmox API token secret (day-0 only)
 
@@ -178,6 +179,16 @@ def _check_bridges(topo, r):
                              "bridge for the ISP segments and the LAN VLANs"])
 
 
+def _check_trafficgen(topo, s):
+    from . import trafficgen
+    if not trafficgen.enabled(topo):
+        return []
+    errs = trafficgen.validate(topo)
+    if model.password_problems(s.tg_pw):
+        errs.append("Traffic-Gen: GUI password is not strong, it needs " + ", ".join(model.password_problems(s.tg_pw)))
+    return errs
+
+
 def _check_bootstrap(topo, r):
     """Extra validation when ZTP bootstrap / day-0 deployment is requested."""
     errs = []
@@ -192,6 +203,7 @@ def _check_bootstrap(topo, r):
                 errs.append("Proxmox: token secret is missing")
         if len(s.client_pw or "") < 5:
             errs.append("LAN client password: at least 5 characters (root password of the client containers)")
+        errs += _check_trafficgen(topo, s)
         if errs:
             raise HTTPException(422, detail=errs)
         return
@@ -231,6 +243,8 @@ def _check_bootstrap(topo, r):
             errs.append("FortiGates: admin password is not strong, it needs " + ", ".join(model.password_problems(s.fgt_new_pw)))
     if mg == "day0" and r.scope in ("all", "fgt") and len(s.client_pw or "") < 5:   # the LAN clients come along
         errs.append("LAN client password: at least 5 characters (root password of the client containers)")
+    if mg == "day0" and r.scope in ("all", "fgt"):
+        errs += _check_trafficgen(topo, s)
     if mg == "ssh":
         ips = [d.get("initial_ip") or model.DEFAULT_INITIAL_IP for d in devs]
         dup = sorted({i for i in ips if ips.count(i) > 1})
@@ -843,7 +857,7 @@ def deploy(r: DeployReq):
     if sid:                                    # remember this server's choices for the next run
         db.save_last_used(db.connect(DATA_DIR), sid, topo["pve"], topo.get("wanemu"))
     s = r.secrets
-    mask = Masker(s.fmg_token, s.fmg_initial_pw, s.fgt_initial_pw, s.fgt_new_pw, s.client_pw, r.fmg.password, r.fmg.api_token,
+    mask = Masker(s.fmg_token, s.fmg_initial_pw, s.fgt_initial_pw, s.fgt_new_pw, s.client_pw, s.tg_pw, r.fmg.password, r.fmg.api_token,
                   s.pve_token_secret, *s.fgt_tokens.values())
     img = {}
     for role in ("fmg", "fgt"):
@@ -854,7 +868,9 @@ def deploy(r: DeployReq):
             "fmg_token": s.fmg_token, "fgt_tokens": dict(s.fgt_tokens),
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
-            "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw, "client_pw": s.client_pw}
+            "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw, "client_pw": s.client_pw, "tg_pw": s.tg_pw}
+    if r.scope == "lan" and not r.dry_run and topo.get("trafficgen", {}).get("enabled"):
+        boot["wanemu_secrets"] = _wanemu_secrets()     # Traffic-Gen is installed over SSH with the tool's key
     if boot["fgt"] == "day0" and r.scope not in ("fmg", "tpl", "dev") and not r.dry_run:
         boot["wanemu_secrets"] = _wanemu_secrets()
         w = topo["wanemu"]                     # where the WAN-emulatie page finds the agent of this deployment

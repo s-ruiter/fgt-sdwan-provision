@@ -249,6 +249,20 @@ assert cts == ["client-site1-1", "client-site1-2", "client-site1-3"] and not fak
 assert len(mock_fmg.STATE["calls"]) == n_calls, "geen FortiManager-aanroepen bij alleen LAN-clients"
 print("OK  alleen LAN-clients: drie client-CT's, alle andere stappen overgeslagen, FortiManager niet aangesproken")
 
+# ---------------------------------------------------------------- optional Traffic-Gen comes along with the LAN clients
+fake_proxmox.reset()
+t["trafficgen"] = {"enabled": True, "ip": "10.10.106.249/24", "count": 10}
+try:
+    last, ev = run(scope="lan", fmg="none", fgt="none", images={}, tg_pw="Tg-Admin-pw1!")
+finally:
+    t["trafficgen"] = {"enabled": False, "ip": "", "count": 10}
+names_ct = sorted(c["params"]["hostname"] for c in fake_proxmox.STATE["cts"].values())
+assert names_ct == ["client-site1-1", "client-site1-2", "client-site1-3", "trafficgen"], names_ct
+assert last["clients"] == "ok" and any("Traffic-Gen created" in m and "https://10.10.106.249:8443" in m for _, _, m in ev), ev[-3:]
+ids = sorted(int(c["vmid"]) for c in fake_proxmox.STATE["cts"].values())
+assert ids == list(range(ids[0], ids[0] + 4)), ids                                          # one id block, Traffic-Gen last
+print("OK  Traffic-Gen (optioneel) met de LAN-clients: eigen CT in hetzelfde id-blok, URL in de melding")
+
 # ---------------------------------------------------------------- bridges checked before anything is created
 for sc, fm, fg in (("all", "day0", "day0"), ("lan", "none", "none")):
     fake_proxmox.reset()
@@ -341,6 +355,19 @@ r = req("tpl")
 r.fmg.password = "admin"                                                                    # existing FortiManager
 main._apply_scope(r)
 assert errors(r) == [], errors(r)
+t["trafficgen"] = {"enabled": True, "ip": "10.10.106.249/24", "count": 10}
+try:
+    r = req("lan", pve_token_secret="x", client_pw="Client-pw1", tg_pw="zwak")
+    main._apply_scope(r)
+    e = errors(r)
+    assert any(x.startswith("Traffic-Gen: GUI password is not strong") for x in e), e
+    r = req("lan", pve_token_secret="x", client_pw="Client-pw1", tg_pw="Tg-Admin-pw1!")
+    main._apply_scope(r)
+    assert not any("Traffic-Gen" in x for x in errors(r)), errors(r)
+    t["trafficgen"]["ip"] = "10.99.0.5/24"
+    assert any("uplink network" in x for x in errors(r)), errors(r)
+finally:
+    t["trafficgen"] = {"enabled": False, "ip": "", "count": 10}
 print("OK  sterk wachtwoord verplicht voor nieuwe FortiManager en FortiGates (8+, hoofd/kleine letter, cijfer, teken); bestaande FMG niet")
 # LAN clients only: Proxmox + a root password; no FortiManager, no tokens, no images
 r = req("lan", pve_token_secret="x", client_pw="Client-pw1")

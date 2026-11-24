@@ -67,6 +67,8 @@ def deploy_names(t, scope, fmg_vm=None, fgt_vm=None):
         out += [d["name"] for d in t["hubs"] + t["edges"]]
     if fgt_vm or scope == "lan":
         out += [f"client-{e['name']}" for e in t["edges"] if (e.get("lans") or [{}])[0].get("ip")]
+        if (t.get("trafficgen") or {}).get("enabled"):
+            out.append("trafficgen")
     return out
 
 
