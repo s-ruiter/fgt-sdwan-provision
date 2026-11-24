@@ -67,3 +67,27 @@ assert "'dia': true" in _m.build(on)[0].split("wan2_intf")[1][:80]              
 o = topo(True); o["edges"][0]["lans"][1]["intf"] = ""
 assert len(_m.merged(o)["edges"][0]["lans"]) == 1 and model.validate(_m.merged(o)) == []
 print("OK  multi-VRF: DIA standaard aan per VRF, templates volgen de keuze; LAN2 zonder poort = geen LAN")
+
+# multi-VRF hub: the LAN is in VRF 11/12 and its default route goes over the leak link to the PE-VRF, so DIA needs
+# lan_zone -> vrfs_leak_zone and then pevrf_leak_zone -> underlay (the Orchestrator hub firewall only has
+# lan_zone -> underlay, which never matches there). Single-VRF hubs keep lan_zone -> underlay.
+def pol(plan, role):
+    return [(p["name"], p["srcintf"], p["dstintf"], p.get("nat")) for r in plan["roles"] if r["name"] == role
+            for p in r["policies"]]
+
+
+for role in ("HUB1", "HUB2"):
+    hp = pol(pm, role)
+    names = [p[0] for p in hp]
+    assert ("Internet (to PE)", ["lan_zone"], ["vrfs_leak_zone"], "enable") in hp, hp
+    assert ("Internet (DIA)", ["pevrf_leak_zone"], ["underlay"], "enable") in hp, hp
+    assert names.index("Internet (to PE)") < names.index("Internet (DIA)")
+    assert not any(p[1] == ["lan_zone"] and p[2] == ["underlay"] for p in hp)
+    r = [x for x in pm["roles"] if x["name"] == role][0]
+    assert {"pevrf_leak_zone", "vrfs_leak_zone"} <= set(r["dyn_ifaces"])
+    assert len({p["policyid"] for p in r["policies"]}) == len(r["policies"])
+    assert ("Internet (DIA)", ["lan_zone"], ["underlay"], "enable") in pol(ps, role)
+    assert "Internet (to PE)" not in [p[0] for p in pol(ps, role)]
+sp = pol(pm, "SPOKES") or pol(pm, "SPOKES-1")
+assert ("Internet (DIA)", ["pevrf_leak_zone"], ["underlay"], "enable") in sp and ("Internet (to PE)", ["lan_zone"], ["vrfs_leak_zone"], "enable") in sp
+print("OK  multi-VRF hub: DIA via leak (lan_zone -> vrfs_leak_zone, pevrf_leak_zone -> underlay); single-VRF ongewijzigd")
