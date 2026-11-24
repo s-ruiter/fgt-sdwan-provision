@@ -125,3 +125,25 @@ for r in ps["roles"]:
     assert all("vrf" not in hc for hc in r["sdwan"].get("health-check", []))
 assert "vrf-select" not in text(ps)
 print("OK  multi-VRF: health checks en DNS in de PE-VRF; single-VRF ongewijzigd")
+
+# multi-VRF Day-0: wan1 (and a branch's wan2) start in the PE-VRF, with FMG/DNS/FortiGuard traffic there too, so the
+# install never moves an interface that tunnels run over (tunnels built before such a move kept sending ESP in VRF 0:
+# 'esp_output4: no route', measured on site1-H1). Single-VRF Day-0 is unchanged.
+from app import bootstrap as bs  # noqa: E402
+
+
+def blocks(lines):
+    return "\n".join(lines)
+
+
+for d, is_hub in ((m["hubs"][0], True), (m["edges"][0], False)):
+    day0 = blocks(bs.fgt_network_lines(d, m))
+    for sec in ("central-management", "dns", "fortiguard"):
+        assert re.search(rf"config system {sec}\n(?:set .*\n)*set vrf-select 1\n", day0), (sec, day0)
+    assert re.search(rf'edit "{d["wan1_intf"]}"\n(?:set .*\n)*set vrf 1\n', day0), day0
+    if not is_hub and d.get("wan2_intf"):
+        assert re.search(rf'edit "{d["wan2_intf"]}"\nset mode dhcp\n(?:set .*\n)*set vrf 1\n', day0), day0
+    assert day0.rstrip().endswith("end") and day0.index("vrf-select 1") < day0.index(f'edit "{d["wan1_intf"]}"')
+for d in (s["hubs"][0], s["edges"][0]):
+    assert "vrf" not in blocks(bs.fgt_network_lines(d, s))
+print("OK  multi-VRF Day-0: wan1/wan2 meteen in de PE-VRF, FMG/DNS/FortiGuard via de PE-VRF; single-VRF ongewijzigd")

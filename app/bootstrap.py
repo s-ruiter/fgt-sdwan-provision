@@ -14,6 +14,7 @@ import time
 
 import paramiko
 
+from . import model
 from .model import split_cidr
 
 PROMPT = re.compile(r"(?m)^\S+(?: \([^)\n]*\))? # ?$")
@@ -61,8 +62,16 @@ def fgt_network_lines(dev, topo):
         lines.append(f"set secondary {topo['dns_secondary']}")
     sn = (topo["fmgr"].get("serial") or "").strip()
     verify = [f'set serial-number "{sn}"'] if re.fullmatch(r"[A-Za-z0-9]{8,32}", sn) else []   # verified FMG (FOS 7.6+)
-    lines += ["set protocol cleartext", "end",
-              "config system central-management", "set type fortimanager", f'set fmg "{fmg_ip}"', *verify, "end"]
+    # multi-VRF: the WANs start in the PE-VRF right away, so the install never moves an interface tunnels run over
+    # (tunnels built before such a move kept sending ESP in VRF 0: 'esp_output4: no route', measured on a hub). The
+    # FortiGate's own traffic (FortiManager, DNS, FortiGuard/FortiFlex licence) then has to leave in that VRF too.
+    pe = model.pe_vrf(topo)
+    sel = [f"set vrf-select {pe}"] if pe else []
+    vrf = [f"set vrf {pe}"] if pe else []
+    lines += ["set protocol cleartext", *sel, "end",
+              "config system central-management", "set type fortimanager", f'set fmg "{fmg_ip}"', *verify, *sel, "end"]
+    if pe:
+        lines += ["config system fortiguard", *sel, "end"]
     if dev.get("wan1_mode") == "static":
         ip, mask = split_cidr(dev["wan1_ip"])
         # Static (hub) wan1: the default route goes through SD-WAN exactly as the FMG template builds it (zone underlay,
@@ -74,10 +83,13 @@ def fgt_network_lines(dev, topo):
                   "config router static", f"edit {HUB_DEFAULT_ROUTE}", f'set sdwan-zone "{HUB_UNDERLAY_ZONE}"',
                   "next", "end",
                   "config system interface", f'edit "{port}"', "set mode static", f"set allowaccess {access}",
-                  f"set ip {ip} {mask}", "next", "end"]
+                  *vrf, f"set ip {ip} {mask}", "next", "end"]
     else:
         lines += ["config system interface", f'edit "{port}"', "set mode dhcp",
-                  f"set allowaccess {access}", "next", "end"]
+                  f"set allowaccess {access}", *vrf, "next"]
+        if pe and dev.get("wan2_intf") and dev["wan2_intf"] != port:      # branch wan2: DHCP as well, same VRF
+            lines += [f'edit "{dev["wan2_intf"]}"', "set mode dhcp", "set allowaccess ping", *vrf, "next"]
+        lines += ["end"]
     return lines
 
 

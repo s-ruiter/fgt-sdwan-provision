@@ -4,8 +4,6 @@ import time
 import requests
 import urllib3
 
-from . import model
-
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
@@ -673,7 +671,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         install_devices(fmg, adom, configs, devices, emit)
         emit("clients", "skipped", why_fgt)
         return
-    _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt, topo)
+    _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt)
     if m_fgt == "day0":
         _clients(topo, boot, emit)
     else:
@@ -736,38 +734,7 @@ def _clients(topo, boot, emit, step="clients"):
     emit(step, "ok", msg)
 
 
-REBOOT_API = "/api/v2/monitor/system/os/reboot"
-
-
-def reboot_devices(fmg, adom, names, emit, step="install", down_timeout=180, up_timeout=600, poll=5):
-    """Reboot FortiGates through FortiManager (proxy to the FortiOS REST API), wait until they have gone offline and
-    are online again. Returns the names still offline (reported by the caller, not raised)."""
-    emit(step, "running", f"multi-VRF: rebooting {', '.join(names)} once, so the tunnels are built in the PE-VRF")
-    try:
-        fmg.call("exec", "/sys/proxy/json", {"target": [f"adom/{adom}/device/{n}" for n in names], "action": "post",
-                                             "resource": REBOOT_API,
-                                             "payload": {"event_log_message": "fgt-sdwan-provision: multi-VRF"}})
-    except FmgError as e:
-        emit(step, "warn", f"reboot through FortiManager failed ({e}); reboot the FortiGates by hand (execute reboot)")
-        return list(names)
-    end, up = time.time() + down_timeout, set(names)
-    while up and time.time() < end:
-        for n in list(up):
-            d = fmg.call("get", f"/dvmdb/adom/{adom}/device/{n}").get("data") or {}
-            if d.get("conn_status") not in (1, "up", "UP"):
-                up.discard(n)
-        if up:
-            time.sleep(poll)
-    if up:
-        emit(step, "running", f"not seen offline (yet): {', '.join(sorted(up))}")
-    return wait_online(fmg, adom, names, up_timeout, emit, step, poll)
-
-
-def fmg_dry(fmg):
-    return bool(getattr(fmg, "dry", False))
-
-
-def _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt, topo=None):
+def _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt):
     emit("install", "running", "waiting until the FortiGates are online in FortiManager")
     wait = boot.get("online_timeout", 600 if m_fgt != "none" else 30)
     offline = wait_online(fmg, adom, names, wait, emit, "install", boot.get("poll", 5))
@@ -778,13 +745,4 @@ def _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt, topo=
         emit("install", "warn", "no device online: install skipped; run the deployment again once they are online")
         return
     install_devices(fmg, adom, configs, online, emit, pending=offline)
-    # multi-VRF: Day-0 had wan1 in VRF 0, the templates moved it and the tunnels to the PE-VRF; tunnels built before
-    # that keep sending ESP in VRF 0 ('esp_output4: no route', hub tx err = tx). One reboot fixes it.
-    if topo is not None and model.pe_vrf(topo) and m_fgt != "none" and not fmg_dry(fmg):
-        left = reboot_devices(fmg, adom, [d["name"] for d, _ in online], emit, poll=boot.get("poll", 5),
-                              down_timeout=boot.get("reboot_down", 180), up_timeout=boot.get("online_timeout", 600))
-        if left:
-            emit("install", "warn", f"multi-VRF reboot: not back online yet: {', '.join(left)}")
-        else:
-            emit("install", "ok", "Quick install, Re-install policy and the multi-VRF reboot done for all devices")
 
