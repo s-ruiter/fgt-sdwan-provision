@@ -147,3 +147,25 @@ for d, is_hub in ((m["hubs"][0], True), (m["edges"][0], False)):
 for d in (s["hubs"][0], s["edges"][0]):
     assert "vrf" not in blocks(bs.fgt_network_lines(d, s))
 print("OK  multi-VRF Day-0: wan1/wan2 meteen in de PE-VRF, FMG/DNS/FortiGuard via de PE-VRF; single-VRF ongewijzigd")
+
+# 'Hub-to-hub tunnels' on: the Orchestrator hub firewall then uses zone hub2hub_overlay (policies 1, 2, 6), so the
+# hub-to-hub tunnels and that zone must really be built (with hub2hub False per overlay they were not: FMG install
+# 'Dynamic interface "hub2hub_overlay" mapping undefined for device site1-H1').
+for multi in (True, False):
+    h = topo(multi); h["hub2hub"] = True
+    ph = ft.build_plan(h, ORCH)
+    for r in [x for x in ph["roles"] if x["kind"] == "hub"]:
+        cli = "\n".join(x for _, x, _ in r["cli"])
+        assert re.search(r'edit "H\dH\d_WAN1"', cli) and 'edit "hub2hub_overlay"' in cli, (multi, r["name"])
+        assert "hub2hub_overlay" in r["dyn_ifaces"]
+assert "hub2hub_overlay" not in str([r["dyn_ifaces"] for r in pm["roles"]]) and 'H1H2_' not in tm   # off: none of it
+# every interface/zone a policy uses must be created somewhere (SD-WAN zone or CLI template): caught before deploying
+bad = {"roles": [{"name": "X", "cli": [("X_01", 'config system zone\n  edit "lan_zone"\n  next\nend', [])],
+                  "sdwan": {"zone": [{"name": "overlay"}]}, "dyn_ifaces": ["lan_zone", "ghost_zone"]}]}
+try:
+    ft.check_dyn_ifaces(bad)
+    raise AssertionError("expected ValueError")
+except ValueError as e:
+    assert "ghost_zone" in str(e) and "lan_zone" not in str(e).split(":", 1)[1]
+ft.check_dyn_ifaces(pm); ft.check_dyn_ifaces(ps)
+print("OK  hub-to-hub aan: tunnels + zone hub2hub_overlay gebouwd; policy-interfaces die nergens bestaan geweigerd")

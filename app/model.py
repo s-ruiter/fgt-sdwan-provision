@@ -313,7 +313,8 @@ def build(t):
     for n, h in enumerate(t["hubs"], start=1):
         ov = {}
         if h.get("wan1_intf") and hub_wan1_ip(h):
-            ov["WAN1"] = {"wan_ip": hub_wan1_ip(h), "network_id": str(n * 10 + 1), "hub2hub": False}
+            ov["WAN1"] = {"wan_ip": hub_wan1_ip(h), "network_id": str(n * 10 + 1),
+                         "hub2hub": bool(t.get("hub2hub"))}    # 'Hub-to-hub tunnels': H1H2_WAN1 + zone hub2hub_overlay
         hubs[h["name"]] = {"lo_bgp": h["loopback"], "overlays": ov}
     parts = [
         "{% set cert_auth = false %}",
