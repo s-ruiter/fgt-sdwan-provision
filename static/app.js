@@ -161,7 +161,12 @@ function dev(kind, d, i) {
       `<div class="f"><label>wan1 gateway (wan-emu)</label><input data-hubgw class="mono" value="${esc(hubNet().gw)}" disabled></div>`;
   } else h += pfld("wan1_intf", "wan1 port (ZTP, DHCP)", d.wan1_intf) + pfld("wan2_intf", "wan2 port (DHCP)", d.wan2_intf, "(none)");
   h += `<div class="f only-fgt"><label>FortiFlex token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>`;
-  (T.region.multi_vrf === false ? (d.lans || []).slice(0, 1) : d.lans || []).forEach((l, j) => { h += pfld("lan" + j + "_intf", "LAN" + (j + 1) + " port", l.intf) + fld("lan" + j + "_ip", "LAN" + (j + 1) + " IP/prefix", l.ip); });
+  // single-VRF: one LAN; multi-VRF: one LAN per VRF (LAN2+ optional: port "(none)" = no LAN in that VRF)
+  const vrfs = T.region.multi_vrf === false ? [null] : T.region.vrfs.length ? T.region.vrfs : [null];
+  vrfs.forEach((v, j) => {
+    const l = (d.lans || [])[j] || {}, tag = v ? ` (VRF ${v.id})` : "";
+    h += pfld("lan" + j + "_intf", `LAN${j + 1} port${tag}`, l.intf, j ? "(none)" : "") + fld("lan" + j + "_ip", `LAN${j + 1} IP/prefix${tag}`, l.ip);
+  });
   return h + "</div></div>";
 }
 // ISP-HUB as typed in the WAN emulation section: "a.b.c." prefix of its /24 and the gateway (= wan-emu)
@@ -211,7 +216,9 @@ function collect() {
       else if (k === "wan1_oct") { const n = hubNet(); d.wan1_ip = v ? `${n.pre}${v}/24` : ""; d.wan1_gw = n.gw; }
       else d[k] = v;
     });
-    d.lans = lans;
+    // only what is on screen: single-VRF = LAN1 only, multi-VRF = LAN per VRF, an optional LAN without a port is no LAN
+    const nl = t.region.multi_vrf ? Math.max(1, t.region.vrfs.length) : 1;
+    d.lans = lans.slice(0, nl).filter((l, j) => j === 0 || l.intf);
   });
   return t;
 }
@@ -570,7 +577,7 @@ $("#srv_test").onclick = async () => {
   $("#steps").innerHTML = a.steps.map((s) => `<li><b>${esc(s.title)}</b><span>${esc(s.desc)}</span></li>`).join("");
   $("#orch").textContent = a.orchestrator_present ? "Orchestrator templates found: " + a.orchestrator : "⚠ Orchestrator templates not found at " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
-  $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: false }]; draw(); markIpFields(); });
+  $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: true }]; draw(); markIpFields(); });
   draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); setList(); route();
 })();
 
