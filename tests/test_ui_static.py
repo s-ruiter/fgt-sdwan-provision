@@ -89,6 +89,13 @@ assert html.index('id="wanemu-fgts"') < html.index('id="wanemu-presets"'), "remo
 assert re.search(r"cdn\.jsdelivr\.net/npm/xterm@\d+\.\d+\.\d+/", js) and re.search(r"xterm-addon-fit@\d+\.\d+\.\d+/", js)
 assert "term_pw\").value = \"\"" in js.replace("'", '"'), "wachtwoordveld wordt na het verbinden leeggemaakt"
 assert 'id="sess_bar"' in html and ".sess-bar" in open(os.path.join(root, "static", "style.css")).read()
+# sessions stay reachable on every page: panel and bar outside the page sections
+for i in ("sess_panel", "sess_bar"):
+    pos = html.index(f'id="{i}"')
+    assert html.rfind("<section", 0, pos) < html.rfind("</section>", 0, pos), f"{i} is inside a page section"
+assert "needsForm" in js, "the password form belongs to its own session"
+assert "SESS.get(s.key) !== s" in js, "a session closed while xterm loads opens nothing"
+assert re.search(r"if \(old && old\.closed\)", js), "an ended session is reopened, not shown dead"
 # console user per Proxmox server (VM consoles), password field + hint that it is stored encrypted
 for i in ("srv_console_user", "srv_console_pw"):
     assert f'id="{i}"' in html, i

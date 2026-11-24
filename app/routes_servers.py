@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/servers")
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$")
 URL = re.compile(r"^https?://[^\s/]+(:\d+)?/?$")
 TOKEN_ID = re.compile(r"^[^\s!@]+@[^\s!@]+![^\s!]+$")
+CONSOLE_USER = re.compile(r"^[^\s!@]+@[^\s!@]+$")
 
 
 class ServerIn(BaseModel):
@@ -40,15 +41,10 @@ def _out(row, last, c=None):
             "console_user": cu, "has_console_password": has_pw}
 
 
-CONSOLE_USER = re.compile(r"^[^\s!@]+@[^\s!@]+$")
-
-
 def _console(c, sid, body):
     if body.console_user is None:
         return
     u = body.console_user.strip()
-    if u and not CONSOLE_USER.match(u):
-        raise HTTPException(422, "Console user as user@realm (e.g. fgtsdwan@pve)")
     db.put_console(c, sid, config.DATA_DIR, u, body.console_password or None)
 
 
@@ -59,6 +55,8 @@ def _check(body):
         raise HTTPException(422, "URL as https://host:8006")
     if not TOKEN_ID.match(body.token_id.strip()):
         raise HTTPException(422, "Token ID as user@realm!name")
+    if body.console_user and not CONSOLE_USER.match(body.console_user.strip()):
+        raise HTTPException(422, "Console user as user@realm (e.g. fgtsdwan@pve)")
 
 
 def client(row):

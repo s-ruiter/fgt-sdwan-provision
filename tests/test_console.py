@@ -57,6 +57,11 @@ assert ex.status_code == 200 and "New-pw2!" not in ex.text and "other@pve" not i
 r = c.put(f"/api/servers/{sid}", json=dict(base, token_secret=None, console_user=""))           # "" clears
 assert db.get_console(conn, sid, os.environ["DATA_DIR"]) is None
 assert [x for x in c.get("/api/servers").json() if x["id"] == sid][0]["has_console_password"] is False
+n0 = len(c.get("/api/servers").json())
+r = c.post("/api/servers", json=dict(base, name="lab2", console_user="fgtsdwan", console_password="x"))   # no realm
+assert r.status_code == 422 and len(c.get("/api/servers").json()) == n0, r.text                      # nothing saved
+r = c.put(f"/api/servers/{sid}", json=dict(base, name="renamed", token_secret=None, console_user="bad"))
+assert r.status_code == 422 and [x for x in c.get("/api/servers").json() if x["id"] == sid][0]["name"] == "lab"
 c.put(f"/api/servers/{sid}", json=dict(base, token_secret=None, console_user="u@pve", console_password="P-w0rd!x"))
 assert c.delete(f"/api/servers/{sid}").status_code == 204 and not db.get_secret(conn, f"pve_console:{sid}")
 print("OK  console-gebruiker per server: wachtwoord versleuteld, nooit terug, niet in export, leeg = wissen, weg bij delete")
@@ -109,13 +114,16 @@ import time  # noqa: E402
 
 import websockets  # noqa: E402
 
-FAKE = {"got": [], "mode": "login"}
+FAKE = {"got": [], "mode": "login", "late_pw": False}
 
 
 async def fake_vnc(ws):
     FAKE["got"].clear()
     first = await ws.recv()
     FAKE["got"].append(first)
+    if FAKE["mode"] == "no-ok":
+        await asyncio.sleep(5)
+        return
     if first != "tok-user:VNCTICKET\n":
         await ws.close()
         return
@@ -124,11 +132,18 @@ async def fake_vnc(ws):
         await ws.send(b"bye\r\n")
         await ws.close()
         return
+    if FAKE.get("slow_login"):
+        await asyncio.sleep(0.8)
     await ws.send("SDW-client-site1-1 login: ".encode())
+    if FAKE["mode"] == "silent-ok":
+        await asyncio.sleep(5)
     async for m in ws:
         m = m.decode() if isinstance(m, bytes) else m
         FAKE["got"].append(m)
-        if m == "0:5:root\r":
+        if m == "0:5:root\r" and FAKE["late_pw"]:               # no password prompt now, a 'Password:' much later
+            await asyncio.sleep(1.5)
+            await ws.send(b"sudo: Password: ")
+        elif m == "0:5:root\r":
             await ws.send(b"Password: ")
         elif m.startswith("0:") and m.endswith("\r") and "Client-pw1" in m:
             await ws.send("Linux é\r\nroot@client:~# ".encode())
@@ -147,8 +162,10 @@ threading.Thread(target=serve, daemon=True).start()
 time.sleep(0.5)
 conn = db.connect(os.environ["DATA_DIR"])
 db.put_secret(conn, "console_target", json.dumps({"server_id": 1, "prefix": "lab1-"}))
-db.put_secret(conn, "access_creds", json.dumps({"client": {"user": "root", "password": "Client-pw1"},
+db.put_secret(conn, "access_creds", json.dumps({"client": {"user": "root", "password": "Client-pw1",
+                                                            "list": [{"name": "client-site1-1", "ip": "10.0.1.10", "spoke": "site1-1"}]},
                                                  "fgt": {"user": "admin", "password": "Fgt-pw1!"}}))
+db.put_secret(conn, "wanemu_forwards", json.dumps({"host": "10.10.106.250", "forwards": [{"name": "site1-3", "ip": "x", "https": 1, "ssh": 2}]}))
 opened = []
 
 
@@ -195,10 +212,12 @@ with c.websocket_connect("/api/console/client-site1-1") as ws:
     read_until(ws, "Password: ")
     time.sleep(0.3)
 assert any("Typed-pw9" in x for x in FAKE["got"]) and not any("Client-pw1" in x for x in FAKE["got"])
-# errors and the end of a session
-with c.websocket_connect("/api/console/ghost") as ws:
-    ws.send_text(json.dumps({"cols": 80, "rows": 24}))
-    assert "not found in Proxmox" in read_until(ws, "not found")
+# errors and the end of a session; only devices of the deployment (no arbitrary VM/CT of the cluster)
+for bad in ("ghost", "wan-emu", "client-other"):
+    with c.websocket_connect(f"/api/console/{bad}") as ws:
+        ws.send_text(json.dumps({"cols": 80, "rows": 24}))
+        assert "unknown device" in read_until(ws, "unknown device"), bad
+assert not any(o[0].endswith(("ghost", "wan-emu", "client-other")) for o in opened)
 FAKE["mode"] = "close"
 with c.websocket_connect("/api/console/client-site1-1") as ws:
     ws.send_text(json.dumps({"cols": 80, "rows": 24}))
@@ -208,6 +227,41 @@ db.put_secret(conn, "console_target", "")
 with c.websocket_connect("/api/console/client-site1-1") as ws:
     ws.send_text(json.dumps({"cols": 80, "rows": 24}))
     assert "deploy first" in read_until(ws, "deploy first")
+# the auto-login only answers the prompts right after connecting; typing yourself disarms it
+db.put_secret(conn, "console_target", json.dumps({"server_id": 1, "prefix": "lab1-"}))
+main.CONSOLE_LOGIN_WINDOW = (5, 1)
+FAKE["late_pw"] = True
+with c.websocket_connect("/api/console/client-site1-1") as ws:
+    ws.send_text(json.dumps({"cols": 80, "rows": 24}))
+    read_until(ws, "sudo: Password: ")
+    time.sleep(0.3)
+assert not any("Client-pw1" in x for x in FAKE["got"]), FAKE["got"]
+FAKE["late_pw"], FAKE["slow_login"] = False, True
+with c.websocket_connect("/api/console/client-site1-1") as ws:
+    ws.send_text(json.dumps({"cols": 80, "rows": 24}))
+    ws.send_text(json.dumps({"data": "x"}))                    # the user types before the prompt arrives
+    read_until(ws, "login: ")
+    time.sleep(0.3)
+assert "0:5:root\r" not in FAKE["got"] and "0:1:x" in FAKE["got"], FAKE["got"]
+main.CONSOLE_LOGIN_WINDOW, FAKE["slow_login"] = (30, 10), False
+# unexpected errors: a red message, never a silent close
+main.CONSOLE_TICKET_TIMEOUT = 1
+FAKE["mode"] = "no-ok"
+with c.websocket_connect("/api/console/client-site1-1") as ws:
+    ws.send_text(json.dumps({"cols": 80, "rows": 24}))
+    assert "did not answer" in read_until(ws, "did not answer")
+FAKE["mode"] = "login"
+
+
+def boom(row, cons, name):
+    raise KeyError("data")
+
+
+main.CONSOLE_OPEN, keep_open = boom, main.CONSOLE_OPEN
+with c.websocket_connect("/api/console/client-site1-1") as ws:
+    ws.send_text(json.dumps({"cols": 80, "rows": 24}))
+    assert "console error: KeyError" in read_until(ws, "console error")
+main.CONSOLE_OPEN = keep_open
 print("OK  /api/console: proxy (0:len:data, resize, bytes), auto-login 1x, getypt wachtwoord wint, fouten, sessie-einde")
 
 # ---- what the deployment keeps; the Access page lists the LAN clients; new FortiGate/FMG VMs get a serial console

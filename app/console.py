@@ -26,8 +26,7 @@ def locate(pve, pve_name):
         rows = pve._req("GET", "/cluster/resources", params={"type": "vm"}) or []
     except PveError as e:
         raise ConsoleError(f"Proxmox not reachable: {e}") from None
-    hit = [r for r in rows if r.get("name") == pve_name and TAG in str(r.get("tags", "")).split(";")] or \
-          [r for r in rows if r.get("name") == pve_name]
+    hit = [r for r in rows if r.get("name") == pve_name and TAG in str(r.get("tags", "")).split(";")]   # only the tool's own
     if not hit:
         raise ConsoleError(f"{pve_name} not found in Proxmox (deployed? deleted?)")
     r = hit[0]

@@ -714,6 +714,8 @@ from . import console as _console  # noqa: E402
 CONSOLE_OPEN = _console.open_session
 CONSOLE_SERVER = lambda sid: db.get_server(db.connect(DATA_DIR), sid)  # noqa: E731
 CONSOLE_KEEPALIVE = 30
+CONSOLE_LOGIN_WINDOW = (30, 10)        # auto-login: user prompt within 30 s of connecting, password within 10 s after
+CONSOLE_TICKET_TIMEOUT = 10
 
 
 def _console_target(name):
@@ -726,13 +728,16 @@ def _console_target(name):
     if row is None:
         raise _console.ConsoleError("the Proxmox server of the deployment no longer exists in the tool")
     cr = _creds()
-    if name == "@fmg":
-        fm = cr.get("fmg") or {}
+    clients = {x["name"] for x in (cr.get("client") or {}).get("list") or []}
+    if name == "@fmg" and (cr.get("fmg") or {}).get("host"):
+        fm = cr["fmg"]
         dev, kept = fm.get("name") or "fmg", fm
-    elif name.startswith("client-"):
+    elif name in clients:
         dev, kept = name, cr.get("client") or {}
-    else:
+    elif any(f["name"] == name for f in _forwards()["forwards"]):
         dev, kept = name, cr.get("fgt") or {}
+    else:                                       # only devices of this deployment, never an arbitrary VM/CT
+        raise _console.ConsoleError(f"unknown device {name}: not part of the deployment")
     try:
         cons = db.get_console(db.connect(DATA_DIR), tgt["server_id"], DATA_DIR)
     except ValueError as e:
@@ -772,6 +777,9 @@ async def console_ws(ws: WebSocket, name: str):
         except _console.ConsoleError as e:
             await say(str(e))
             return await close()
+        except Exception as e:                                      # never a silent close
+            await say(f"console error: {type(e).__name__}")
+            return await close()
         user = start.get("user") or kept.get("user") or ("root" if name.startswith("client-") else "admin")
         pw = start.get("password") or kept.get("password") or ""
         start = kept = None                                           # passwords not kept around
@@ -788,13 +796,18 @@ async def console_ws(ws: WebSocket, name: str):
             return await close()
         try:
             await px.send(sess["auth_line"])
-            ok = await asyncio.wait_for(px.recv(), 10)
+            try:
+                ok = await asyncio.wait_for(px.recv(), CONSOLE_TICKET_TIMEOUT)
+            except asyncio.TimeoutError:
+                await say("Proxmox did not answer the console ticket")
+                return await close()
             if not (ok if isinstance(ok, bytes) else ok.encode()).startswith(b"OK"):
                 await say("Proxmox refused the console ticket")
                 return await close()
             await px.send(f"1:{cols}:{rows}:")
             dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
-            state = {"tail": "", "user": False, "pw": False}
+            t0 = time.monotonic()
+            state = {"tail": "", "user": False, "pw": False, "user_at": 0.0, "off": not pw}
 
             async def send(data):
                 await px.send(f"0:{len(data.encode())}:{data}")
@@ -803,20 +816,26 @@ async def console_ws(ws: WebSocket, name: str):
                 async for m in px:
                     t = dec.decode(m if isinstance(m, bytes) else m.encode())
                     await ws.send_text(t)
-                    if not pw or state["pw"]:
+                    if state["off"]:
+                        continue
+                    now = time.monotonic()
+                    if (not state["user"] and now - t0 > CONSOLE_LOGIN_WINDOW[0]) or \
+                            (state["user"] and now - state["user_at"] > CONSOLE_LOGIN_WINDOW[1]):
+                        state["off"] = True                            # too late: never answer a later prompt
                         continue
                     state["tail"] = (state["tail"] + t)[-200:]
                     if not state["user"] and state["tail"].rstrip().endswith("login:"):
-                        state["user"], state["tail"] = True, ""
+                        state.update(user=True, tail="", user_at=now)
                         await send(user + "\r")
                     elif state["user"] and state["tail"].rstrip().endswith("Password:"):
-                        state["pw"], state["tail"] = True, ""
+                        state.update(pw=True, off=True, tail="")
                         await send(pw + "\r")
 
             async def inp():
                 while True:
                     m = json.loads(await ws.receive_text())
                     if "data" in m:
+                        state["off"] = True                            # the user types: the auto-login steps aside
                         await send(str(m["data"]))
                     elif "resize" in m:
                         await px.send(f"1:{int(m['resize'][0])}:{int(m['resize'][1])}:")

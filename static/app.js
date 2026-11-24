@@ -657,7 +657,7 @@ function loadOnce(tag, attrs) {
 }
 // sessions: several terminals (SSH via /api/term, Proxmox console via /api/console) in tabs; minimize keeps them open
 const SESS = new Map();
-let SESS_CUR = null, SESS_FORM = null, XTERM_OK = false;
+let SESS_CUR = null, XTERM_OK = false;
 const sessLabel = (n) => (n === "@fmg" ? "FortiManager" : n);
 function sessTabs() {
   const tab = (s) => `<button data-stab="${esc(s.key)}" class="${s.key === SESS_CUR ? "on" : ""} ${s.closed ? "closed" : ""}">${esc(s.title)}<span class="x" data-sclose="${esc(s.key)}" title="End this session">×</span></button>`;
@@ -666,12 +666,13 @@ function sessTabs() {
 }
 function sessOpen(kind, name, auto) {
   const key = `${kind}:${name}`;
-  if (SESS.has(key)) return sessShow(key);                      // the same device again: its existing session
+  const old = SESS.get(key);
+  if (old && old.closed) sessClose(key);                        // ended (e.g. the CT restarted): connect again
+  else if (old) return sessShow(key);                           // the same device again: its existing session
   const el = document.createElement("div"); el.className = "term-pane"; $("#term_box").appendChild(el);
-  SESS.set(key, { key, kind, name, el, title: `${kind === "console" ? "Console" : "SSH"} ${sessLabel(name)}`, term: null, ws: null, fit: null, closed: false });
+  SESS.set(key, { key, kind, name, el, title: `${kind === "console" ? "Console" : "SSH"} ${sessLabel(name)}`, term: null, ws: null, fit: null, closed: false, needsForm: !auto });
   sessShow(key);
   if (auto) sessStart(SESS.get(key), "", "");                    // the tool logs in with the kept password
-  else { SESS_FORM = key; $("#term_form").hidden = false; $("#term_user").value = kind === "console" && name.startsWith("client-") ? "root" : "admin"; $("#term_pw").focus(); }
 }
 async function sessStart(s, user, pw) {
   if (!s || s.term) return;
@@ -682,6 +683,7 @@ async function sessStart(s, user, pw) {
       XTERM_OK = true;
     }
   } catch (e) { s.el.innerHTML = `<div class="error">✕ ${esc(e.message)} (does the browser have internet access?)</div>`; return; }
+  if (SESS.get(s.key) !== s || s.term) return;                   // closed (or started) while xterm was loading
   const term = s.term = new window.Terminal({ cursorBlink: true, fontSize: 13 });
   s.fit = new window.FitAddon.FitAddon(); term.loadAddon(s.fit); term.open(s.el); s.fit.fit();
   const path = s.kind === "console" ? "/api/console/" : "/api/term/";
@@ -696,7 +698,9 @@ async function sessStart(s, user, pw) {
 function sessShow(key) {
   if (!SESS.has(key)) return;
   SESS_CUR = key; $("#sess_panel").hidden = false; $("#sess_bar").hidden = true;
-  $("#term_form").hidden = SESS_FORM !== key;
+  const cur = SESS.get(key);
+  $("#term_form").hidden = !cur.needsForm;                       // the password form belongs to this session only
+  if (cur.needsForm) { $("#term_pw").value = ""; $("#term_user").value = cur.kind === "console" && cur.name.startsWith("client-") ? "root" : "admin"; setTimeout(() => $("#term_pw").focus(), 0); }
   for (const s of SESS.values()) s.el.hidden = s.key !== key;
   sessTabs();
   const s = SESS.get(key);
@@ -712,16 +716,16 @@ function sessClose(key) {
   if (s.ws) { try { s.ws.close(); } catch (_) {} }
   if (s.term) s.term.dispose();
   s.el.remove();
-  if (SESS_FORM === s.key) { SESS_FORM = null; $("#term_pw").value = ""; }
+  if (s.needsForm) $("#term_pw").value = "";
   const next = [...SESS.keys()].pop();
   if (next) sessShow(next); else { SESS_CUR = null; $("#sess_panel").hidden = true; $("#sess_bar").hidden = true; }
 }
 window.addEventListener("resize", () => { const s = SESS.get(SESS_CUR); if (s && s.fit && !$("#sess_panel").hidden) s.fit.fit(); });
 function sessGo() {
-  const s = SESS.get(SESS_FORM); if (!s) return;
+  const s = SESS.get(SESS_CUR); if (!s || !s.needsForm) return;
   const user = $("#term_user").value.trim() || "admin", pw = $("#term_pw").value;
   $("#term_pw").value = "";                                     // not kept in the page
-  SESS_FORM = null; $("#term_form").hidden = true;
+  s.needsForm = false; $("#term_form").hidden = true;
   sessStart(s, user, pw);
 }
 const sessClick = (e) => {
