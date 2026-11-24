@@ -126,12 +126,20 @@ def _ver_key(name):
     return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", name)]
 
 
-def ensure_template(pve, t, emit, step="pve_wan"):
-    """Make sure the CT template (fixed: debian-13-standard on its storage) exists, like `pveam download`. Uses the
-    configured file when present, else the newest debian-13-standard already on that storage, else downloads the newest
-    one from the Proxmox appliance index. Sets t['wanemu']['template'] to the volume used and returns it."""
+def ensure_template(pve, t, emit, step="pve_wan", template=None):
+    """Make sure a CT template exists, like `pveam download`: the wan-emu one (fixed: debian-13-standard) or the given
+    `template`. Uses that file when present, else the newest of the same family/arch already on that storage, else
+    downloads the newest one from the Proxmox appliance index. Returns the volume used; for the wan-emu template it is
+    also set in t['wanemu']['template']."""
+    own = template is None
+    out = _ensure_template(pve, t["pve"]["node"], template or t["wanemu"]["template"], emit, step)
+    if own:
+        t["wanemu"]["template"] = out
+    return out
+
+
+def _ensure_template(pve, node, vol, emit, step):
     from ..pve import PveError
-    node, vol = t["pve"]["node"], t["wanemu"]["template"]
     storage, fname = vol.split(":", 1)[0], vol.rsplit("/", 1)[-1]
     family, arch = fname.split("_", 1)[0], fname.rsplit("_", 1)[-1]  # debian-13-standard, amd64.tar.zst
     same = lambda n: n.startswith(family + "_") and n.endswith("_" + arch)   # not turnkey-*, not arm64
@@ -141,11 +149,9 @@ def ensure_template(pve, t, emit, step="pve_wan"):
         raise WanEmuError(f"CT template: cannot list storage '{storage}' ({e}); it must have content type "
                           "'Container template' (Datacenter > Storage)") from None
     if vol in have:
-        t["wanemu"]["template"] = vol
         return vol
     local = sorted((v for v in have if same(v.rsplit("/", 1)[-1])), key=_ver_key)
     if local:
-        t["wanemu"]["template"] = local[-1]
         emit(step, "running", f"CT template {fname} not on '{storage}', using {local[-1].rsplit('/', 1)[-1]}")
         return local[-1]
     try:
@@ -160,9 +166,7 @@ def ensure_template(pve, t, emit, step="pve_wan"):
         raise WanEmuError(f"CT template {want} is missing on '{storage}' and downloading it failed ({e}). Download it on "
                           f"the PVE host: pveam update && pveam download {storage} {want} - or give the API token "
                           "Datastore.AllocateTemplate on that storage") from None
-    vol = f"{storage}:vztmpl/{want}"
-    t["wanemu"]["template"] = vol
-    return vol
+    return f"{storage}:vztmpl/{want}"
 
 
 def deploy_wanemu(pve, t, secrets, emit, step="pve_wan", connector=None, waiter=None, vmids=None):

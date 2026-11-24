@@ -158,6 +158,15 @@
         <div class="fields">
           <div class="f"><label>LAN client root password</label><div class="pw"><input id="client_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="client_pw" title="Show / hide the password" aria-label="Show password"></button></div></div>
         </div>
+        <h3>Traffic-Gen <small>(optional)</small></h3>
+        <div class="opts"><div class="inline"><input type="checkbox" id="tg_on"><label for="tg_on">Also deploy <a href="https://github.com/s-ruiter/Traffic-Gen" target="_blank" rel="noopener" style="color:var(--accent)">Traffic-Gen</a>: realistic user traffic (Microsoft 365, Teams, streaming, SaaS, …) from the LAN of the first spoke</label></div></div>
+        <div id="tg_box" hidden>
+          <div class="hint" id="tg_hint"></div>
+          <div class="fields">
+            <div class="f"><label>Management IP/prefix (uplink network)</label><input id="tg_ip" class="mono"></div>
+            <div class="f"><label>Traffic-Gen GUI password (user admin)</label><div class="pw"><input id="tg_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="tg_pw" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint" id="tg_pw_hint"></div></div>
+          </div>
+        </div>
       </div>
 
       <div class="actions space">

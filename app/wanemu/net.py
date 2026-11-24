@@ -87,6 +87,9 @@ def bridge_needs(t, fgts=True, clients=True):
         for e in t["edges"]:
             if (e.get("lans") or [{}])[0].get("ip"):
                 add(w["bridge"], lv[e["name"]][0])
+        if (t.get("trafficgen") or {}).get("enabled"):              # Traffic-Gen management on the uplink network
+            up = w["uplink"]
+            add(up.get("bridge") or w["bridge"], up.get("vlan"))
     return need
 
 

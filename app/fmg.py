@@ -718,7 +718,17 @@ def _clients(topo, boot, emit, step="clients"):
     except Exception as e:                                    # a client is a convenience: never fail the deployment
         emit(step, "warn", f"LAN clients not (fully) created: {e}")
         return
-    emit(step, "ok", f"{len(out)} LAN client(s); operate them from the Proxmox console (root, LAN client password)")
+    msg = f"{len(out)} LAN client(s); operate them from the Proxmox console (root, LAN client password)"
+    from . import trafficgen
+    if trafficgen.enabled(topo):
+        try:
+            r = trafficgen.deploy(pve, topo, boot["wanemu_secrets"]["ssh_key"], boot.get("tg_pw") or "", emit, step,
+                                  connector=boot.get("wanemu_connector"), waiter=boot.get("waiter"), vmids=boot.get("vmids"))
+            msg += f"; Traffic-Gen {'created' if r['created'] else 'updated'} (CT {r['vmid']}): {r['url']} (user admin)"
+        except Exception as e:                                # optional as well: report, never fail the deployment
+            emit(step, "warn", f"Traffic-Gen not installed: {e}")
+            return
+    emit(step, "ok", msg)
 
 
 def _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt):

@@ -60,7 +60,7 @@ function ipProblem(kind, v) {
   }
   return "";
 }
-const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip" };
+const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip", tg_ip: "cidr" };
 const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip" };
 function markIpFields() {
   for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
@@ -191,8 +191,24 @@ function draw() {
   $("#vrfs").innerHTML = "<thead><tr><th>VRF id</th><th>LAN summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
+  const g = T.trafficgen || { enabled: false, ip: "" };
+  $("#tg_on").checked = !!g.enabled; $("#tg_ip").value = g.ip || ""; tgDraw();
   flexFields(); topoDraw();
 }
+// Traffic-Gen: management on the uplink network, traffic from the first spoke's LAN (.20-.29, spoke as gateway)
+function tgDraw() {
+  const on = $("#tg_on").checked; $("#tg_box").hidden = !on;
+  const up = (($("#wan-uplink-ip") && $("#wan-uplink-ip").value) || "").trim(), gw = (($("#wan-uplink-gw") && $("#wan-uplink-gw").value) || "").trim();
+  const vlan = (($("#wan-uplink-vlan") && $("#wan-uplink-vlan").value) || "").trim();
+  if (!$("#tg_ip").value && /^\d+\.\d+\.\d+\.\d+\/\d+$/.test(up)) $("#tg_ip").placeholder = up.replace(/\.(\d+)\//, (m, o) => "." + Math.max(2, +o - 1) + "/");
+  const sp = (T.edges || []).find((e) => (e.lans || [])[0] && e.lans[0].ip), lan = sp ? sp.lans[0].ip.split("/")[0].split(".").slice(0, 3).join(".") : "";
+  $("#tg_hint").textContent = `Management (web GUI https://<this IP>:8443, user admin) via the WAN emulation uplink: ${vlan ? "VLAN " + vlan : "untagged"}${gw ? ", gateway " + gw : ""}. ` +
+    (sp ? `Test traffic from ${sp.name}'s LAN: ${lan}.20-${lan}.29 with ${sp.lans[0].ip.split("/")[0]} (the spoke) as gateway; adjustable later in the Traffic-Gen GUI.` : "Needs a spoke with a LAN.") +
+    " Comes along with the LAN clients (Everything, FortiGates only, LAN clients only); deleted by Cleanup.";
+  pwHint("tg_pw");
+}
+$("#tg_on").addEventListener("change", () => { tgDraw(); topoDraw(); });
+["#wan-uplink-ip", "#wan-uplink-gw", "#wan-uplink-vlan"].forEach((id) => $(id).addEventListener("input", tgDraw));
 function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);
   t.adom = $("#adom").value.trim(); t.hub2hub = $("#hub2hub").checked;
@@ -206,6 +222,7 @@ function collect() {
     ports: Object.fromEntries([...document.querySelectorAll("[data-p]")].map((r) => [r.dataset.p, { bridge: r.querySelector("[data-f=bridge]").value.trim(), vlan: n(r.querySelector("[data-f=vlan]").value) }])),
   };
   t.wanemu = wanCollect();
+  t.trafficgen = { enabled: $("#tg_on").checked, ip: $("#tg_ip").value.trim(), count: 10 };
   t.region.multi_vrf = $("#r_multi").checked; t.region.lan_summary = $("#r_lansum").value.trim();
   t.region.vrfs = [...document.querySelectorAll("[data-v]")].map((r) => ({ id: +r.querySelector("[data-f=id]").value, lan_summary: r.querySelector("[data-f=lan_summary]").value.trim(), dia: r.querySelector("[data-f=dia]").checked }));
   document.querySelectorAll(".dev").forEach((el) => {
@@ -225,7 +242,7 @@ function collect() {
 function secrets() {
   const tok = {};
   document.querySelectorAll("[data-tok]").forEach((i) => { if (i.value.trim()) tok[i.dataset.tok] = i.value.trim(); });
-  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: "", fgt_initial_pw: "", fgt_new_pw: $("#fgt_newpw").value, client_pw: $("#client_pw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
+  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: "", fgt_initial_pw: "", fgt_new_pw: $("#fgt_newpw").value, client_pw: $("#client_pw").value, tg_pw: $("#tg_on").checked ? $("#tg_pw").value : "", admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
 }
 const fmgCfg = () => ({ host: null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
 
@@ -306,7 +323,7 @@ function pwProblems(pw) {
   return [["at least 8 characters", pw.length >= 8], ["an uppercase letter", /[A-Z]/.test(pw)], ["a lowercase letter", /[a-z]/.test(pw)],
     ["a digit", /[0-9]/.test(pw)], ["a special character", /[^A-Za-z0-9]/.test(pw)]].filter(([, ok]) => !ok).map(([w]) => w);
 }
-const PW_STRONG = { fmg_pass: () => ["all", "fmg"].includes(scope()), fgt_newpw: () => true };   // passwords the tool sets
+const PW_STRONG = { fmg_pass: () => ["all", "fmg"].includes(scope()), fgt_newpw: () => true, tg_pw: () => $("#tg_on").checked };   // passwords the tool sets
 function pwHint(id) {
   const el = $("#" + id), h = $("#" + id + "_hint"), v = el.value, p = pwProblems(v);
   if (!PW_STRONG[id]()) { h.textContent = ""; el.classList.remove("bad"); return; }
@@ -320,7 +337,7 @@ function pwErrors() {
     const el = $("#" + id);
     if (!need() || !el.offsetParent || !el.value) continue;
     const p = pwProblems(el.value);
-    if (p.length) out.push(`${id === "fmg_pass" ? "FortiManager" : "FortiGates"}: admin password is not strong, it needs ${p.join(", ")}`);
+    if (p.length) out.push(`${{ fmg_pass: "FortiManager", fgt_newpw: "FortiGates", tg_pw: "Traffic-Gen" }[id]}: ${id === "tg_pw" ? "GUI" : "admin"} password is not strong, it needs ${p.join(", ")}`);
   }
   return out;
 }
@@ -829,7 +846,9 @@ function topoSvg(t, sc) {
       o += box(x, yLan, 160, 50, `LAN ${lan.intf || ""}`, [lan.ip, `VLAN ${vlan}`], "tp-lan", fgtOn || modelOnly || lanOnly);
       if (!hub) {
         const ip = lan.ip.split("/")[0].split(".").slice(0, 3).join(".") + ".10";
-        o += line(cx, yLan + 50, cx, yCli, fgtOn || lanOnly) + box(x, yCli, 160, 46, `client-${d.name}`, [`${ip} (LXC)`], "tp-cli", fgtOn || lanOnly);
+        const tgHere = t.trafficgen && t.trafficgen.enabled && d === t.edges.find((e) => (e.lans || [])[0] && e.lans[0].ip);
+        const pre = ip.split(".").slice(0, 3).join(".");
+        o += line(cx, yLan + 50, cx, yCli, fgtOn || lanOnly) + box(x, yCli, 160, 46, `client-${d.name}`, tgHere ? [`${ip} (LXC)`, `+ Traffic-Gen ${pre}.20-.29`] : [`${ip} (LXC)`], "tp-cli", fgtOn || lanOnly);
       }
     }
   });
