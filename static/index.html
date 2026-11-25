@@ -122,13 +122,13 @@
         <h3>WAN emulation <small>(LXC wan-emu)</small></h3>
         <div class="hint">Every FortiGate WAN is its own line: its own VLAN and /24 (hub n wan1 in ISP-HUB, spoke n wan1 in ISP-A, wan2 in ISP-B: the n-th /24 of the block, wan-emu .1, FortiGate .2, VLAN base+n). The container routes between all lines (so spoke-to-spoke shortcuts pass it too), gives the spokes their address by DHCP and NATs to the lab via the uplink. The WAN emulator bridge carries the ISP segments, the FortiGate WAN/LAN ports and the LAN clients (an internal VLAN-aware bridge is ideal); the uplink bridge connects wan-emu to your lab. Set latency, jitter, loss and bandwidth per link on the <a href="#/wanemu" style="color:var(--accent)">Access &amp; WAN control</a> page.</div>
         <div class="fields">
-          <div class="f adv"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
-          <div class="f adv"><label>Storage (rootfs)</label><input id="wan-storage"></div>
-          <div class="f"><label>WAN emulator bridge</label><select id="wan-bridge" title="ISP segments, FortiGate WAN/LAN ports and LAN clients (VLANs 3200+, 3300+, 3400+)"></select></div>
+          <div class="f"><label>Uplink IP</label><input id="wan-uplink-ip" class="mono" placeholder="e.g. 192.168.1.250"></div>
+          <div class="f"><label>Uplink gateway</label><input id="wan-uplink-gw" class="mono"></div>
           <div class="f"><label>Uplink bridge</label><select id="wan-uplink-bridge" title="the bridge to your lab network (eth0 of wan-emu)"></select></div>
           <div class="f"><label>Uplink VLAN</label><input id="wan-uplink-vlan" type="number" placeholder="empty = untagged"></div>
-          <div class="f"><label>Uplink IP</label><input id="wan-uplink-ip" class="mono" placeholder="your lab network, e.g. 192.168.1.250/24"></div>
-          <div class="f"><label>Uplink gateway</label><input id="wan-uplink-gw" class="mono"></div>
+          <div class="f"><label>WAN emulator bridge</label><select id="wan-bridge" title="ISP segments, FortiGate WAN/LAN ports and LAN clients (VLANs 3200+, 3300+, 3400+)"></select></div>
+          <div class="f adv"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
+          <div class="f adv"><label>Storage (rootfs)</label><input id="wan-storage"></div>
         </div>
         <div class="adv"><table class="tbl" id="wan-segs"><thead><tr><th>ISP</th><th>Address block</th><th>VLAN base</th><th>Per WAN</th></tr></thead><tbody>
           <tr><td><b>ISP-HUB</b></td><td><input id="wan-seg-hub-block" class="mono"></td><td><input id="wan-seg-hub-vlanbase" type="number"></td><td class="hint" data-segper="hub"></td></tr>
