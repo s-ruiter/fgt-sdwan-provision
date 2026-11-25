@@ -81,8 +81,6 @@
           <div class="f adv"><label>vCPU</label><input id="fmg_cores" type="number"></div>
           <div class="f adv"><label>RAM (MB)</label><input id="fmg_mem" type="number"></div>
           <div class="f adv"><label>Datadisk (GB)</label><input id="fmg_disk" type="number"></div>
-          <div class="f"><label>Bridge</label><select id="fmg_br"></select></div>
-          <div class="f"><label>VLAN</label><input id="fmg_vlan" type="number"></div>
         </div>
         <div class="hint adv">Fortinet recommends &ge;4 vCPU, 16 GB RAM and a data disk of &ge;500 GB for FortiManager (thin is fine in a lab).</div>
         </div>
@@ -100,8 +98,28 @@
         <div class="hint">No image yet? Upload the <code>.out.kvm.zip</code> from FortiCloud on the <a href="#/images" style="color:var(--accent)">Images</a> page.</div>
         </div>
 
+      </div>
+
+      <div class="card not-lan">
+        <h2><span class="num">02</span>FortiManager <small class="only-fmg">(always a static IP; Day-0)</small><small class="only-existing">(existing FortiManager: IP, ADOM and API login)</small></h2>
+        <div class="fields">
+          <div class="f only-fmg adv"><label>Hostname</label><input id="fm_name"></div>
+          <div class="f"><label><span class="only-fmg">Static IP (a.b.c.d/nn)</span><span class="only-existing">IP address (a.b.c.d)</span></label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
+          <div class="f only-fmg"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
+          <div class="f only-fmg"><label>Bridge (VM)</label><select id="fmg_br"></select></div>
+          <div class="f only-fmg"><label>VLAN (empty = untagged)</label><input id="fmg_vlan" type="number"></div>
+          <div class="f only-fmg adv"><label>Port</label><select id="fm_port"><option>port1</option><option>port2</option><option>port3</option><option>port4</option><option>port5</option><option>port6</option></select></div>
+          <div class="f adv"><label>ADOM name</label><input id="adom"></div>
+          <div class="f adv"><label>Admin user</label><input id="fmg_user" value="admin"></div>
+          <div class="f adv only-existing-simple"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><div class="pw"><input id="fmg_pass" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fmg_pass" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint only-fmg" id="fmg_pass_hint"></div></div>
+          <div class="f only-fmg"><label>FortiFlex token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
+        </div>
+      </div>
+
+      <div class="card only-clients" id="sec_wan">
+        <h2><span class="num">03</span>WAN emulation and Traffic Generator <small>(the emulated ISPs between the FortiGates, and test traffic)</small></h2>
         <div class="only-fgt" id="wanemu-section">
-        <h3>WAN emulation <small>(LXC wan-emu, always deployed with FortiGate VMs)</small></h3>
+        <h3>WAN emulation <small>(LXC wan-emu)</small></h3>
         <div class="hint">Every FortiGate WAN is its own line: its own VLAN and /24 (hub n wan1 in ISP-HUB, spoke n wan1 in ISP-A, wan2 in ISP-B: the n-th /24 of the block, wan-emu .1, FortiGate .2, VLAN base+n). The container routes between all lines (so spoke-to-spoke shortcuts pass it too), gives the spokes their address by DHCP and NATs to the lab via the uplink. The WAN emulator bridge carries the ISP segments, the FortiGate WAN/LAN ports and the LAN clients (an internal VLAN-aware bridge is ideal); the uplink bridge connects wan-emu to your lab. Set latency, jitter, loss and bandwidth per link on the <a href="#/wanemu" style="color:var(--accent)">Access &amp; WAN control</a> page.</div>
         <div class="fields">
           <div class="f adv"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
@@ -119,24 +137,15 @@
         </tbody></table>
         <div class="hint">Link n of an ISP = the n-th /24 of its block: wan-emu .1 (gateway), FortiGate .2, VLAN = base + n (hub n in ISP-HUB, spoke n wan1 in ISP-A and wan2 in ISP-B). Spokes get .2 by DHCP on a fixed MAC address (pool .100&ndash;.199 for anything else); hubs get it statically. All VLANs must be allowed on the WAN emulator bridge.</div></div>
         </div><!-- /wanemu -->
-      </div>
-
-      <div class="card not-lan">
-        <h2><span class="num">02</span>FortiManager <small class="only-fmg">(always a static IP; Day-0)</small><small class="only-existing">(existing FortiManager: IP, ADOM and API login)</small></h2>
+        <h3>Traffic Generator <small>(always deployed: realistic user traffic from the LAN of the first spoke)</small></h3>
+        <div class="hint" id="tg_hint"></div>
         <div class="fields">
-          <div class="f only-fmg adv"><label>Hostname</label><input id="fm_name"></div>
-          <div class="f"><label><span class="only-fmg">Static IP (a.b.c.d/nn)</span><span class="only-existing">IP address (a.b.c.d)</span></label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
-          <div class="f only-fmg"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
-          <div class="f only-fmg adv"><label>Port</label><select id="fm_port"><option>port1</option><option>port2</option><option>port3</option><option>port4</option><option>port5</option><option>port6</option></select></div>
-          <div class="f adv"><label>ADOM name</label><input id="adom"></div>
-          <div class="f adv"><label>Admin user</label><input id="fmg_user" value="admin"></div>
-          <div class="f adv only-existing-simple"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><div class="pw"><input id="fmg_pass" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fmg_pass" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint only-fmg" id="fmg_pass_hint"></div></div>
-          <div class="f only-fmg"><label>FortiFlex token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
+          <div class="f"><label>Management IP/prefix (uplink network)</label><input id="tg_ip" class="mono" placeholder="e.g. the address below wan-emu"></div>
         </div>
       </div>
 
       <div class="card not-lan" id="sec_devices">
-        <h2><span class="num">03</span>Topology</h2>
+        <h2><span class="num">04</span>Topology</h2>
         <div class="opts">
           <div class="inline adv"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-to-hub tunnels (DC-to-DC)</label></div>
           <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + customer VRFs leaking to the PE-VRF; off = classic single-VRF, one LAN per device, everything in VRF 0)</label></div>
@@ -159,16 +168,14 @@
       </div>
 
       <div class="card only-clients adv" id="sec_clients">
-        <h2><span class="num">04</span>LAN clients <small>(one container per spoke, on its LAN VLAN)</small></h2>
+        <h2><span class="num">05</span>LAN clients <small>(one container per spoke, on its LAN VLAN)</small></h2>
         <div class="hint">Every spoke gets a container <code>client-&lt;spoke&gt;</code> with .10 in its LAN and the spoke as gateway, to test traffic. Operate them from the Proxmox console as root with this password. It is not stored.</div>
         <div class="fields">
           <div class="f"><label>LAN client root password</label><div class="pw"><input id="client_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="client_pw" title="Show / hide the password" aria-label="Show password"></button></div></div>
         </div>
-        <h3>Traffic-Gen <small>(always deployed: realistic user traffic from the LAN of the first spoke)</small></h3>
+        <h3>Traffic Generator password <small>(the IP is set under WAN emulation and Traffic Generator)</small></h3>
         <div id="tg_box">
-          <div class="hint" id="tg_hint"></div>
           <div class="fields">
-            <div class="f"><label>Management IP/prefix (uplink network)</label><input id="tg_ip" class="mono"></div>
             <div class="f"><label>Traffic-Gen GUI password (user admin)</label><div class="pw"><input id="tg_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="tg_pw" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint" id="tg_pw_hint"></div></div>
           </div>
         </div>
