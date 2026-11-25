@@ -185,8 +185,10 @@ def apply_plan(fmg, topo, plan, emit, step="templates", devices=True):
         names = None
     else:
         try:
+            # the ISDB entries are built-in (reserved) objects: FMG 8.0.2 returns them only with option "get reserved"
+            # (without it: 0 of 1773 entries)
             rows = fmg.call("get", f"/pm/config/adom/{topo['adom']}/obj/firewall/internet-service-name",
-                            fields=["name"]).get("data") or []
+                            fields=["name"], option=["get reserved"]).get("data") or []
             names = [x["name"] for x in rows if isinstance(x, dict) and x.get("name")]
         except FmgError as e:
             names, why = [], f"not readable: {e}"

@@ -101,6 +101,8 @@ class Fmg:
         if url.endswith("/obj/firewall/internet-service-name"):
             if self.fail:
                 raise FmgError("no permission")
+            if "get reserved" not in (kw.get("option") or []):      # like FMG 8.0.2: built-in ISDB only with this option
+                return {"data": []}
             return {"data": [{"name": n} for n in self.names]}
         return {"data": None}
 
