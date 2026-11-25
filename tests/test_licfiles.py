@@ -90,3 +90,51 @@ assert fg["site1-H1"]["license"] == lic and "LICENSE-TOKEN" not in fg["site1-H1"
 fm = pv.build_specs(t, "Pw-12345!", "Pw-12345!", {}, None, "fmg", licenses=lics)[0]
 assert fm["license"] == lics["fmg"] and "vm-license" not in fm["user_data"]
 print("OK  Day-0: licentiebestand op de config drive (content/0000 + meta_data.json), geen FortiFlex-token in user_data")
+
+# ---- API + deployment in licence-file mode
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app import main  # noqa: E402
+
+c = TestClient(main.app)
+conn = db.connect(os.environ["DATA_DIR"])
+db.put_secret(conn, "fortiflex", json.dumps({"user": "api", "enabled": True, "program": "P", "fmg_config": 1, "fgt_config": 2}))
+assert c.put("/api/licenses/mode", json={"mode": "files"}).status_code == 200
+assert c.get("/api/licenses").json()["mode"] == "files" and json.loads(db.get_secret(conn, "fortiflex"))["user"] == "api"
+FILES = {"fmg": "FMG-VMTM24000001.lic", "site1-H1": "FGVM08TM24000011.lic", "site1-H2": "FGVM08TM24000012.lic",
+         "site1-1": "FGVM08TM24000021.lic", "site1-2": "FGVM08TM24000022.lic", "site1-3": "FGVM08TM24000023.lic"}
+for dev, fn in FILES.items():
+    r = c.post(f"/api/licenses/{dev}", files={"file": (fn, b"-----BEGIN LICENSE-----\n" + fn.encode() + b"\n")})
+    assert r.status_code == 200 and r.json()["serial"] == fn[:-4], r.text
+r = c.post("/api/licenses/site1-1", files={"file": ("FMG-VMTM24000099.lic", b"x")})
+assert r.status_code == 422 and "FortiManager" in r.text
+assert set(c.get("/api/licenses").json()["files"]) == set(FILES)
+
+
+def boom(*a, **k):
+    raise AssertionError("FortiFlex must not be used in licence-file mode")
+
+
+main._flex_client = boom
+t = model.merged({})
+t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
+req = main.DeployReq(topology=t, fmg={"host": "10.10.106.11", "password": "Pw-12345!"}, scope="all",
+                     bootstrap={"fmg": "day0", "fgt": "day0"}, secrets={"fgt_new_pw": "Pw-12345!"})
+topo = model.merged(req.topology)
+log = main._licenses(topo, req, dry=False)
+assert [d["serial"] for d in topo["hubs"] + topo["edges"]] == [FILES[n][:-4] for n in ("site1-H1", "site1-H2", "site1-1", "site1-2", "site1-3")]
+assert topo["fmgr"]["serial"] == "FMG-VMTM24000001" and any("licence file" in m for _, m in log), log
+lics = main._licence_bytes(topo, req)
+assert set(lics) == set(FILES) and lics["site1-H1"].startswith(b"-----BEGIN")
+ck = c.post("/api/fortiflex/check", json=req.model_dump()).json()
+assert {x["name"]: x["serial"] for x in ck["devices"]}["site1-2"] == "FGVM08TM24000022" and all(x["action"] == "file" for x in ck["devices"])
+assert c.delete("/api/licenses/site1-2").status_code == 200
+errs = []
+try:
+    main._check_licence_files(topo, req)
+except main.HTTPException as e:
+    errs = e.detail
+assert errs == ["site1-2: no licence file (Licenses page)"], errs
+assert os.path.exists(os.path.join(os.environ["DATA_DIR"], "licenses", "site1-H1.lic"))      # kept after a deployment
+assert c.put("/api/licenses/mode", json={"mode": "fortiflex"}).status_code == 200
+print("OK  licentiebestanden: API (modus, upload, weigeren, verwijderen), uitrol zonder FortiFlex, serienummers uit de bestanden, ontbrekend bestand gemeld")

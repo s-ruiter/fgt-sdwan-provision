@@ -186,7 +186,7 @@ def _method(v):
 def _pve_vms(topo, boot, which, step, emit, state):
     from . import provision_vms as pv
     specs = pv.build_specs(topo, boot.get("fgt_new_pw", ""), boot.get("fmg_new_pw", ""), boot.get("fgt_tokens", {}),
-                           boot.get("fmg_token"), which)
+                           boot.get("fmg_token"), which, licenses=boot.get("licenses"))
     if boot.get("dry"):
         for sp in specs:
             emit(step, "running", "[dry-run] " + pv.plan_lines(sp))
