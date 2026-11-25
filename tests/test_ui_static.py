@@ -350,3 +350,10 @@ if (bad.length) { console.log(bad.join("; ")); process.exit(1); }
     r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
     assert r.returncode == 0, r.stdout + r.stderr
 print("OK  UI: IP-velden met een aparte prefix-dropdown (default /24)")
+
+# same order as the FortiManager (IP, gateway, bridge, VLAN): the uplink first, then the WAN emulator bridge
+pos = [html.index(f'id="{i}"') for i in ("fm_ip", "fm_gw", "fmg_br", "fmg_vlan")]
+assert pos == sorted(pos)
+pos = [html.index(f'id="{i}"') for i in ("wan-uplink-ip", "wan-uplink-gw", "wan-uplink-bridge", "wan-uplink-vlan", "wan-bridge", "wan-vmid")]
+assert pos == sorted(pos), "uplink: IP, gateway, bridge, VLAN (as the FortiManager), then WAN emulator bridge"
+print("OK  UI: uplink-velden in dezelfde volgorde als de FortiManager")
