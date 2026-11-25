@@ -348,3 +348,8 @@ button.chip.on { background: var(--accent); border-color: var(--accent); color: 
 /* licensing: FortiFlex or licence files */
 [data-lic="files"] .ff-only, [data-lic="files"] .flex-only { display: none !important; }
 body:not([data-lic="files"]) .files-only { display: none !important; }
+
+/* IP field + prefix dropdown (a.b.c.d  /24) */
+.pfx-wrap { display: flex; gap: 6px; align-items: stretch; min-width: 0; }
+.pfx-wrap > input { flex: 1 1 auto; min-width: 0; }
+.pfx-wrap > select.pfx { flex: 0 0 auto; width: 4.6em; }
