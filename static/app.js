@@ -21,7 +21,7 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 // ---- routing ----------------------------------------------------------------
 function route() {
   const [r, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
-  const VIEWS = ["deploy", "progress", "wanemu", "traffic", "fortiflex", "images", "servers", "cleanup", "about"];
+  const VIEWS = ["deploy", "progress", "wanemu", "traffic", "fortiflex", "images", "servers", "cleanup"];
   const view = VIEWS.includes(r) ? r : "deploy";
   for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
@@ -216,13 +216,12 @@ function draw() {
   $("#vrfs").innerHTML = "<thead><tr><th>VRF id</th><th>LAN summary</th><th>DIA</th></tr></thead><tbody>" +
     T.region.vrfs.map((v, i) => `<tr data-v="${i}"><td><input data-f="id" type="number" value="${v.id}"></td><td><input data-f="lan_summary" value="${esc(v.lan_summary)}"></td><td><input data-f="dia" type="checkbox" ${v.dia ? "checked" : ""}></td></tr>`).join("") + "</tbody>";
   ["hubs", "edges"].forEach((k) => ($("#" + k).innerHTML = T[k].map((d, i) => dev(k, d, i)).join("")));
-  const g = T.trafficgen || { enabled: false, ip: "" };
-  $("#tg_on").checked = !!g.enabled; $("#tg_ip").value = g.ip || ""; tgDraw();
-  flexFields(); topoDraw(); segPerDraw();
+  const g = T.trafficgen || { ip: "" };
+  $("#tg_ip").value = g.ip || ""; tgDraw();
+  flexFields(); topoDraw(); segPerDraw(); modeNote();
 }
 // Traffic-Gen: management on the uplink network, traffic from the first spoke's LAN (.20-.29, spoke as gateway)
 function tgDraw() {
-  const on = $("#tg_on").checked; $("#tg_box").hidden = !on;
   const up = (($("#wan-uplink-ip") && $("#wan-uplink-ip").value) || "").trim(), gw = (($("#wan-uplink-gw") && $("#wan-uplink-gw").value) || "").trim();
   const vlan = (($("#wan-uplink-vlan") && $("#wan-uplink-vlan").value) || "").trim();
   if (!$("#tg_ip").value && /^\d+\.\d+\.\d+\.\d+\/\d+$/.test(up)) $("#tg_ip").placeholder = up.replace(/\.(\d+)\//, (m, o) => "." + Math.max(2, +o - 1) + "/");
@@ -232,7 +231,6 @@ function tgDraw() {
     " Comes along with the LAN clients (Everything, FortiGates only, LAN clients only); deleted by Cleanup.";
   pwHint("tg_pw");
 }
-$("#tg_on").addEventListener("change", () => { tgDraw(); topoDraw(); });
 ["#wan-uplink-ip", "#wan-uplink-gw", "#wan-uplink-vlan"].forEach((id) => $(id).addEventListener("input", tgDraw));
 function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);
@@ -247,7 +245,7 @@ function collect() {
     ports: Object.fromEntries([...document.querySelectorAll("[data-p]")].map((r) => [r.dataset.p, { bridge: r.querySelector("[data-f=bridge]").value.trim(), vlan: n(r.querySelector("[data-f=vlan]").value) }])),
   };
   t.wanemu = wanCollect();
-  t.trafficgen = { enabled: $("#tg_on").checked, ip: $("#tg_ip").value.trim(), count: 10 };
+  t.trafficgen = { enabled: true, ip: $("#tg_ip").value.trim(), count: 10 };     // always comes along
   t.region.multi_vrf = $("#r_multi").checked; t.region.lan_summary = $("#r_lansum").value.trim();
   t.region.vrfs = [...document.querySelectorAll("[data-v]")].map((r) => ({ id: +r.querySelector("[data-f=id]").value, lan_summary: r.querySelector("[data-f=lan_summary]").value.trim(), dia: r.querySelector("[data-f=dia]").checked }));
   document.querySelectorAll(".dev").forEach((el) => {
@@ -266,7 +264,7 @@ function collect() {
 function secrets() {
   const tok = {};
   document.querySelectorAll("[data-tok]").forEach((i) => { if (i.value.trim()) tok[i.dataset.tok] = i.value.trim(); });
-  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: "", fgt_initial_pw: "", fgt_new_pw: $("#fgt_newpw").value, client_pw: $("#client_pw").value, tg_pw: $("#tg_on").checked ? $("#tg_pw").value : "", admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
+  return { fmg_token: $("#fm_token").value.trim() || null, fgt_tokens: tok, fmg_initial_pw: "", fgt_initial_pw: "", fgt_new_pw: $("#fgt_newpw").value, client_pw: $("#client_pw").value, tg_pw: $("#tg_pw").value, admin_user: $("#fmg_user").value || "admin", pve_token_secret: "" };
 }
 const fmgCfg = () => ({ host: null, username: $("#fmg_user").value, password: $("#fmg_pass").value });
 
@@ -347,7 +345,7 @@ function pwProblems(pw) {
   return [["at least 8 characters", pw.length >= 8], ["an uppercase letter", /[A-Z]/.test(pw)], ["a lowercase letter", /[a-z]/.test(pw)],
     ["a digit", /[0-9]/.test(pw)], ["a special character", /[^A-Za-z0-9]/.test(pw)]].filter(([, ok]) => !ok).map(([w]) => w);
 }
-const PW_STRONG = { fmg_pass: () => ["all", "fmg"].includes(scope()), fgt_newpw: () => true, tg_pw: () => $("#tg_on").checked };   // passwords the tool sets
+const PW_STRONG = { pw_all: () => true, fmg_pass: () => ["all", "fmg"].includes(scope()), fgt_newpw: () => true, tg_pw: () => true };   // passwords the tool sets
 function pwHint(id) {
   const el = $("#" + id), h = $("#" + id + "_hint"), v = el.value, p = pwProblems(v);
   if (!PW_STRONG[id]()) { h.textContent = ""; el.classList.remove("bad"); return; }
@@ -361,11 +359,24 @@ function pwErrors() {
     const el = $("#" + id);
     if (!need() || !el.offsetParent || !el.value) continue;
     const p = pwProblems(el.value);
-    if (p.length) out.push(`${{ fmg_pass: "FortiManager", fgt_newpw: "FortiGates", tg_pw: "Traffic-Gen" }[id]}: ${id === "tg_pw" ? "GUI" : "admin"} password is not strong, it needs ${p.join(", ")}`);
+    if (p.length) out.push(`${{ pw_all: "Password", fmg_pass: "FortiManager", fgt_newpw: "FortiGates", tg_pw: "Traffic-Gen" }[id]}: ${id === "tg_pw" ? "GUI password" : id === "pw_all" ? "it" : "admin password"} is not strong, it needs ${p.join(", ")}`);
   }
   return out;
 }
 Object.keys(PW_STRONG).forEach((id) => $("#" + id).addEventListener("input", () => pwHint(id)));
+// one password for everything: fills FortiManager, FortiGates, LAN clients and Traffic-Gen, except a field that was
+// changed by hand in Advanced
+const PW_EACH = ["fmg_pass", "fgt_newpw", "client_pw", "tg_pw"];
+$("#pw_all").addEventListener("input", () => {
+  PW_EACH.forEach((id) => { const el = $("#" + id); if (!el.dataset.own) { el.value = $("#pw_all").value; if (PW_STRONG[id]) pwHint(id); } });
+});
+PW_EACH.forEach((id) => $("#" + id).addEventListener("input", (e) => { if (e.isTrusted) e.target.dataset.own = "1"; }));
+function pwAllFrom() {               // after loading settings: one shared password shows in the generic field
+  const vals = PW_EACH.map((id) => $("#" + id).value).filter(Boolean), same = vals.length && vals.every((v) => v === vals[0]);
+  $("#pw_all").value = same ? vals[0] : "";
+  PW_EACH.forEach((id) => { if (same || !$("#" + id).value) delete $("#" + id).dataset.own; else $("#" + id).dataset.own = "1"; });
+  pwHint("pw_all");
+}
 document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-eye]"); if (!b) return;
   const i = $("#" + b.dataset.eye), show = i.type === "password";
@@ -385,6 +396,7 @@ async function setApply(j, src) {
   if (T.pve.server_id) { $("#pve_server").value = T.pve.server_id; await loadPve(); }
   const pw = j.passwords || {};
   SET_PW.forEach((id) => { if (pw[id]) $("#" + id).value = pw[id]; });
+  pwAllFrom();
   Object.keys(PW_STRONG).forEach(pwHint);
   setMsg(`✓ ${src} loaded` + (j.notes && j.notes.length ? ` (${j.notes.join("; ")})` : "") +
     (Object.keys(pw).length ? ", passwords filled in. FortiFlex tokens are not part of settings." : ". Passwords and FortiFlex tokens were not part of it."));
@@ -619,15 +631,59 @@ $("#srv_test").onclick = async () => {
   out.className = "hint " + (r.ok ? (j.warning ? "warn" : "ok") : "error"); out.textContent = r.ok ? `OK — Proxmox VE ${j.version}` + (j.warning ? " · ⚠ " + j.warning : "") : "Error: " + j.detail;
 };
 
+// ---- Simple (default) / Advanced deploy form: Advanced-only parts carry class "adv" ------------------------------
+const modeGet = () => { try { return localStorage.getItem("fgt-sdwan-mode") === "advanced" ? "advanced" : "simple"; } catch (_) { return "simple"; } };
+function modeSet(m) {
+  document.body.dataset.mode = m;
+  try { localStorage.setItem("fgt-sdwan-mode", m); } catch (_) {}
+  $("#mode_simple").classList.toggle("on", m === "simple"); $("#mode_adv").classList.toggle("on", m === "advanced");
+  modeNote();
+}
+function modeNote() {               // Simple = the standard 2 hubs + 3 spokes; another topology stays, shown in Advanced
+  const custom = T && (T.hubs.length !== 2 || T.edges.length !== 3);
+  $("#mode_note").hidden = !(custom && document.body.dataset.mode === "simple");
+}
+$("#mode_simple").onclick = () => modeSet("simple");
+$("#mode_adv").onclick = () => modeSet("advanced");
+
+// ---- self-update: badge when GitHub main is newer; the update runs ct/install.sh and the tool restarts -----------
+let UPD = null;
+async function updCheck() {
+  try { const r = await fetch("/api/version"); UPD = await r.json(); } catch (_) { UPD = null; }
+  $("#upd_badge").hidden = !(UPD && UPD.behind > 0);
+}
+function updShow() {
+  const v = UPD || {};
+  $("#upd_body").textContent = v.error ? v.error : v.behind ? `Version ${v.current} → ${v.latest} (${v.behind} change${v.behind > 1 ? "s" : ""}). The tool restarts; a running deployment must be finished first.` : `Up to date (${v.current || "unknown"}).`;
+  $("#upd_list").innerHTML = (v.commits || []).map((c) => `<li><span class="mono">${esc(c.sha)}</span> ${esc(c.title)}</li>`).join("");
+  $("#upd_go").hidden = !v.behind; $("#upd_go").disabled = false; $("#upd_panel").hidden = false;
+}
+$("#upd_badge").onclick = (e) => { e.preventDefault(); updShow(); };
+$("#upd_close").onclick = () => ($("#upd_panel").hidden = true);
+$("#upd_go").onclick = async () => {
+  const from = UPD && UPD.current;
+  $("#upd_go").disabled = true;
+  const r = await fetch("/api/update", { method: "POST" }), j = await json(r);
+  if (!r.ok) { $("#upd_body").textContent = "Update not started: " + (j.detail || r.status); $("#upd_go").disabled = false; return; }
+  $("#upd_body").textContent = "Updating… the tool restarts, this page reloads when the new version answers.";
+  const t0 = Date.now();
+  const poll = setInterval(async () => {
+    try {
+      const v = await (await fetch("/api/version", { cache: "no-store" })).json();
+      if (v.current && v.current !== from) { clearInterval(poll); location.reload(); }
+    } catch (_) { /* restarting */ }
+    if (Date.now() - t0 > 10 * 60 * 1000) { clearInterval(poll); $("#upd_body").textContent = "The update takes longer than expected: reload the page later."; }
+  }, 5000);
+};
+
 // ---- init -------------------------------------------------------------------
 (async () => {
   const a = await (await fetch("/api/about")).json();
   STEPS = a.steps;
-  $("#steps").innerHTML = a.steps.map((s) => `<li><b>${esc(s.title)}</b><span>${esc(s.desc)}</span></li>`).join("");
-  $("#orch").textContent = a.orchestrator_present ? "Orchestrator templates found: " + a.orchestrator : "⚠ Orchestrator templates not found at " + a.orchestrator;
   T = await (await fetch("/api/defaults")).json();
   $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: true }]; draw(); markIpFields(); });
-  draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); setList(); route();
+  modeSet(modeGet()); draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); setList(); route();
+  updCheck(); setInterval(updCheck, 30 * 60 * 1000);
 })();
 
 

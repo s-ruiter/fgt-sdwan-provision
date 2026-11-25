@@ -219,3 +219,51 @@ order = [body.index(x) for x in ('"Name"', '"Serial number"', "FortiFlex token",
 assert order == sorted(order), order
 assert "lan-first" in body and re.search(r"\.dev \.fields > \.lan-first \{[^}]*grid-column-start: 1", css), "LAN velden op een eigen regel"
 print("OK  UI: velden lijnen uit over alle kaarten (auto-fill); hub- en branchkaarten in dezelfde volgorde, LAN op een eigen regel")
+
+# self-update instead of About; Simple (default) / Advanced deploy page; one password; Traffic-Gen always on
+assert 'data-nav="about"' not in html and 'id="v_about"' not in html and '"about"' not in js[js.index("const VIEWS"):js.index("const VIEWS") + 200]
+for i in ("upd_badge", "upd_panel", "upd_go", "mode_simple", "mode_adv", "pw_all", "mode_note"):
+    assert f'id="{i}"' in html, i
+assert "/api/version" in js and "/api/update" in js
+assert 'data-eye="pw_all"' in html and "pw_all" in js[js.index("const PW_STRONG"):js.index("const PW_STRONG") + 300]
+assert "tg_on" not in html and "tg_on" not in js
+css = open(os.path.join(root, "static", "style.css")).read()
+assert re.search(r'\[data-mode="simple"\] \.adv\s*\{[^}]*display:\s*none', css)
+assert "fgt-sdwan-mode" in js
+from html.parser import HTMLParser  # noqa: E402
+
+
+class Anc(HTMLParser):                          # classes of every real ancestor (and the element) per id
+    VOID = {"input", "br", "img", "meta", "link", "hr", "source", "option"}
+
+    def __init__(self):
+        super().__init__()
+        self.stack, self.cls = [], {}
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        mine = set((a.get("class") or "").split())
+        here = set().union(*[c for _, c in self.stack]) | mine
+        if a.get("id"):
+            self.cls[a["id"]] = here
+        if tag not in self.VOID:
+            self.stack.append((tag, mine))
+
+    def handle_endtag(self, tag):
+        for k in range(len(self.stack) - 1, -1, -1):
+            if self.stack[k][0] == tag:
+                del self.stack[k:]
+                break
+
+
+P = Anc()
+P.feed(html)
+adv = lambda i: "adv" in P.cls[i]
+for i in ("hubs", "edges", "vrfs", "ports", "wan-segs", "pve_first", "pve_prefix", "fmg_cores", "fgt_cores", "fm_name",
+          "fmg_pass", "fgt_newpw", "client_pw", "tg_ip", "tg_pw", "wan-vmid", "hub2hub", "adom", "fmg_user"):
+    assert adv(i), f"{i} hoort alleen in Advanced"
+for i in ("pve_server", "pve_node", "pve_dstore", "pve_br", "wan-bridge", "wan-uplink-ip", "wan-uplink-vlan", "wan-uplink-gw",
+          "fm_ip", "fm_gw", "r_multi", "pw_all", "img_fgt", "img_fmg", "fm_token"):
+    assert not adv(i), f"{i} hoort ook in Simple"
+assert "custom topology" in html.lower() or "custom topology" in js.lower()
+print("OK  UI: About weg, update-melding/-knop; Simple (standaard) / Advanced; één wachtwoord; Traffic-Gen altijd mee")
