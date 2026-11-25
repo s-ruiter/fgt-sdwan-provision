@@ -22,12 +22,14 @@ def topo(**tgk):
 
 # ---- model + validation
 d = model.merged({})
-assert d["trafficgen"] == {"enabled": False, "ip": "", "count": 10}, d["trafficgen"]
-assert tg.validate(d) == []                                                       # off: nothing to check
+assert d["trafficgen"]["enabled"] is True and d["trafficgen"]["count"] == 10, d["trafficgen"]   # always comes along
+off = model.merged({"trafficgen": {"enabled": False}})
+assert tg.validate(off) == []                                                     # off (old settings): nothing to check
 t = topo()
 assert tg.validate(t) == [], tg.validate(t)
 assert tg.spoke(t)["name"] == "site1-1"                                           # the first spoke with a LAN
-for bad, why in (({"ip": ""}, "IP"), ({"ip": "10.10.107.5/24"}, "uplink"), ({"ip": "10.10.106.250/24"}, "wan-emu"),
+assert topo(ip="")["trafficgen"]["ip"] == "10.10.106.249/24"                     # empty: derived from the uplink
+for bad, why in (({"ip": "10.10.107.5/24"}, "uplink"), ({"ip": "10.10.106.250/24"}, "wan-emu"),
                  ({"ip": "10.10.106.1/24"}, "gateway")):
     e = tg.validate(topo(**bad))
     assert any(why in x for x in e), (bad, e)
@@ -37,7 +39,7 @@ t3 = topo(); t3["edges"] = [dict(e, lans=[]) for e in t3["edges"]]
 assert any("spoke" in x for x in tg.validate(t3)), tg.validate(t3)
 t4 = topo(); t4["wanemu"]["uplink"] = {"bridge": "", "vlan": None, "ip": "", "gw": ""}
 assert any("uplink" in x for x in tg.validate(t4)), tg.validate(t4)
-print("OK  model/validatie: standaard uit; IP in het uplink-netwerk (niet wan-emu/gateway), spoke met LAN, .20-.29 vrij")
+print("OK  model/validatie: standaard aan (IP = uplink min één); IP in het uplink-netwerk (niet wan-emu/gateway), spoke met LAN, .20-.29 vrij")
 
 # ---- Proxmox params, Traffic-Gen config, id block, bridges
 t = topo()
@@ -56,7 +58,8 @@ c = tg.config(t)
 assert c == {"mgmt_interface": "eth0", "networks": [{"name": "site1-1-lan1", "parent": "eth1", "vlan": None,
              "first": "10.0.1.20", "prefix": 24, "gateway": "10.0.1.1", "count": 10, "dns": "1.1.1.1"}]}, c
 assert pv.deploy_names(t, "all")[-1] == "trafficgen" and pv.deploy_names(t, "lan") [-1] == "trafficgen"
-assert "trafficgen" not in pv.deploy_names(model.merged({}), "all") and "trafficgen" not in pv.deploy_names(t, "fmg")
+assert "trafficgen" not in pv.deploy_names(model.merged({"trafficgen": {"enabled": False}}), "all")
+assert "trafficgen" not in pv.deploy_names(t, "fmg")
 need = net.bridge_needs(t, fgts=False, clients=True)
 assert 106 in need["vmbr0"] and lan1 in need["vmbr0"]                            # LAN clients only + Traffic-Gen
 print("OK  CT: eth0 = uplink-bridge/VLAN + eigen IP, eth1 = LAN1-VLAN spoke 1, sleutel; config .20-.29 via de spoke")

@@ -245,7 +245,7 @@ n_calls = len(mock_fmg.STATE["calls"])
 last, ev = run(scope="lan", fmg="none", fgt="none", images={})
 assert last["clients"] == "ok" and all(v == "skipped" for k, v in last.items() if k != "clients"), last
 cts = sorted(c["params"]["hostname"] for c in fake_proxmox.STATE["cts"].values())
-assert cts == ["client-site1-1", "client-site1-2", "client-site1-3"] and not fake_proxmox.STATE["vms"], cts
+assert cts == ["client-site1-1", "client-site1-2", "client-site1-3", "trafficgen"] and not fake_proxmox.STATE["vms"], cts
 assert len(mock_fmg.STATE["calls"]) == n_calls, "geen FortiManager-aanroepen bij alleen LAN-clients"
 print("OK  alleen LAN-clients: drie client-CT's, alle andere stappen overgeslagen, FortiManager niet aangesproken")
 

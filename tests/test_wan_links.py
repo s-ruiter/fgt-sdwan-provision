@@ -148,3 +148,12 @@ try:
 finally:
     srv.shutdown()
 print("OK  opnieuw uitrollen: wan-emu krijgt nieuwe NIC's (oude extra weg); FortiGate in oude opzet -> eerst Cleanup")
+
+# ---- Traffic-Gen always comes along; its management IP = the uplink IP minus one unless set
+tg = lab()
+assert tg["trafficgen"]["enabled"] is True and tg["trafficgen"]["ip"] == "10.10.106.249/24", tg["trafficgen"]
+assert lab({"trafficgen": {"ip": "10.10.106.200/24"}})["trafficgen"]["ip"] == "10.10.106.200/24"
+nu = model.merged({"wanemu": {"uplink": {"vlan": None, "ip": "", "gw": ""}}})
+assert nu["trafficgen"]["ip"] == "" and nu["trafficgen"]["enabled"] is True
+assert any("uplink" in e.lower() for e in model.validate_wanemu(nu))
+print("OK  Traffic-Gen altijd mee; IP = uplink-IP min één (tenzij ingevuld)")

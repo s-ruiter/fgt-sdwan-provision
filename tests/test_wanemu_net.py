@@ -123,7 +123,7 @@ assert any("bridge" in e for e in model.validate_wanemu(bad)), model.validate_wa
 need = net.bridge_needs(u, fgts=True, clients=True)
 assert need["vmbr5"] == {3201, 3202, 3211, 3212, 3213, 3231, 3233} | set(range(3301, 3306)), sorted(need["vmbr5"])   # one VLAN per WAN; single-VRF: no LAN2
 assert need["vmbr0"] == set()
-assert net.bridge_needs(u, fgts=False, clients=True) == {"vmbr5": {3303, 3304, 3305}}      # LAN clients only: LAN1 of the spokes
+assert net.bridge_needs(u, fgts=False, clients=True) == {"vmbr5": {3303, 3304, 3305}, "vmbr0": set()}   # LAN1 of the spokes + Traffic-Gen on the uplink
 info = {"vmbr0": {"iface": "vmbr0", "bridge_ports": "nic0"},
         "vmbr1": {"iface": "vmbr1", "bridge_ports": "enp129s0", "bridge_vlan_aware": 1, "bridge_vids": "301-350"},
         "vmbr2": {"iface": "vmbr2"},
