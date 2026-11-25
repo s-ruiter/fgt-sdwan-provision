@@ -33,7 +33,7 @@ function route() {
   window.scrollTo(0, 0);
   if (view === "progress") progressOpen(arg);
   if (view === "deploy") { bannerLoad(); flexApply(); }
-  if (view === "fortiflex") ffLoad();
+  if (view === "fortiflex") { ffLoad(); licLoad(); }
   if (view === "cleanup") clLoad();
   clearInterval(WAN_TIMER); WAN_TIMER = null;
   if (view === "wanemu") { wanLoad(); wanFwdLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
@@ -163,7 +163,7 @@ function dev(kind, d, i) {
   let h = `<div class="dev" data-k="${kind}" data-i="${i}"><b>${esc(d.name)}</b><div class="fields">`;
   // same order on hub and branch cards, so their columns line up: identity first, then WAN, then LAN
   h += fld("name", "Name", d.name) + fld("serial", "Serial number", d.serial, "", "only-dev") +
-    `<div class="f only-fgt"><label>FortiFlex token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>` +
+    `<div class="f only-fgt flex-only"><label>FortiFlex token</label><input data-tok="${esc(d.name)}" autocomplete="off" spellcheck="false"></div>` +
     fld("loopback", "Loopback (BGP, router-id)", d.loopback);
   // WAN design: hub = one wan (wan1, always static); branch = wan1 + optional wan2, both DHCP, each with a tunnel to wan1 of every hub
   if (hub) {                                   // wan1 = .2 of its own /24 in ISP-HUB, gateway = wan-emu (.1): derived
@@ -510,7 +510,7 @@ $("#btn_deploy").onclick = async () => {
   const body = { topology: collect(), fmg: fmgCfg(), dry_run: false, scope: sc, bootstrap: { fmg: mf, fgt: mg }, secrets: secrets(), images: { fgt: mg === "none" ? null : $("#img_fgt").value || null, fmg: mf === "none" ? null : $("#img_fmg").value || null } };
   let plan = null;
   if (!$("#btn_flexcheck").hidden) {                     // FortiFlex in this run: show what is looked up and why it takes a while
-    deployStatus("FortiFlex: looking up licences for the devices of this deployment…");
+    deployStatus(LIC.mode === "files" ? "Licence files: checking a file per device…" : "FortiFlex: looking up licences for the devices of this deployment…");
     const c = await post("/api/fortiflex/check", { ...body, dry_run: true }), cj = await json(c);
     if (!c.ok) { deployStatus(null); btn.disabled = false; return showErr(errList(cj)); }
     plan = cj.devices;
@@ -698,7 +698,7 @@ $("#upd_go").onclick = async () => {
   STEPS = a.steps;
   T = await (await fetch("/api/defaults")).json();
   $("#r_multi").addEventListener("change", () => { T = collect(); if (T.region.multi_vrf && !T.region.vrfs.length) T.region.vrfs = [{ id: 11, lan_summary: "10.0.0.0/14", dia: true }, { id: 12, lan_summary: "10.0.0.0/14", dia: true }]; draw(); markIpFields(); });
-  modeSet(modeGet()); draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); setList(); route();
+  modeSet(modeGet()); await licMode(); draw(); markIpFields(); scopeInit(); stepsDraw(); await imgLoad(); await serversLoad(true); setList(); route();
   updCheck(); setInterval(updCheck, 30 * 60 * 1000);
 })();
 
@@ -928,6 +928,11 @@ async function flexApply() {          // deploy page: serial + token fields come
 }
 function flexFields() {               // sync: after draw() and on a scope change; FortiFlex only where a token is needed
   const sc = typeof scope === "function" ? scope() : "all";
+  if (document.body.dataset.lic === "files") {   // licence files: serials come from the files, no tokens
+    document.querySelectorAll('#v_deploy [data-f="serial"]').forEach((i) => { i.readOnly = true; i.placeholder = "from licence file"; i.classList.add("flex"); });
+    $("#btn_flexcheck").hidden = !["all", "fgt", "fmg"].includes(sc);
+    return;
+  }
   const fgtOn = !!(FLEX.enabled && FLEX.fgt_config && ["all", "fgt"].includes(sc));
   const fmgOn = !!(FLEX.enabled && FLEX.fmg_config && ["all", "fmg"].includes(sc));
   const set = (i, on) => {
@@ -957,6 +962,54 @@ function deployStatus(text, plan) {      // the deploy request can take a while 
   box.hidden = false;
   box.innerHTML = `<div class="hint"><span class="dot st-running"></span> ${esc(text)}</div>` + (plan && plan.length ? flexPlanTable(plan) : "");
 }
+// ---- licences: FortiFlex or licence files (per device, serial from the file name, kept for the next deployments) ----
+let LIC = { mode: "fortiflex", files: {} };
+async function licMode() {
+  try { LIC = await (await fetch("/api/licenses")).json(); } catch (_) { /* keep */ }
+  document.body.dataset.lic = LIC.mode;
+  const r = document.querySelector(`input[name="lic_mode"][value="${LIC.mode}"]`); if (r) r.checked = true;
+  if (typeof flexFields === "function" && T) flexFields();
+}
+function licDevices() {
+  const t = T || { fmgr: {}, hubs: [], edges: [] };
+  return [[t.fmgr.name || "fmg", "fmg", "FortiManager"], ...t.hubs.map((d) => [d.name, "fgt", "FortiGate hub"]), ...t.edges.map((d) => [d.name, "fgt", "FortiGate spoke"])];
+}
+async function licLoad() {
+  await licMode();
+  const devs = licDevices(), names = new Set(devs.map((d) => d[0]));
+  const row = (n, kind, what, m, unused) => `<tr><td><b>${esc(n)}</b> <span class="hint">${esc(what)}</span></td><td class="mono">${m ? esc(m.serial) : '<span class="hint">no file</span>'}</td>` +
+    `<td class="mono">${m ? esc(m.file) : ""}</td><td class="hint">${m ? esc(m.uploaded) : ""}</td><td class="actions-cell">` +
+    (unused ? "" : `<button data-licup="${esc(n)}" data-kind="${kind}">${m ? "Replace" : "Upload"}</button>`) +
+    (m ? `<button class="icon danger" data-licdel="${esc(n)}" title="Delete this licence file">✕</button>` : "") + `</td></tr>`;
+  const extra = Object.keys(LIC.files).filter((n) => !names.has(n));
+  $("#lic_files").innerHTML = "<thead><tr><th>Device</th><th>Serial</th><th>File</th><th>Uploaded</th><th></th></tr></thead><tbody>" +
+    devs.map(([n, k, w]) => row(n, k, w, LIC.files[n])).join("") +
+    extra.map((n) => row(n, "", "not in the current topology (kept)", LIC.files[n], true)).join("") + "</tbody>";
+}
+document.querySelectorAll('input[name="lic_mode"]').forEach((r) => r.addEventListener("change", async () => {
+  const res = await fetch("/api/licenses/mode", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: r.value }) });
+  if (!res.ok) { const j = await json(res); return showErr([j.detail || "could not change the licensing mode"], "#ff_err"); }
+  await licLoad();
+}));
+let LIC_UP = null;
+$("#lic_files").addEventListener("click", async (e) => {
+  const u = e.target.closest("[data-licup]");
+  if (u) { LIC_UP = { device: u.dataset.licup, kind: u.dataset.kind }; $("#lic_file").value = ""; $("#lic_file").click(); return; }
+  const d = e.target.closest("[data-licdel]");
+  if (d && confirm(`Delete the licence file of ${d.dataset.licdel}?`)) {
+    const r = await fetch("/api/licenses/" + encodeURIComponent(d.dataset.licdel), { method: "DELETE" });
+    if (!r.ok) { const j = await json(r); showErr([j.detail || "delete failed"], "#ff_err"); }
+    await licLoad();
+  }
+});
+$("#lic_file").addEventListener("change", async () => {
+  const f = $("#lic_file").files[0]; if (!f || !LIC_UP) return;
+  const fd = new FormData(); fd.append("file", f, f.name);
+  const r = await fetch(`/api/licenses/${encodeURIComponent(LIC_UP.device)}?kind=${LIC_UP.kind}`, { method: "POST", body: fd }), j = await json(r);
+  showErr(r.ok ? [] : [j.detail || "upload failed"], "#ff_err");
+  await licLoad();
+});
+
 async function ffLoad() {
   ffErr("");
   FLEX = await (await fetch("/api/fortiflex")).json();

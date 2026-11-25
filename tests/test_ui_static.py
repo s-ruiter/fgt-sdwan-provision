@@ -294,3 +294,17 @@ w = card_of("wan-uplink-ip")
 assert html[w:w + 80].count('id="sec_wan"') == 1 and card_of("wan-bridge") == w and card_of("tg_ip") == w and card_of("wan-segs") == w
 assert card_of("pve_node") != w and card_of("img_fmg") == card_of("pve_node")
 print("OK  UI: FortiManager-VLAN bij FortiManager; eigen kaart WAN emulation and Traffic Generator met kiesbaar Traffic-Gen-IP")
+
+# Licenses page: FortiFlex or licence files; files per device; FortiFlex fields hidden in files mode
+assert re.search(r'data-nav="fortiflex">Licenses<', html) and "<h1>Licenses</h1>" in html
+for i in ("lic_mode_flex", "lic_mode_files", "lic_files", "lic_file"):
+    assert f'id="{i}"' in html, i
+assert "/api/licenses" in js and "?kind=" in js and "licLoad" in js
+P2 = Anc(); P2.feed(html)
+for i in ("ff_user", "ff_program", "ff_list"):
+    assert "ff-only" in P2.cls[i], i
+assert "files-only" in P2.cls["lic_files"] and "flex-only" in P2.cls["fm_token"]
+assert "flex-only" in js[js.index("function dev(kind, d, i)"):js.index("function linkNet(")]       # per-device token
+css = open(os.path.join(root, "static", "style.css")).read()
+assert re.search(r'\[data-lic="files"\] \.(ff|flex)-only', css) and "files-only" in css
+print("OK  UI: Licenses-pagina (FortiFlex of licentiebestanden, upload per device), FortiFlex-velden weg in bestandsmodus")
