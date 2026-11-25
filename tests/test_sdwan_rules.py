@@ -11,8 +11,10 @@ from app import fmgtemplates as ft, model  # noqa: E402
 ORCH = os.environ.get("ORCH_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "ref"))
 
 
-def topo(multi):
+def topo(multi, one_wan=True):
     t = model.merged({"region": dict(model.DEFAULTS["region"], multi_vrf=multi)})
+    if one_wan:                                  # site1-2 with one WAN: its own role without the wan2 rules
+        t["edges"][1]["wan2_intf"] = ""
     t["dns_primary"] = "1.1.1.1"
     t["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1")
     t["hubs"][0]["wan1_gw"], t["hubs"][1]["wan1_gw"] = "100.127.200.1", "100.127.200.1"
@@ -24,6 +26,15 @@ def topo(multi):
 def two_wan(r):
     return len([m for m in r["sdwan"].get("members", []) if m.get("zone") == "underlay"]) == 2
 
+
+# defaults: every spoke has two WANs -> one SPOKES role (no SPOKES-2)
+assert all(e["wan2_intf"] for e in model.DEFAULTS["edges"]), [e["name"] for e in model.DEFAULTS["edges"] if not e["wan2_intf"]]
+for multi in (True, False):
+    plan = ft.build_plan(topo(multi, one_wan=False), ORCH)
+    edge_roles = [r for r in plan["roles"] if r["kind"] == "edge"]
+    assert [r["name"] for r in edge_roles] == ["SPOKES"] and two_wan(edge_roles[0]), [r["name"] for r in edge_roles]
+    assert edge_roles[0]["devices"] == ["site1-1", "site1-2", "site1-3"], edge_roles[0]["devices"]
+print("OK  defaults: alle spokes twee WANs, een SPOKES-template")
 
 for multi in (True, False):
     plan = ft.build_plan(topo(multi), ORCH)
