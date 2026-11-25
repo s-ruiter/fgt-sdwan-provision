@@ -148,8 +148,10 @@ def pick_vmid(pve, vmids, name):
     return pve.next_vmid()
 
 
-def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
-    """VM specs for `which` in ('fmg', 'fgt'); user_data (secret!) is computed here and never logged."""
+def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which, licenses=None):
+    """VM specs for `which` in ('fmg', 'fgt'); user_data (secret!) is computed here and never logged. licenses =
+    {device: licence file bytes} (licence-file mode): that device gets the file on its config drive instead of a token."""
+    licenses = licenses or {}
     from .model import pve_name
     cfg, mode = topo["pve"], topo["pve"].get("license_mode", "cli")
     specs = []
@@ -157,10 +159,11 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
         f = topo["fmgr"]
         fm = cfg["fmg"]
         cli = cloudinit.fmg_cli(topo, admin_fmg_pw)
+        lic = licenses.get(f.get("name") or "fmg")
         specs.append({"name": f.get("name") or "fmg", "pve_name": pve_name(topo, f.get("name") or "fmg"), "role": "fmg", "cores": fm["cores"], "memory_mb": fm["memory_mb"],
                       "nics": [{"bridge": fm.get("bridge") or cfg["default_bridge"], "vlan": fm.get("vlan")}],
-                      "extra_disks": [fm["data_disk_gb"]],
-                      "user_data": cloudinit.build_user_data(cli, fmg_token, cloudinit.license_mode("fmg", mode))})
+                      "extra_disks": [fm["data_disk_gb"]], "license": lic,
+                      "user_data": cloudinit.build_user_data(cli, None if lic else fmg_token, cloudinit.license_mode("fmg", mode))})
     else:
         fg = cfg["fgt"]
         hubs = {h["name"] for h in topo["hubs"]}
@@ -169,8 +172,9 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which):
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
             specs.append({"name": d["name"], "pve_name": pve_name(topo, d["name"]), "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
                           "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n, n + 1 if n < nh else n - nh + 1),
-                          "extra_disks": [],
-                          "user_data": cloudinit.build_user_data(cli, tokens.get(d["name"]), cloudinit.license_mode("fgt", mode))})
+                          "extra_disks": [], "license": licenses.get(d["name"]),
+                          "user_data": cloudinit.build_user_data(cli, None if licenses.get(d["name"]) else tokens.get(d["name"]),
+                                                                 cloudinit.license_mode("fgt", mode))})
     return specs
 
 
@@ -255,7 +259,7 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True, vmid
                 iso_name = f"fgt-sdwan-{s['name']}-{job}.iso"
                 with tempfile.TemporaryDirectory() as td:
                     iso_path = Path(td) / iso_name
-                    cloudinit.build_config_drive(s["user_data"], iso_path)
+                    cloudinit.build_config_drive(s["user_data"], iso_path, license=s.get("license"))
                     pve.wait_task(node, pve.upload(node, cfg["iso_storage"], iso_path, iso_name, "iso"))
                 iso_volid = f"{cfg['iso_storage']}:iso/{iso_name}"
                 uploaded.append((cfg["iso_storage"], iso_volid))
