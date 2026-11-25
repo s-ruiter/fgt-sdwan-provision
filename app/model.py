@@ -451,8 +451,13 @@ def merged(user):
     if not str(tg.get("ip") or "").strip():                 # derived: the address below the wan-emu uplink address
         try:
             up = ipaddress.ip_interface(str(t["wanemu"]["uplink"].get("ip") or "").strip())
-            if up.network.prefixlen < 31 and up.ip - 1 in up.network and up.ip - 1 != up.network.network_address:
-                tg["ip"] = f"{up.ip - 1}/{up.network.prefixlen}"
+            gw = str(t["wanemu"]["uplink"].get("gw") or "").strip()
+            if up.network.prefixlen < 31:
+                for cand in (up.ip - 1, up.ip + 1):            # not the network, broadcast or gateway address
+                    if cand in up.network and cand not in (up.network.network_address, up.network.broadcast_address) \
+                            and str(cand) != gw:
+                        tg["ip"] = f"{cand}/{up.network.prefixlen}"
+                        break
         except ValueError:
             pass
     pre = str(t["pve"].get("name_prefix") or "").strip()

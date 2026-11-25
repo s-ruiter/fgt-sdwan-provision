@@ -157,3 +157,7 @@ nu = model.merged({"wanemu": {"uplink": {"vlan": None, "ip": "", "gw": ""}}})
 assert nu["trafficgen"]["ip"] == "" and nu["trafficgen"]["enabled"] is True
 assert any("uplink" in e.lower() for e in model.validate_wanemu(nu))
 print("OK  Traffic-Gen altijd mee; IP = uplink-IP min één (tenzij ingevuld)")
+# derived Traffic-Gen IP never lands on the uplink gateway (.2 with gateway .1 -> .3)
+g = model.merged({"wanemu": {"uplink": {"vlan": 106, "ip": "10.10.106.2/24", "gw": "10.10.106.1"}}})
+assert g["trafficgen"]["ip"] == "10.10.106.3/24", g["trafficgen"]
+print("OK  afgeleid Traffic-Gen-IP vermijdt de gateway")

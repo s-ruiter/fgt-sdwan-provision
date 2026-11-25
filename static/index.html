@@ -130,7 +130,7 @@
           <div class="f only-fmg adv"><label>Port</label><select id="fm_port"><option>port1</option><option>port2</option><option>port3</option><option>port4</option><option>port5</option><option>port6</option></select></div>
           <div class="f adv"><label>ADOM name</label><input id="adom"></div>
           <div class="f adv"><label>Admin user</label><input id="fmg_user" value="admin"></div>
-          <div class="f adv"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><div class="pw"><input id="fmg_pass" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fmg_pass" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint only-fmg" id="fmg_pass_hint"></div></div>
+          <div class="f adv only-existing-simple"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><div class="pw"><input id="fmg_pass" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fmg_pass" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint only-fmg" id="fmg_pass_hint"></div></div>
           <div class="f only-fmg"><label>FortiFlex token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
@@ -174,7 +174,7 @@
         </div>
       </div>
 
-      <div class="card not-lan" id="sec_pw">
+      <div class="card" id="sec_pw">
         <h2>Password <small>(FortiManager, FortiGates, LAN clients and Traffic-Gen)</small></h2>
         <div class="fields">
           <div class="f"><label>Password for everything</label><div class="pw"><input id="pw_all" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="pw_all" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint" id="pw_all_hint"></div></div>

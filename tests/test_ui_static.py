@@ -267,3 +267,16 @@ for i in ("pve_server", "pve_node", "pve_dstore", "pve_br", "wan-bridge", "wan-u
     assert not adv(i), f"{i} hoort ook in Simple"
 assert "custom topology" in html.lower() or "custom topology" in js.lower()
 print("OK  UI: About weg, update-melding/-knop; Simple (standaard) / Advanced; één wachtwoord; Traffic-Gen altijd mee")
+
+# review fixes for Simple: password card also for LAN clients only; empty fields filled from a shared password;
+# errors in Simple switch to Advanced (hidden fields); existing FortiManager password stays separate and visible;
+# a failed update is reported
+assert 'id="sec_pw"' in html and "not-lan" not in html[html.rindex("<div", 0, html.index('id="sec_pw"')):html.index('id="sec_pw"')]
+body = js[js.index("function pwAllFrom()"):js.index("function pwAllFrom()") + 800]
+assert "if (same)" in body and ".value = vals[0]" in body, "lege velden krijgen het gedeelde wachtwoord"
+se = js[js.index("function showErr("):js.index("function showErr(") + 700]
+assert 'modeSet("advanced")' in se and "Advanced" in se
+assert "PW_EXISTING" in js and 'only-existing-simple' in html
+assert re.search(r'\[data-scope="(fgt|tpl|dev)"\][^{]*\.only-existing-simple', open(os.path.join(root, "static", "style.css")).read())
+assert "last_update" in js and "journalctl -u fgt-sdwan-update" in js
+print("OK  UI: review-fixes Simple (LAN-only wachtwoord, gedeeld wachtwoord, fouten -> Advanced, bestaande FMG apart, mislukte update)")

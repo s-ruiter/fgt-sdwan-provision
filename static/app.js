@@ -8,7 +8,12 @@ const post = (u, b) => fetch(u, { method: "POST", headers: { "Content-Type": "ap
 async function json(r) { try { return await r.json(); } catch (_) { return {}; } }
 function errList(j) { const e = j.detail || j.errors || []; return (Array.isArray(e) ? e : [e]).map((x) => x.msg || String(x)); }
 function showErr(list, target = "#errors") {
-  $(target).innerHTML = list.length ? `<div class="error">${list.map((x) => "✕ " + esc(x)).join("<br>")}</div>` : "";
+  let note = "";
+  if (list.length && target === "#errors" && document.body.dataset.mode === "simple" && typeof modeSet === "function") {
+    modeSet("advanced");                       // the field a message is about may only be shown in Advanced
+    note = '<div class="hint">Switched to Advanced: some of these fields are only shown there.</div>';
+  }
+  $(target).innerHTML = list.length ? `<div class="error">${list.map((x) => "✕ " + esc(x)).join("<br>")}</div>${note}` : "";
   if (list.length) window.scrollTo({ top: 0, behavior: "smooth" });
 }
 const fld = (k, l, v, extra = "", cls = "") => `<div class="f${cls ? " " + cls : ""}"><label>${l}</label><input data-f="${k}" value="${esc(v)}" ${extra}></div>`;
@@ -345,7 +350,8 @@ function pwProblems(pw) {
   return [["at least 8 characters", pw.length >= 8], ["an uppercase letter", /[A-Z]/.test(pw)], ["a lowercase letter", /[a-z]/.test(pw)],
     ["a digit", /[0-9]/.test(pw)], ["a special character", /[^A-Za-z0-9]/.test(pw)]].filter(([, ok]) => !ok).map(([w]) => w);
 }
-const PW_STRONG = { pw_all: () => true, fmg_pass: () => ["all", "fmg"].includes(scope()), fgt_newpw: () => true, tg_pw: () => true };   // passwords the tool sets
+const PW_EXISTING = ["fgt", "tpl", "dev"];        // an existing FortiManager: its password is not set by this tool
+const PW_STRONG = { pw_all: () => ["all", "fmg", "fgt", "lan"].includes(scope()), fmg_pass: () => ["all", "fmg"].includes(scope()), fgt_newpw: () => true, tg_pw: () => true };   // passwords the tool sets
 function pwHint(id) {
   const el = $("#" + id), h = $("#" + id + "_hint"), v = el.value, p = pwProblems(v);
   if (!PW_STRONG[id]()) { h.textContent = ""; el.classList.remove("bad"); return; }
@@ -368,12 +374,16 @@ Object.keys(PW_STRONG).forEach((id) => $("#" + id).addEventListener("input", () 
 // changed by hand in Advanced
 const PW_EACH = ["fmg_pass", "fgt_newpw", "client_pw", "tg_pw"];
 $("#pw_all").addEventListener("input", () => {
-  PW_EACH.forEach((id) => { const el = $("#" + id); if (!el.dataset.own) { el.value = $("#pw_all").value; if (PW_STRONG[id]) pwHint(id); } });
+  PW_EACH.forEach((id) => {
+    if (id === "fmg_pass" && PW_EXISTING.includes(scope())) return;     // the existing FortiManager keeps its own login
+    const el = $("#" + id); if (!el.dataset.own) { el.value = $("#pw_all").value; if (PW_STRONG[id]) pwHint(id); }
+  });
 });
 PW_EACH.forEach((id) => $("#" + id).addEventListener("input", (e) => { if (e.isTrusted) e.target.dataset.own = "1"; }));
 function pwAllFrom() {               // after loading settings: one shared password shows in the generic field
   const vals = PW_EACH.map((id) => $("#" + id).value).filter(Boolean), same = vals.length && vals.every((v) => v === vals[0]);
   $("#pw_all").value = same ? vals[0] : "";
+  if (same) PW_EACH.forEach((id) => { if (!$("#" + id).value) $("#" + id).value = vals[0]; });   // e.g. no Traffic-Gen password yet
   PW_EACH.forEach((id) => { if (same || !$("#" + id).value) delete $("#" + id).dataset.own; else $("#" + id).dataset.own = "1"; });
   pwHint("pw_all");
 }
@@ -670,7 +680,13 @@ $("#upd_go").onclick = async () => {
   const poll = setInterval(async () => {
     try {
       const v = await (await fetch("/api/version", { cache: "no-store" })).json();
-      if (v.current && v.current !== from) { clearInterval(poll); location.reload(); }
+      if (v.current && v.current !== from) { clearInterval(poll); location.reload(); return; }
+      const lu = v.last_update;                // install.sh failed: the service was not restarted, the old version runs on
+      if (lu && lu.at * 1000 > t0 && lu.rc !== 0 && !v.updating) {
+        clearInterval(poll);
+        $("#upd_body").textContent = `The update failed (exit code ${lu.rc}); this version keeps running. Details on the tool host: journalctl -u fgt-sdwan-update`;
+        $("#upd_go").disabled = false;
+      }
     } catch (_) { /* restarting */ }
     if (Date.now() - t0 > 10 * 60 * 1000) { clearInterval(poll); $("#upd_body").textContent = "The update takes longer than expected: reload the page later."; }
   }, 5000);

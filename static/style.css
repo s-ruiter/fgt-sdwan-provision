@@ -332,6 +332,9 @@ button.chip.on { background: var(--accent); border-color: var(--accent); color: 
 
 /* Simple (default) / Advanced deploy form */
 [data-mode="simple"] .adv { display: none !important; }
+/* an existing FortiManager: its own (API) password stays visible in Simple, apart from the generic password */
+[data-mode="simple"] [data-scope="fgt"] .only-existing-simple, [data-mode="simple"] [data-scope="tpl"] .only-existing-simple,
+[data-mode="simple"] [data-scope="dev"] .only-existing-simple { display: grid !important; }
 .deploy-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; }
 .seg button { border: 0; background: transparent; border-radius: 999px; padding: 4px 14px; }

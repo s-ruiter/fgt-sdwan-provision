@@ -319,11 +319,21 @@ from . import updates as _updates  # noqa: E402
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPDATE_FETCH = None
 UPDATE_RUN = None
+UPDATE_ACTIVE = _updates.active
+UPDATE_STATUS = lambda: os.path.join(DATA_DIR, "update.status")  # noqa: E731
+
+
+def _no_update_running():
+    if UPDATE_ACTIVE():
+        raise HTTPException(409, detail=["the tool is updating itself (it restarts): try again in a minute"])
 
 
 @app.get("/api/version")
 def version():
-    return _updates.check(APP_DIR, **({"fetch": UPDATE_FETCH} if UPDATE_FETCH else {}))
+    v = dict(_updates.check(APP_DIR, **({"fetch": UPDATE_FETCH} if UPDATE_FETCH else {})))
+    v["last_update"] = _updates.last_result(UPDATE_STATUS())
+    v["updating"] = bool(UPDATE_ACTIVE())
+    return v
 
 
 @app.post("/api/update")
@@ -334,7 +344,7 @@ def update():
     if not v["behind"]:
         raise HTTPException(409, detail=v["error"] or "already up to date")
     try:
-        _updates.start(APP_DIR, **({"run": UPDATE_RUN} if UPDATE_RUN else {}))
+        _updates.start(APP_DIR, status_file=UPDATE_STATUS(), **({"run": UPDATE_RUN} if UPDATE_RUN else {}))
     except Exception as e:
         raise HTTPException(500, detail=f"update could not be started: {e}")
     _updates.CACHE.clear()
@@ -1137,6 +1147,7 @@ def cleanup_plan(c: CleanupReq):
 
 @app.post("/api/cleanup")
 def cleanup_run(c: CleanupReq):
+    _no_update_running()
     from . import cleanup
     from .pve import PveError
     if c.confirm != "DELETE":
@@ -1190,6 +1201,7 @@ def cleanup_run(c: CleanupReq):
 
 @app.post("/api/deploy")
 def deploy(r: DeployReq):
+    _no_update_running()
     if _CLEANUP_LOCK.locked():
         raise HTTPException(409, detail=["a cleanup is running: wait until it is done"])
     topo = model.merged(r.topology)

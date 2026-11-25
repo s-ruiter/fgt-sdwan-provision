@@ -61,11 +61,15 @@ print("OK  versie: eigen commit vs GitHub main (gecachet), achterstand + titels,
 ran = []
 updates.start("/opt/fgt-sdwan-provision", run=lambda cmd, **k: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0))
 assert ran == [["systemd-run", "--unit", "fgt-sdwan-update", "--collect", "bash", "/opt/fgt-sdwan-provision/ct/install.sh"]], ran
+ran2 = []
+updates.start("/opt/x", run=lambda cmd, **k: ran2.append(cmd) or subprocess.CompletedProcess(cmd, 0), status_file="/var/lib/s")
+assert ran2[0][-2:] == ["-c", 'bash "/opt/x/ct/install.sh"; echo $? > "/var/lib/s"'], ran2
 
 from fastapi.testclient import TestClient  # noqa: E402
 from app import main  # noqa: E402
 
 c = TestClient(main.app)
+main.UPDATE_ACTIVE = lambda: False
 main.APP_DIR = repo
 updates.CACHE.clear()
 main.UPDATE_FETCH = fetch_behind
@@ -77,9 +81,27 @@ main.JOBS.clear()
 started = []
 main.UPDATE_RUN = lambda cmd, **k: started.append(cmd) or subprocess.CompletedProcess(cmd, 0)
 r = c.post("/api/update")
-assert r.status_code == 200 and started and started[0][-1] == f"{repo}/ct/install.sh", (r.text, started)
+assert r.status_code == 200 and started and f"{repo}/ct/install.sh" in started[0][-1], (r.text, started)
 updates.CACHE.clear()
 main.UPDATE_FETCH = lambda u, **k: R(200, {"ahead_by": 0, "commits": []})
 assert c.post("/api/update").status_code == 409                               # nothing to update
 assert c.get("/api/about").status_code == 200                                  # the Progress page still uses the steps
 print("OK  API: /api/version, /api/update via systemd-run; geweigerd tijdens een uitrol of als er niets nieuws is")
+
+# while the update unit runs: no deployment or cleanup (the restart would kill it)
+main.UPDATE_ACTIVE = lambda: True
+r = c.post("/api/deploy", json={"topology": {}, "fmg": {"host": "x"}, "scope": "tpl", "secrets": {}})
+assert r.status_code == 409 and "updating" in r.text.lower(), r.text
+r = c.post("/api/cleanup", json={"server_id": 1, "node": "n", "confirm": "DELETE"})
+assert r.status_code == 409 and "updating" in r.text.lower(), r.text
+main.UPDATE_ACTIVE = lambda: False
+# the result of the last update is reported (a failed install.sh does not restart the service)
+assert ran[0][:5] == ["systemd-run", "--unit", "fgt-sdwan-update", "--collect", "bash"]
+st = os.path.join(os.environ["DATA_DIR"], "update.status")
+with open(st, "w") as f:
+    f.write("1\n")
+updates.CACHE.clear()
+main.UPDATE_FETCH = fetch_behind
+v = c.get("/api/version").json()
+assert v["last_update"]["rc"] == 1 and v["last_update"]["at"] > 0, v
+print("OK  update: geen uitrol/cleanup tijdens een update; resultaat van de laatste update gemeld")
