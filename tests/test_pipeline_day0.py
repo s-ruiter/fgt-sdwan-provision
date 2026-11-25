@@ -97,7 +97,7 @@ print({k: v for k, v in last.items()})
 order = [s for s, st, _ in events if st != "info"]
 assert last["pve_wan"] == "ok" and order.index("templates") < order.index("pve_wan") < order.index("pve_fgt"), order
 hosts = sorted(c["params"]["hostname"] for c in fake_proxmox.STATE["cts"].values())
-assert hosts == ["client-site1-1", "client-site1-2", "client-site1-3", "wan-emu"], hosts
+assert hosts == ["client-site1-1", "client-site1-2", "client-site1-3", "trafficgen", "wan-emu"], hosts   # Traffic-Gen always comes along
 assert last["clients"] == "ok" and order.index("install") < order.index("clients"), order
 ids = {v["name"]: int(k) for k, v in fake_proxmox.STATE["vms"].items()}
 ids.update({c["params"]["hostname"]: int(k) for k, c in fake_proxmox.STATE["cts"].items()})
@@ -181,7 +181,7 @@ events.clear()
 b = boot(dry=True, pve_secret="")
 pipeline(t, cfg, Fmg("http://127.0.0.1:1", dry_run=True), emit, b)
 assert any("[dry-run]" in m and "Day-0 ISO" in m for _, _, m in events) and fake_proxmox.STATE["creates"] == 6
-assert any("[dry-run] wan-emu net3: name=eth3,bridge=vmbr0,tag=3211" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 4
+assert any("[dry-run] wan-emu net3: name=eth3,bridge=vmbr0,tag=3211" in m for _, _, m in events) and len(fake_proxmox.STATE["cts"]) == 5   # 3 clients, wan-emu, Traffic-Gen
 assert any("[dry-run] client-site1-1" in m for _, _, m in events)
 print("OK  dry-run: plan per VM gelogd, niets naar Proxmox")
 

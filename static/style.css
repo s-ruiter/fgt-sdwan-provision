@@ -329,3 +329,18 @@ input.flex[readonly] { background: var(--line); color: var(--muted, #888); }
 button.chip { border-radius: 999px; }
 button.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .wan-card[hidden] { display: none; }
+
+/* Simple (default) / Advanced deploy form */
+[data-mode="simple"] .adv { display: none !important; }
+/* an existing FortiManager: its own (API) password stays visible in Simple, apart from the generic password */
+[data-mode="simple"] [data-scope="fgt"] .only-existing-simple, [data-mode="simple"] [data-scope="tpl"] .only-existing-simple,
+[data-mode="simple"] [data-scope="dev"] .only-existing-simple { display: grid !important; }
+.deploy-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; }
+.seg button { border: 0; background: transparent; border-radius: 999px; padding: 4px 14px; }
+.seg button.on { background: var(--accent, #2563eb); color: #fff; }
+/* self-update */
+.upd-badge { background: var(--accent, #2563eb); color: #fff !important; }
+.upd-badge[hidden] { display: none !important; }
+.upd-win { width: min(640px, 100%); }
+.upd-list { margin: 0; padding-left: 18px; max-height: 40vh; overflow: auto; }

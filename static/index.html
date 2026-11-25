@@ -25,7 +25,7 @@
         <a href="#/fortiflex" data-nav="fortiflex">FortiFlex</a>
         <a href="#/servers" data-nav="servers">Servers</a>
         <a href="#/cleanup" data-nav="cleanup">Cleanup</a>
-        <a href="#/about" data-nav="about">About</a>
+        <a href="#" id="upd_badge" class="upd-badge" hidden title="A newer version of this tool is available">Update available</a>
         <button id="theme_btn" class="theme-btn" title="Dark mode" aria-label="Toggle dark mode"><svg class="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
       </nav>
     </div>
@@ -33,7 +33,9 @@
   <main class="wrap" id="view">
 
     <section id="v_deploy">
-      <h1>Deploy</h1>
+      <div class="deploy-head"><h1>Deploy</h1>
+        <div class="seg" role="group" aria-label="Form detail"><button id="mode_simple" type="button">Simple</button><button id="mode_adv" type="button">Advanced</button></div></div>
+      <div class="hint" id="mode_note" hidden>This setting has a custom topology (other hubs/spokes than the standard 2 hubs and 3 spokes): it is kept and shown in Advanced.</div>
       <div id="job_banner" class="hint" hidden></div>
       <div id="errors"></div>
 
@@ -68,33 +70,33 @@
           <div class="f"><label>Import storage (content: import)</label><select id="pve_istore"></select></div>
           <div class="f"><label>ISO storage</label><select id="pve_isostore"></select></div>
           <div class="f"><label>Default bridge</label><select id="pve_br"></select></div>
-          <div class="f"><label>First VM ID (empty = automatic)</label><input id="pve_first" type="number" min="100" placeholder="lowest free block"></div>
-          <div class="f"><label>Name prefix (VMs/containers)</label><input id="pve_prefix" maxlength="21" placeholder="none, e.g. lab1" title="Put before every Proxmox VM/CT name of this deployment, e.g. lab1-site1-H1, lab1-wan-emu. FortiGate hostnames do not change. A deployment made without (or with another) prefix is renamed and reused."><div class="hint" id="pve_prefix_hint"></div></div>
-          <div class="f"><label>CPU type</label><select id="pve_cpu"><option>host</option><option>x86-64-v2-AES</option><option>x86-64-v3</option><option>kvm64</option></select></div>
+          <div class="f adv"><label>First VM ID (empty = automatic)</label><input id="pve_first" type="number" min="100" placeholder="lowest free block"></div>
+          <div class="f adv"><label>Name prefix (VMs/containers)</label><input id="pve_prefix" maxlength="21" placeholder="none, e.g. lab1" title="Put before every Proxmox VM/CT name of this deployment, e.g. lab1-site1-H1, lab1-wan-emu. FortiGate hostnames do not change. A deployment made without (or with another) prefix is renamed and reused."><div class="hint" id="pve_prefix_hint"></div></div>
+          <div class="f adv"><label>CPU type</label><select id="pve_cpu"><option>host</option><option>x86-64-v2-AES</option><option>x86-64-v3</option><option>kvm64</option></select></div>
         </div>
         <div class="only-fmg">
         <h3>FortiManager VM</h3>
         <div class="fields">
           <div class="f"><label>Image</label><select id="img_fmg"></select></div>
-          <div class="f"><label>vCPU</label><input id="fmg_cores" type="number"></div>
-          <div class="f"><label>RAM (MB)</label><input id="fmg_mem" type="number"></div>
-          <div class="f"><label>Datadisk (GB)</label><input id="fmg_disk" type="number"></div>
+          <div class="f adv"><label>vCPU</label><input id="fmg_cores" type="number"></div>
+          <div class="f adv"><label>RAM (MB)</label><input id="fmg_mem" type="number"></div>
+          <div class="f adv"><label>Datadisk (GB)</label><input id="fmg_disk" type="number"></div>
           <div class="f"><label>Bridge</label><select id="fmg_br"></select></div>
           <div class="f"><label>VLAN</label><input id="fmg_vlan" type="number"></div>
         </div>
-        <div class="hint">Fortinet recommends &ge;4 vCPU, 16 GB RAM and a data disk of &ge;500 GB for FortiManager (thin is fine in a lab).</div>
+        <div class="hint adv">Fortinet recommends &ge;4 vCPU, 16 GB RAM and a data disk of &ge;500 GB for FortiManager (thin is fine in a lab).</div>
         </div>
 
         <div class="only-fgt">
         <h3>FortiGate VMs <small>(hubs and branches)</small></h3>
         <div class="fields">
           <div class="f"><label>Image</label><select id="img_fgt"></select></div>
-          <div class="f"><label>vCPU</label><input id="fgt_cores" type="number"></div>
-          <div class="f"><label>RAM (MB)</label><input id="fgt_mem" type="number"></div>
+          <div class="f adv"><label>vCPU</label><input id="fgt_cores" type="number"></div>
+          <div class="f adv"><label>RAM (MB)</label><input id="fgt_mem" type="number"></div>
         </div>
-        <div class="hint">vCPU must match the FortiFlex entitlement.</div>
-        <h4>Ports <small>&rarr; bridge/VLAN per FortiGate port. WAN and LAN ports are set by the tool (WAN emulator segments, a LAN VLAN per FortiGate); the rest uses what you set here (empty = default bridge, untagged)</small></h4>
-        <table id="ports" class="tbl"></table>
+        <div class="hint adv">vCPU must match the FortiFlex entitlement.</div>
+        <div class="adv"><h4>Ports <small>&rarr; bridge/VLAN per FortiGate port. WAN and LAN ports are set by the tool (WAN emulator segments, a LAN VLAN per FortiGate); the rest uses what you set here (empty = default bridge, untagged)</small></h4>
+        <table id="ports" class="tbl"></table></div>
         <div class="hint">No image yet? Upload the <code>.out.kvm.zip</code> from FortiCloud on the <a href="#/images" style="color:var(--accent)">Images</a> page.</div>
         </div>
 
@@ -102,33 +104,33 @@
         <h3>WAN emulation <small>(LXC wan-emu, always deployed with FortiGate VMs)</small></h3>
         <div class="hint">Every FortiGate WAN is its own line: its own VLAN and /24 (hub n wan1 in ISP-HUB, spoke n wan1 in ISP-A, wan2 in ISP-B: the n-th /24 of the block, wan-emu .1, FortiGate .2, VLAN base+n). The container routes between all lines (so spoke-to-spoke shortcuts pass it too), gives the spokes their address by DHCP and NATs to the lab via the uplink. The WAN emulator bridge carries the ISP segments, the FortiGate WAN/LAN ports and the LAN clients (an internal VLAN-aware bridge is ideal); the uplink bridge connects wan-emu to your lab. Set latency, jitter, loss and bandwidth per link on the <a href="#/wanemu" style="color:var(--accent)">Access &amp; WAN control</a> page.</div>
         <div class="fields">
-          <div class="f"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
-          <div class="f"><label>Storage (rootfs)</label><input id="wan-storage"></div>
+          <div class="f adv"><label>CT id (empty = automatic)</label><input id="wan-vmid" type="number"></div>
+          <div class="f adv"><label>Storage (rootfs)</label><input id="wan-storage"></div>
           <div class="f"><label>WAN emulator bridge</label><select id="wan-bridge" title="ISP segments, FortiGate WAN/LAN ports and LAN clients (VLANs 3200+, 3300+, 3400+)"></select></div>
           <div class="f"><label>Uplink bridge</label><select id="wan-uplink-bridge" title="the bridge to your lab network (eth0 of wan-emu)"></select></div>
           <div class="f"><label>Uplink VLAN</label><input id="wan-uplink-vlan" type="number" placeholder="empty = untagged"></div>
           <div class="f"><label>Uplink IP/prefix</label><input id="wan-uplink-ip" class="mono" placeholder="your lab network, e.g. 192.168.1.250/24"></div>
           <div class="f"><label>Uplink gateway</label><input id="wan-uplink-gw" class="mono"></div>
         </div>
-        <table class="tbl" id="wan-segs"><thead><tr><th>ISP</th><th>Address block</th><th>VLAN base</th><th>Per WAN</th></tr></thead><tbody>
+        <div class="adv"><table class="tbl" id="wan-segs"><thead><tr><th>ISP</th><th>Address block</th><th>VLAN base</th><th>Per WAN</th></tr></thead><tbody>
           <tr><td><b>ISP-HUB</b></td><td><input id="wan-seg-hub-block" class="mono"></td><td><input id="wan-seg-hub-vlanbase" type="number"></td><td class="hint" data-segper="hub"></td></tr>
           <tr><td><b>ISP-A</b></td><td><input id="wan-seg-a-block" class="mono"></td><td><input id="wan-seg-a-vlanbase" type="number"></td><td class="hint" data-segper="a"></td></tr>
           <tr><td><b>ISP-B</b></td><td><input id="wan-seg-b-block" class="mono"></td><td><input id="wan-seg-b-vlanbase" type="number"></td><td class="hint" data-segper="b"></td></tr>
         </tbody></table>
-        <div class="hint">Link n of an ISP = the n-th /24 of its block: wan-emu .1 (gateway), FortiGate .2, VLAN = base + n (hub n in ISP-HUB, spoke n wan1 in ISP-A and wan2 in ISP-B). Spokes get .2 by DHCP on a fixed MAC address (pool .100&ndash;.199 for anything else); hubs get it statically. All VLANs must be allowed on the WAN emulator bridge.</div>
+        <div class="hint">Link n of an ISP = the n-th /24 of its block: wan-emu .1 (gateway), FortiGate .2, VLAN = base + n (hub n in ISP-HUB, spoke n wan1 in ISP-A and wan2 in ISP-B). Spokes get .2 by DHCP on a fixed MAC address (pool .100&ndash;.199 for anything else); hubs get it statically. All VLANs must be allowed on the WAN emulator bridge.</div></div>
         </div><!-- /wanemu -->
       </div>
 
       <div class="card not-lan">
         <h2><span class="num">02</span>FortiManager <small class="only-fmg">(always a static IP; Day-0)</small><small class="only-existing">(existing FortiManager: IP, ADOM and API login)</small></h2>
         <div class="fields">
-          <div class="f only-fmg"><label>Hostname</label><input id="fm_name"></div>
+          <div class="f only-fmg adv"><label>Hostname</label><input id="fm_name"></div>
           <div class="f"><label><span class="only-fmg">Static IP (a.b.c.d/nn)</span><span class="only-existing">IP address (a.b.c.d)</span></label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
           <div class="f only-fmg"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
-          <div class="f only-fmg"><label>Port</label><select id="fm_port"><option>port1</option><option>port2</option><option>port3</option><option>port4</option><option>port5</option><option>port6</option></select></div>
-          <div class="f"><label>ADOM name</label><input id="adom"></div>
-          <div class="f"><label>Admin user</label><input id="fmg_user" value="admin"></div>
-          <div class="f"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><div class="pw"><input id="fmg_pass" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fmg_pass" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint only-fmg" id="fmg_pass_hint"></div></div>
+          <div class="f only-fmg adv"><label>Port</label><select id="fm_port"><option>port1</option><option>port2</option><option>port3</option><option>port4</option><option>port5</option><option>port6</option></select></div>
+          <div class="f adv"><label>ADOM name</label><input id="adom"></div>
+          <div class="f adv"><label>Admin user</label><input id="fmg_user" value="admin"></div>
+          <div class="f adv only-existing-simple"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><div class="pw"><input id="fmg_pass" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fmg_pass" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint only-fmg" id="fmg_pass_hint"></div></div>
           <div class="f only-fmg"><label>FortiFlex token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
@@ -136,9 +138,10 @@
       <div class="card not-lan" id="sec_devices">
         <h2><span class="num">03</span>Topology</h2>
         <div class="opts">
-          <div class="inline"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-to-hub tunnels (DC-to-DC)</label></div>
+          <div class="inline adv"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-to-hub tunnels (DC-to-DC)</label></div>
           <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + customer VRFs leaking to the PE-VRF; off = classic single-VRF, one LAN per device, everything in VRF 0)</label></div>
         </div>
+        <div class="adv">
         <div class="hint">Fixed: region West (AS 65001), loopback summary 10.200.1.0/24, health-check loopback <code>Lo-HC</code> 10.200.99.1/32 on every hub (the branches measure towards it through every tunnel), DNS 1.1.1.1 and 8.8.8.8, wan1 allowaccess <code>ping https ssh fgfm</code>, platform FortiGate-VM64. The tool generates the IPsec PSK itself (random, kept per ADOM).</div>
         <h3>VRFs</h3>
         <div class="f" id="sv_box" hidden><label>LAN summary (single-VRF)</label><input id="r_lansum"></div>
@@ -152,23 +155,31 @@
         </div>
         <h3>Hubs</h3><div id="hubs"></div>
         <h3>Branches</h3><div id="edges"></div>
+        </div>
       </div>
 
-      <div class="card only-clients" id="sec_clients">
+      <div class="card only-clients adv" id="sec_clients">
         <h2><span class="num">04</span>LAN clients <small>(one container per spoke, on its LAN VLAN)</small></h2>
         <div class="hint">Every spoke gets a container <code>client-&lt;spoke&gt;</code> with .10 in its LAN and the spoke as gateway, to test traffic. Operate them from the Proxmox console as root with this password. It is not stored.</div>
         <div class="fields">
           <div class="f"><label>LAN client root password</label><div class="pw"><input id="client_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="client_pw" title="Show / hide the password" aria-label="Show password"></button></div></div>
         </div>
-        <h3>Traffic-Gen <small>(optional)</small></h3>
-        <div class="opts"><div class="inline"><input type="checkbox" id="tg_on"><label for="tg_on">Also deploy <a href="https://github.com/s-ruiter/Traffic-Gen" target="_blank" rel="noopener" style="color:var(--accent)">Traffic-Gen</a>: realistic user traffic (Microsoft 365, Teams, streaming, SaaS, …) from the LAN of the first spoke</label></div></div>
-        <div id="tg_box" hidden>
+        <h3>Traffic-Gen <small>(always deployed: realistic user traffic from the LAN of the first spoke)</small></h3>
+        <div id="tg_box">
           <div class="hint" id="tg_hint"></div>
           <div class="fields">
             <div class="f"><label>Management IP/prefix (uplink network)</label><input id="tg_ip" class="mono"></div>
             <div class="f"><label>Traffic-Gen GUI password (user admin)</label><div class="pw"><input id="tg_pw" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="tg_pw" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint" id="tg_pw_hint"></div></div>
           </div>
         </div>
+      </div>
+
+      <div class="card" id="sec_pw">
+        <h2>Password <small>(FortiManager, FortiGates, LAN clients and Traffic-Gen)</small></h2>
+        <div class="fields">
+          <div class="f"><label>Password for everything</label><div class="pw"><input id="pw_all" type="password" autocomplete="new-password"><button type="button" class="icon eye" data-eye="pw_all" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint" id="pw_all_hint"></div></div>
+        </div>
+        <div class="hint">One strong password (8+ characters with upper and lower case, a digit and a special character). In Advanced each one can be set separately.</div>
       </div>
 
       <div class="actions space">
@@ -350,18 +361,17 @@
       </div>
     </section>
 
-    <section id="v_about" hidden>
-      <h1>About</h1>
-      <div class="card">
-        <h2><span class="num">01</span>What does this tool do?</h2>
-        <p>Deploys an SD-WAN/ADVPN topology through FortiManager 8.0 (hubs and branches in one region, single- or multi-VRF). The tool creates <b>native templates</b> in FortiManager (metadata variables, system, SD-WAN and CLI templates, policy packages, template groups and blueprints), derived from Fortinet's Orchestrator &mdash; <b>no Jinja in FortiManager</b>. It can also create the VMs on Proxmox (Day-0 with FortiFlex) behind an emulated WAN, or bootstrap existing VMs over SSH.</p>
-        <p class="muted" id="orch"></p>
-      </div>
-      <div class="card"><h2><span class="num">02</span>Deployment steps</h2><ol class="about" id="steps"></ol></div>
-    </section>
 
   </main>
   <footer><div class="wrap">FGT SD-WAN Provision · SD-WAN ADVPN via FortiManager</div></footer>
+  <div class="term-overlay" id="upd_panel" hidden>
+    <div class="term-win upd-win">
+      <div class="term-head"><b>Update this tool</b><button id="upd_close">Close</button></div>
+      <div id="upd_body" class="hint"></div>
+      <ul id="upd_list" class="upd-list"></ul>
+      <div class="actions"><button id="upd_go" class="primary">Update now</button></div>
+    </div>
+  </div>
   <!-- terminal sessions: outside the pages, so they stay reachable everywhere -->
   <div class="term-overlay" id="sess_panel" hidden>
     <div class="term-win">

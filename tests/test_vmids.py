@@ -26,9 +26,9 @@ assert "fmg" not in p2 and [p2[n] for n in names[1:]] == list(range(106, 115)), 
 S["cts"]["301"] = {"vmid": 301, "params": {"hostname": "wan-emu", "tags": "fgt-sdwan"}, "status": "running"}
 assert "wan-emu" not in pv.plan_vmids(pve, names) and pv.plan_vmids(pve, []) == {}
 srv.shutdown()
-assert pv.deploy_names(model.merged({}), "all") == names
-assert pv.deploy_names(model.merged({}), "fgt") == names[1:]
-assert pv.deploy_names(model.merged({}), "lan") == names[-3:]
+assert pv.deploy_names(model.merged({}), "all") == names + ["trafficgen"]               # Traffic-Gen always comes along
+assert pv.deploy_names(model.merged({}), "fgt") == names[1:] + ["trafficgen"]
+assert pv.deploy_names(model.merged({}), "lan") == names[-3:] + ["trafficgen"]
 assert pv.deploy_names(model.merged({}), "fmg") == ["fmg"] and pv.deploy_names(model.merged({}), "tpl") == []
 print("OK  VM-ID's: één aaneengesloten blok (FMG, wan-emu, hubs, spokes, clients), vanaf 'first' of 100; hergebruik houdt zijn ID")
 
