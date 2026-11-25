@@ -11,7 +11,7 @@ import time
 from . import db
 
 FGT_RE = re.compile(r"^FGVM[A-Z0-9]{8,16}$")
-FMG_RE = re.compile(r"^FMG-?VM[A-Z0-9]{6,16}$")
+FMG_RE = re.compile(r"^(FMG-?VM|FMVM)[A-Z0-9]{6,16}$")       # FMG-VM… (FortiCare) and FMVM… (VM serial)
 KIND = {"fgt": "FortiGate", "fmg": "FortiManager"}
 MODES = ("fortiflex", "files")
 DEVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,40}$")

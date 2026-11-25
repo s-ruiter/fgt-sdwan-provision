@@ -1321,6 +1321,8 @@ def deploy(r: DeployReq):
     # FortiFlex: first validate the whole request with placeholders (lookup only), and only then create / reactivate /
     # regenerate licenses, so a refused request never costs points or invalidates a running device's token
     lic = _licenses(topo, r, dry=True)
+    if _files_mode():                          # a missing licence file, not the empty serial it leaves behind
+        _check_licence_files(topo, r)
     if r.scope == "lan":                       # only the LAN clients: no FortiManager templates are rendered
         errs = [e for e in model.validate(topo, devices=False, fmg_vm=False) if not e.startswith("FortiManager")]
         if errs:

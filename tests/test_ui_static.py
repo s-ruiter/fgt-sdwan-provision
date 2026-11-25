@@ -308,3 +308,8 @@ assert "flex-only" in js[js.index("function dev(kind, d, i)"):js.index("function
 css = open(os.path.join(root, "static", "style.css")).read()
 assert re.search(r'\[data-lic="files"\] \.(ff|flex)-only', css) and "files-only" in css
 print("OK  UI: Licenses-pagina (FortiFlex of licentiebestanden, upload per device), FortiFlex-velden weg in bestandsmodus")
+ld = js[js.index("function licDevices()"):js.index("function licDevices()") + 400]
+assert "collect()" in ld, "Licenses-pagina volgt hernoemde devices"
+ff = js[js.index("function flexFields()"):js.index("function flexFields()") + 900]
+assert '["all", "fgt"].includes(sc)' in ff[ff.index('dataset.lic === "files"'):], "serials alleen vergrendeld waar ze uit de bestanden komen"
+print("OK  UI: licentiepagina volgt de namen; serienummers bij Model devices only blijven invulbaar")

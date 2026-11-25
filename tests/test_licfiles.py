@@ -138,3 +138,19 @@ assert errs == ["site1-2: no licence file (Licenses page)"], errs
 assert os.path.exists(os.path.join(os.environ["DATA_DIR"], "licenses", "site1-H1.lic"))      # kept after a deployment
 assert c.put("/api/licenses/mode", json={"mode": "fortiflex"}).status_code == 200
 print("OK  licentiebestanden: API (modus, upload, weigeren, verwijderen), uitrol zonder FortiFlex, serienummers uit de bestanden, ontbrekend bestand gemeld")
+
+# ---- review fixes
+from app import bootstrap as bs  # noqa: E402
+
+assert lf.serial_from_name("FMVMMLTM26004819.lic") == ("fmg", "FMVMMLTM26004819")       # FortiManager VM serial format
+tt = model.merged({})
+tt["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1", serial="FMG-VMTM24005678")
+assert 'set serial-number "FMG-VMTM24005678"' in bs.fgt_network_lines(tt["edges"][0], tt)      # verified FMG with a hyphen
+# a missing licence file is reported as such through /api/deploy (before validation complains about the serial)
+c.put("/api/licenses/mode", json={"mode": "files"})
+body = req.model_dump()
+body["dry_run"] = True
+r = c.post("/api/deploy", json=body)
+assert r.status_code == 422 and "site1-2: no licence file (Licenses page)" in r.text and "serial number" not in r.text, r.text
+c.put("/api/licenses/mode", json={"mode": "fortiflex"})
+print("OK  review: FMVM-serienummers, FMG-serienummer met streepje in de FortiGate-config, ontbrekend bestand juist gemeld")

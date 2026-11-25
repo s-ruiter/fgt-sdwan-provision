@@ -929,7 +929,8 @@ async function flexApply() {          // deploy page: serial + token fields come
 function flexFields() {               // sync: after draw() and on a scope change; FortiFlex only where a token is needed
   const sc = typeof scope === "function" ? scope() : "all";
   if (document.body.dataset.lic === "files") {   // licence files: serials come from the files, no tokens
-    document.querySelectorAll('#v_deploy [data-f="serial"]').forEach((i) => { i.readOnly = true; i.placeholder = "from licence file"; i.classList.add("flex"); });
+    const fromFiles = ["all", "fgt"].includes(sc);              // only where the tool deploys the FortiGates itself
+    document.querySelectorAll('#v_deploy [data-f="serial"]').forEach((i) => { i.readOnly = fromFiles; i.placeholder = fromFiles ? "from licence file" : ""; i.classList.toggle("flex", fromFiles); });
     $("#btn_flexcheck").hidden = !["all", "fgt", "fmg"].includes(sc);
     return;
   }
@@ -970,8 +971,9 @@ async function licMode() {
   const r = document.querySelector(`input[name="lic_mode"][value="${LIC.mode}"]`); if (r) r.checked = true;
   if (typeof flexFields === "function" && T) flexFields();
 }
-function licDevices() {
-  const t = T || { fmgr: {}, hubs: [], edges: [] };
+function licDevices() {               // the names as they are in the form now (a renamed device gets its own row)
+  let t = T || { fmgr: {}, hubs: [], edges: [] };
+  try { t = collect(); } catch (_) { /* form not complete yet */ }
   return [[t.fmgr.name || "fmg", "fmg", "FortiManager"], ...t.hubs.map((d) => [d.name, "fgt", "FortiGate hub"]), ...t.edges.map((d) => [d.name, "fgt", "FortiGate spoke"])];
 }
 async function licLoad() {
