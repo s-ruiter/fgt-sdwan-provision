@@ -313,6 +313,34 @@ def cloudinit_preview(r: PreviewReq):
             "user_data": cloudinit.mask(cloudinit.build_user_data(cli, tok, mode), tok)}
 
 
+# ---- self-update: running commit vs GitHub main; update = ct/install.sh via systemd-run -------------------------
+from . import updates as _updates  # noqa: E402
+
+APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPDATE_FETCH = None
+UPDATE_RUN = None
+
+
+@app.get("/api/version")
+def version():
+    return _updates.check(APP_DIR, **({"fetch": UPDATE_FETCH} if UPDATE_FETCH else {}))
+
+
+@app.post("/api/update")
+def update():
+    if any(j.get("state") == "running" and not j.get("dry_run") for j in JOBS.values()) or _CLEANUP_LOCK.locked():
+        raise HTTPException(409, detail="a deployment or cleanup is running: update when it is done")
+    v = version()
+    if not v["behind"]:
+        raise HTTPException(409, detail=v["error"] or "already up to date")
+    try:
+        _updates.start(APP_DIR, **({"run": UPDATE_RUN} if UPDATE_RUN else {}))
+    except Exception as e:
+        raise HTTPException(500, detail=f"update could not be started: {e}")
+    _updates.CACHE.clear()
+    return {"started": True, "from": v["current"], "to": v["latest"]}
+
+
 @app.get("/api/about")
 def about():
     return {"steps": [{"id": i, "title": t, "desc": d} for i, t, d in STEPS],
