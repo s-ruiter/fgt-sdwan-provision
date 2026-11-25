@@ -61,7 +61,7 @@ def fgt_network_lines(dev, topo):
     if topo.get("dns_secondary"):
         lines.append(f"set secondary {topo['dns_secondary']}")
     sn = (topo["fmgr"].get("serial") or "").strip()
-    verify = [f'set serial-number "{sn}"'] if re.fullmatch(r"[A-Za-z0-9]{8,32}", sn) else []   # verified FMG (FOS 7.6+)
+    verify = [f'set serial-number "{sn}"'] if re.fullmatch(r"[A-Za-z0-9-]{8,32}", sn) else []   # verified FMG (FOS 7.6+)
     # multi-VRF: the WANs start in the PE-VRF right away, so the install never moves an interface tunnels run over
     # (tunnels built before such a move kept sending ESP in VRF 0: 'esp_output4: no route', measured on a hub). The
     # FortiGate's own traffic (FortiManager, DNS, FortiGuard/FortiFlex licence) then has to leave in that VRF too.

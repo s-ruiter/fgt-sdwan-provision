@@ -6,6 +6,7 @@ user runs in production with Spawnpad). 'mime' is the multipart variant from For
 (config.txt + license.txt with `LICENSE-TOKEN: <token>`), kept as an option only.
 Secrets never leave this module unmasked except inside the ISO itself.
 """
+import json
 import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -77,8 +78,13 @@ def build_user_data(cli, token, mode="cli"):
     return data
 
 
-def build_config_drive(user_data, dest):
-    """OpenStack-style config drive: label config-2, /openstack/latest/user_data (+ empty /openstack/content)."""
+LICENSE_META = {"files": [{"path": "license", "content_path": "/content/0000"}]}
+
+
+def build_config_drive(user_data, dest, license=None):
+    """OpenStack-style config drive: label config-2, /openstack/latest/user_data (+ /openstack/content). With a licence
+    file (FortiCare .lic, bytes) it goes to /openstack/content/0000, referenced as 'license' in meta_data.json: the way
+    FortiGate-VM / FortiManager-VM on KVM take a BYOL licence at first boot."""
     import io
     iso = pycdlib.PyCdlib()
     iso.new(interchange_level=3, rock_ridge="1.09", vol_ident="config-2")
@@ -87,6 +93,10 @@ def build_config_drive(user_data, dest):
     iso.add_directory("/OPENSTACK/LATEST", rr_name="latest")
     raw = user_data.encode("ascii")
     iso.add_fp(io.BytesIO(raw), len(raw), "/OPENSTACK/LATEST/USER_DATA.;1", rr_name="user_data")
+    if license:
+        iso.add_fp(io.BytesIO(license), len(license), "/OPENSTACK/CONTENT/0000.;1", rr_name="0000")
+        meta = json.dumps(LICENSE_META).encode()
+        iso.add_fp(io.BytesIO(meta), len(meta), "/OPENSTACK/LATEST/META_DATA.JSON;1", rr_name="meta_data.json")
     iso.write(str(dest))
     iso.close()
 

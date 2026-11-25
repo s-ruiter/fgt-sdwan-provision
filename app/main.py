@@ -229,7 +229,10 @@ def _check_bootstrap(topo, r):
                         errs.append(f"image for {role} was uploaded as {meta['role']}")
                 except images.ImageError:
                     errs.append(f"{'FortiManager' if role == 'fmg' else 'FortiGate'}: image missing, upload an image first")
-    if mf in ("ssh", "day0"):
+    files = _files_mode()
+    if files:
+        errs += _licence_file_errors(topo, r)
+    if mf in ("ssh", "day0") and not files:
         if not model.valid_token(s.fmg_token):
             errs.append("FortiManager: FortiFlex token missing or invalid (letters/digits only)")
     if not r.fmg.password and not r.fmg.api_token:     # the tool always logs in to the FortiManager API
@@ -237,7 +240,7 @@ def _check_bootstrap(topo, r):
     elif mf == "day0" and model.password_problems(r.fmg.password):       # the tool sets it on the new FortiManager
         errs.append("FortiManager: admin password is not strong, it needs " + ", ".join(model.password_problems(r.fmg.password)))
     if mg in ("ssh", "day0"):
-        for d in devs:
+        for d in devs if not files else []:
             if not model.valid_token(s.fgt_tokens.get(d["name"])):
                 errs.append(f"{d['name']}: FortiFlex token missing or invalid")
         if not s.fgt_new_pw:
@@ -1040,6 +1043,100 @@ def _flex_devices(topo, r, cfg):
     return devs
 
 
+# ---- licence files (FortiCare .lic per device) as an alternative to FortiFlex ---------------------------------------
+from . import licfiles as _lf  # noqa: E402
+from fastapi import File, UploadFile  # noqa: E402
+
+
+def _files_mode():
+    return _lf.get_mode(db.connect(DATA_DIR)) == "files"
+
+
+def _lic_devices(topo, r):
+    """[(device, kind)] that get a licence in this run: the FortiManager and FortiGates created with Day-0."""
+    _apply_scope(r)
+    mf, mg = _method(r.bootstrap.fmg), _method(r.bootstrap.fgt)
+    out = [(topo["fmgr"].get("name") or "fmg", "fmg")] if mf == "day0" else []
+    if mg == "day0":
+        out += [(d["name"], "fgt") for d in topo["hubs"] + topo["edges"]]
+    return out
+
+
+def _licence_file_errors(topo, r):
+    have = _lf.listing(DATA_DIR)
+    errs = [f"{n}: no licence file (Licenses page)" for n, _ in _lic_devices(topo, r) if n not in have]
+    mf, mg = _method(r.bootstrap.fmg), _method(r.bootstrap.fgt)
+    if "ssh" in (mf, mg):
+        errs.append("licence files only work for VMs this tool creates (Day-0); use FortiFlex for existing VMs over SSH")
+    return errs
+
+
+def _check_licence_files(topo, r):
+    errs = _licence_file_errors(topo, r)
+    if errs:
+        raise HTTPException(422, detail=errs)
+
+
+def _licence_bytes(topo, r):
+    return {n: b for n, _ in _lic_devices(topo, r) if (b := _lf.read(DATA_DIR, n))}
+
+
+def _licenses_from_files(topo, r):
+    """Licence-file mode: serials from the stored files into the topology; never FortiFlex."""
+    meta, log = _lf.listing(DATA_DIR), []
+    fmg_name = topo["fmgr"].get("name") or "fmg"
+    for n, kind in _lic_devices(topo, r):
+        m = meta.get(n)
+        if not m:
+            continue
+        if kind == "fmg" and n == fmg_name:
+            topo["fmgr"]["serial"] = m["serial"]
+        for d in topo["hubs"] + topo["edges"]:
+            if d["name"] == n:
+                d["serial"] = m["serial"]
+        log.append(("running", f"{n}: {m['serial']} - licence file {m['file']}"))
+    return log
+
+
+@app.get("/api/licenses")
+def licenses_get():
+    return {"mode": _lf.get_mode(db.connect(DATA_DIR)), "files": _lf.listing(DATA_DIR)}
+
+
+class LicMode(BaseModel):
+    mode: str
+
+
+@app.put("/api/licenses/mode")
+def licenses_mode(m: LicMode):
+    try:
+        _lf.set_mode(db.connect(DATA_DIR), m.mode)
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
+    return {"mode": m.mode}
+
+
+@app.post("/api/licenses/{device}")
+async def licenses_upload(device: str, kind: str = "", file: UploadFile = File(...)):
+    """kind = fmg | fgt (the row the file is uploaded on); without it: 'fmg' for a device named fmg*."""
+    data = await file.read()
+    if len(data) > 256 * 1024:
+        raise HTTPException(422, detail="a licence file is small (a few KB): this file is too large")
+    if kind not in ("fmg", "fgt"):
+        kind = "fmg" if device.lower().startswith("fmg") else "fgt"
+    try:
+        return _lf.save(DATA_DIR, device, kind, file.filename or "", data)
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
+
+
+@app.delete("/api/licenses/{device}")
+def licenses_delete(device: str):
+    if not _lf.delete(DATA_DIR, device):
+        raise HTTPException(404, detail=f"no licence file for {device}")
+    return {"ok": True}
+
+
 def _flex_plan(topo, r):
     from .fortiflex import plan
     _, cfg = _flex_cfg()
@@ -1057,6 +1154,12 @@ def _flex_plan(topo, r):
 def fortiflex_check(r: DeployReq):
     from .fortiflex import ACTION_TEXT, resolve
     topo = model.merged(r.topology)
+    if _files_mode():                                   # licence files: which device has which file
+        meta = _lf.listing(DATA_DIR)
+        return {"devices": [{"name": n, "serial": (meta.get(n) or {}).get("serial", ""),
+                             "action": "file" if n in meta else "missing",
+                             "text": f"licence file {meta[n]['file']}" if n in meta else "no licence file (Licenses page)"}
+                            for n, _ in _lic_devices(topo, r)]}
     cl, rows = _flex_plan(topo, r)
     res = resolve(cl, rows, dry=True) if rows else {}
     return {"devices": [{"name": x["name"], "serial": res[x["name"]]["serial"], "action": x["action"],
@@ -1072,6 +1175,8 @@ def _licenses(topo, r, dry):
     """Serial numbers into the topology, tokens into the job secrets. Returns [(status, message)] for the 'licenses'
     step. dry=True: lookup only, placeholder serials for new licenses and placeholder tokens (used to validate the
     whole request first; nothing is created or regenerated)."""
+    if _files_mode():
+        return _licenses_from_files(topo, r)
     from .fortiflex import ACTION_TEXT, FlexError, resolve
     with _FLEX_LOCK if not dry else _NOLOCK:
         cl, rows = _flex_plan(topo, r)
@@ -1216,6 +1321,8 @@ def deploy(r: DeployReq):
     # FortiFlex: first validate the whole request with placeholders (lookup only), and only then create / reactivate /
     # regenerate licenses, so a refused request never costs points or invalidates a running device's token
     lic = _licenses(topo, r, dry=True)
+    if _files_mode():                          # a missing licence file, not the empty serial it leaves behind
+        _check_licence_files(topo, r)
     if r.scope == "lan":                       # only the LAN clients: no FortiManager templates are rendered
         errs = [e for e in model.validate(topo, devices=False, fmg_vm=False) if not e.startswith("FortiManager")]
         if errs:
@@ -1244,7 +1351,8 @@ def deploy(r: DeployReq):
             "fmg_token": s.fmg_token, "fgt_tokens": dict(s.fgt_tokens),
             "fmg_user": s.admin_user, "fgt_user": s.admin_user,
             "fmg_initial_pw": s.fmg_initial_pw, "fmg_new_pw": r.fmg.password or "",
-            "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw, "client_pw": s.client_pw, "tg_pw": s.tg_pw}
+            "fgt_initial_pw": s.fgt_initial_pw, "fgt_new_pw": s.fgt_new_pw, "client_pw": s.client_pw, "tg_pw": s.tg_pw,
+            "licenses": _licence_bytes(topo, r) if _files_mode() else {}}
     if not r.dry_run:                                  # remote access page: admin logins (database 0600)
         cr = _creds()
         if r.fmg.password and topo["fmgr"].get("ip"):

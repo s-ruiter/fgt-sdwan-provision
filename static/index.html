@@ -22,7 +22,7 @@
         <a href="#/images" data-nav="images">Images</a>
         <a href="#/wanemu" data-nav="wanemu">Access &amp; WAN control</a>
         <a href="#/traffic" data-nav="traffic">Traffic</a>
-        <a href="#/fortiflex" data-nav="fortiflex">FortiFlex</a>
+        <a href="#/fortiflex" data-nav="fortiflex">Licenses</a>
         <a href="#/servers" data-nav="servers">Servers</a>
         <a href="#/cleanup" data-nav="cleanup">Cleanup</a>
         <a href="#" id="upd_badge" class="upd-badge" hidden title="A newer version of this tool is available">Update available</a>
@@ -112,7 +112,7 @@
           <div class="f adv"><label>ADOM name</label><input id="adom"></div>
           <div class="f adv"><label>Admin user</label><input id="fmg_user" value="admin"></div>
           <div class="f adv only-existing-simple"><label><span class="only-fmg">Admin and SSH password</span><span class="only-existing">Admin password</span></label><div class="pw"><input id="fmg_pass" type="password" autocomplete="off"><button type="button" class="icon eye" data-eye="fmg_pass" title="Show / hide the password" aria-label="Show password"></button></div><div class="hint only-fmg" id="fmg_pass_hint"></div></div>
-          <div class="f only-fmg"><label>FortiFlex token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
+          <div class="f only-fmg flex-only"><label>FortiFlex token</label><input id="fm_token" autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
 
@@ -298,8 +298,23 @@
     </section>
 
     <section id="v_fortiflex" hidden>
-      <h1>FortiFlex</h1>
+      <h1>Licenses</h1>
       <div id="ff_err"></div>
+      <div class="card">
+        <h2>How are the FortiManager and FortiGates licensed?</h2>
+        <div class="opts" role="radiogroup" aria-label="Licensing">
+          <div class="inline"><input type="radio" name="lic_mode" id="lic_mode_flex" value="fortiflex"><label for="lic_mode_flex"><b>FortiFlex</b> &ndash; the tool fetches a licence (serial + token) per device from your FortiFlex account</label></div>
+          <div class="inline"><input type="radio" name="lic_mode" id="lic_mode_files" value="files"><label for="lic_mode_files"><b>License files</b> &ndash; FortiCare licence files (<code>.lic</code>, named after the serial number), uploaded per device</label></div>
+        </div>
+        <div class="hint">Switching keeps the other choice's settings: the FortiFlex configuration and uploaded licence files both stay.</div>
+      </div>
+      <div class="card files-only">
+        <h2>License files <small>(kept for the next deployments; the serial number comes from the file name)</small></h2>
+        <table class="tbl" id="lic_files"></table>
+        <input type="file" id="lic_file" accept=".lic" hidden>
+        <div class="hint">Upload the FortiCare licence file of each device (e.g. <code>FGVM08TM24001234.lic</code> for a FortiGate, <code>FMG-VMTM24005678.lic</code> for the FortiManager). They go onto the Day-0 drive of the VMs this tool creates; licence files are not used for existing VMs over SSH.</div>
+      </div>
+      <div class="ff-only">
       <div class="card">
         <h2><span class="num">01</span>API user</h2>
         <div class="hint">Create an API user in FortiCloud IAM with access to FortiFlex (creating licences needs ReadWrite). The password is kept in the container (database with mode 0600) and never shown again.</div>
@@ -327,6 +342,7 @@
         <div id="ff_list"></div>
         <div class="hint">The tool never stops a licence by itself. A stopped licence is reactivated on the next deployment of that device.</div>
       </div>
+      </div><!-- /ff-only -->
     </section>
 
     <section id="v_images" hidden>

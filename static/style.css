@@ -344,3 +344,7 @@ button.chip.on { background: var(--accent); border-color: var(--accent); color: 
 .upd-badge[hidden] { display: none !important; }
 .upd-win { width: min(640px, 100%); }
 .upd-list { margin: 0; padding-left: 18px; max-height: 40vh; overflow: auto; }
+
+/* licensing: FortiFlex or licence files */
+[data-lic="files"] .ff-only, [data-lic="files"] .flex-only { display: none !important; }
+body:not([data-lic="files"]) .files-only { display: none !important; }
