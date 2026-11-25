@@ -236,6 +236,28 @@ function tgDraw() {
     " Comes along with the LAN clients (Everything, FortiGates only, LAN clients only); deleted by Cleanup.";
   pwHint("tg_pw");
 }
+// gateway follows the IP: the first address of its subnet (10.10.106.150/24 -> 10.10.106.1), until the user types their own
+function gwFor(cidr) {
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(String(cidr || "").trim());
+  if (!m) return "";
+  const o = m.slice(1, 5).map(Number), len = +m[5];
+  if (o.some((x) => x > 255) || len < 8 || len > 30) return "";
+  const ip = ((o[0] << 24) >>> 0) + (o[1] << 16) + (o[2] << 8) + o[3], mask = (0xffffffff << (32 - len)) >>> 0;
+  const gw = ((ip & mask) >>> 0) + 1;
+  if (gw === ip) return "";                                    // the address is the first one itself: no guess
+  return [24, 16, 8, 0].map((s) => (gw >>> s) & 255).join(".");
+}
+function gwAuto(ipSel, gwSel) {
+  const ip = $(ipSel), gw = $(gwSel);
+  ip.addEventListener("input", () => {
+    if (gw.value.trim() && gw.value !== gw.dataset.auto) return;   // a gateway the user typed (or loaded) stays
+    const g = gwFor(ip.value);
+    gw.value = g; gw.dataset.auto = g;
+    gw.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+gwAuto("#fm_ip", "#fm_gw");
+gwAuto("#wan-uplink-ip", "#wan-uplink-gw");
 ["#wan-uplink-ip", "#wan-uplink-gw", "#wan-uplink-vlan"].forEach((id) => $(id).addEventListener("input", tgDraw));
 function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);

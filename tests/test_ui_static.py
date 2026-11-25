@@ -1,6 +1,6 @@
 """Static UI checks (no browser): app.js parses, the start-up line only calls functions that exist, and every
 element id used via $("#id") exists in index.html.  python -m tests.test_ui_static"""
-import os, re, subprocess, sys
+import os, re, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 js = open(os.path.join(root, "static", "app.js")).read()
@@ -313,3 +313,22 @@ assert "collect()" in ld, "Licenses-pagina volgt hernoemde devices"
 ff = js[js.index("function flexFields()"):js.index("function flexFields()") + 900]
 assert '["all", "fgt"].includes(sc)' in ff[ff.index('dataset.lic === "files"'):], "serials alleen vergrendeld waar ze uit de bestanden komen"
 print("OK  UI: licentiepagina volgt de namen; serienummers bij Model devices only blijven invulbaar")
+
+# the uplink comes from this server's last deployment (no fixed default in the code)
+al = js[js.index("async function applyLast("):js.index("async function applyLast(") + 900]
+assert '$("#wan-uplink-ip").value = up.ip' in al, al
+assert '"uplink": {"bridge": "", "vlan": None, "ip": "", "gw": ""}' in open(os.path.join(root, "app", "model.py")).read()
+# gateway follows the IP: first address of the subnet, unless the user typed a gateway of their own
+assert "function gwFor(" in js and "gwAuto(\"#fm_ip\", \"#fm_gw\")" in js and "gwAuto(\"#wan-uplink-ip\", \"#wan-uplink-gw\")" in js
+if shutil.which("node"):
+    src = js[js.index("function gwFor("):]
+    src = src[:src.index("\n}\n") + 3]
+    probe = src + r"""
+const t = [["10.10.106.150/24", "10.10.106.1"], ["192.168.1.250/24", "192.168.1.1"], ["10.20.3.77/22", "10.20.0.1"],
+           ["10.10.106.1/24", ""], ["10.0.0.5", ""], ["10.0.0.5/31", ""], ["bla/24", ""], ["10.0.0.300/24", ""]];
+const bad = t.filter(([i, g]) => gwFor(i) !== g).map(([i, g]) => `${i}: ${gwFor(i)} != ${g}`);
+if (bad.length) { console.log(bad.join("; ")); process.exit(1); }
+"""
+    r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
+    assert r.returncode == 0, r.stdout + r.stderr
+print("OK  UI: uplink alleen uit de vorige uitrol (geen vaste default); gateway volgt het IP (eerste adres van het subnet)")
