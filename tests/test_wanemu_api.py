@@ -44,7 +44,7 @@ db.put_secret(conn, "wanemu_agent_token", "geheimtoken123")
 db.put_secret(conn, "wanemu_addr", f"127.0.0.1:{port}")
 
 r = main.wanemu_links()
-assert len(r["links"]) == 7 and r["addr"] == f"127.0.0.1:{port}" and "isp-a-down" in r["presets"]
+assert len(r["links"]) == 8 and r["addr"] == f"127.0.0.1:{port}" and "isp-a-down" in r["presets"]
 assert {l["seg"] for l in r["links"]} == {"hub", "a", "b"} and all("state" in l for l in r["links"])
 assert "geheimtoken123" not in json.dumps(r)
 r = main.wanemu_put("site1-1-wan1", {"delay_ms": 25, "loss_pct": 1})

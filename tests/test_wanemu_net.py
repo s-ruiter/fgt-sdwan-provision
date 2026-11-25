@@ -20,8 +20,9 @@ assert ("site1-3", "a", "100.65.3.2") in [(x["name"], x["seg"], x["ip"]) for x i
 L = net.links(t)
 assert {"id": "site1-H1-wan1", "name": "site1-H1", "seg": "hub", "n": 1, "subnet": "100.64.1.0/24", "gw": "100.64.1.1",
         "ip": "100.64.1.2", "vlan": 3201, "iface": "eth1"} in L
-assert len(L) == 7   # 2 hubs + site1-1 (2) + site1-2 (alleen wan1) + site1-3 (2)
-assert not any(x["name"] == "site1-2" and x["seg"] == "b" for x in r + L)          # spoke zonder wan2
+assert len(L) == 8   # 2 hubs + 3 spokes with 2 WANs
+t1 = model.merged({}); t1["edges"][1]["wan2_intf"] = ""                      # spoke without wan2
+assert len(net.links(t1)) == 7 and not any(x["name"] == "site1-2" and x["seg"] == "b" for x in net.reservations(t1) + net.links(t1))
 c = net.dnsmasq_conf(t)
 assert "interface=eth3" in c and "interface=eth4" in c and "interface=eth1" not in c
 assert "dhcp-range=set:eth3,100.65.1.100,100.65.1.199,255.255.255.0,12h" in c
@@ -34,7 +35,7 @@ assert p["unprivileged"] == 1 and p["hostname"] == "wan-emu" and "fgt-sdwan" in 
 assert p["ostemplate"].startswith("local:vztmpl/debian-13") and p["ssh-public-keys"] == "ssh-ed25519 AAAA test"
 at = net.agent_topology(t)
 assert at["links"] == L and at["nat"] == ["100.64.0.0/16", "100.65.0.0/16", "100.66.0.0/16"]
-print("OK  netwerkfuncties: MAC stabiel, .2 per eigen /24, 7 links (eth1..eth7), dnsmasq per lijn, LXC-params, agent-topologie")
+print("OK  netwerkfuncties: MAC stabiel, .2 per eigen /24, 8 links (eth1..eth8), dnsmasq per lijn, LXC-params, agent-topologie")
 
 # validation
 assert model.validate_wanemu(t) == [], model.validate_wanemu(t)
@@ -61,7 +62,8 @@ assert [(n["vlan"], n["mac"]) for n in e[:2]] == [(3211, net.mac_for("site1-1", 
 spec = {"role": "fgt", "cores": 1, "memory_mb": 1, "extra_disks": [], "nics": e}
 assert pv.vm_params(spec, dict(cfg, disk_storage="x"), "v", None)["net0"] == f"virtio={net.mac_for('site1-1', 1)},bridge=vmbr0,tag=3211"
 assert pv.vm_params(spec, dict(cfg, disk_storage="x"), "v", None)["net2"] == "virtio,bridge=vmbr0"
-s2 = pv.fgt_nics(t["edges"][1], cfg, w, False, link_no=2)                            # site1-2: geen wan2
+e1 = dict(t["edges"][1], wan2_intf="")                                              # a spoke without wan2
+s2 = pv.fgt_nics(e1, cfg, w, False, link_no=2)
 assert s2[0]["vlan"] == 3212 and s2[1].get("mac") is None and s2[1]["vlan"] is None
 t["fmgr"].update(ip="10.10.106.11/24", gateway="10.10.106.1")
 specs = pv.build_specs(t, "pw", "pw", {d["name"]: "T" * 20 for d in t["hubs"] + t["edges"]}, "", "fgt")
@@ -121,7 +123,7 @@ assert any("bridge" in e for e in model.validate_wanemu(bad)), model.validate_wa
 
 # which VLANs each bridge must carry, and whether the Proxmox bridges allow them (bridge-vids)
 need = net.bridge_needs(u, fgts=True, clients=True)
-assert need["vmbr5"] == {3201, 3202, 3211, 3212, 3213, 3231, 3233} | set(range(3301, 3306)), sorted(need["vmbr5"])   # one VLAN per WAN; single-VRF: no LAN2
+assert need["vmbr5"] == {3201, 3202, 3211, 3212, 3213, 3231, 3232, 3233} | set(range(3301, 3306)), sorted(need["vmbr5"])   # one VLAN per WAN; single-VRF: no LAN2
 assert need["vmbr0"] == set()
 assert net.bridge_needs(u, fgts=False, clients=True) == {"vmbr5": {3303, 3304, 3305}, "vmbr0": set()}   # LAN1 of the spokes + Traffic-Gen on the uplink
 info = {"vmbr0": {"iface": "vmbr0", "bridge_ports": "nic0"},

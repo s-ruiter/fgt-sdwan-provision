@@ -25,7 +25,7 @@ assert any("netem delay 40ms 5ms loss 1%" in x and "dev ifb-eth3 " in x for x in
 assert any("rate 20000kbit" in x and "dev eth3 " in x for x in s) and any("rate 10gbit" in x and "dev eth1 " in x for x in s)
 assert not any("u32" in x for x in s), "no IP filters: the interface is the link"
 assert {x.split()[4] for x in s if x.startswith("tc qdisc replace") and "root" in x} == \
-    {f"eth{k}" for k in range(1, 8)} | {f"ifb-eth{k}" for k in range(1, 8)}
+    {f"eth{k}" for k in range(1, 9)} | {f"ifb-eth{k}" for k in range(1, 9)}
 r0 = agent.nft_ruleset(topo, {})
 assert 'oifname "eth0"' in r0 and "masquerade" in r0 and "100.65.0.0/16" in r0 and " drop" not in r0
 r1 = agent.nft_ruleset(topo, {"site1-1-wan1": dict(agent.DEFAULT, down=True)})
@@ -73,7 +73,7 @@ def req(method, path, body=None, token="tok"):
 
 assert req("GET", "/links", token=None)[0] == 401 and req("GET", "/links", token="nee")[0] == 401
 code, body = req("GET", "/links")
-assert code == 200 and len(body["links"]) == 7 and body["links"][0]["state"] == agent.DEFAULT
+assert code == 200 and len(body["links"]) == 8 and body["links"][0]["state"] == agent.DEFAULT
 code, body = req("PUT", "/links/site1-1-wan1", {"delay_ms": 30, "loss_pct": 2})
 assert code == 200 and body["state"]["delay_ms"] == 30
 assert any(c[0][:2] == ["nft", "-f"] for c in calls) and any(c[0][0] == "tc" for c in calls)
