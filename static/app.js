@@ -624,8 +624,9 @@ async function applyLast(sid) {
   T.pve = Object.assign({}, T.pve, pve, { ports: Object.assign({}, T.pve.ports, pve.ports || {}) });
   pveFill(T.pve);
   if (wb) { T.wanemu.bridge = wb; setSel("#wan-bridge", PVE_OPT.bridges, wb); }     // this server's last bridges
-  if (up && up.bridge && !$("#wan-uplink-ip").value.trim()) {   // only the bridge of this server's last uplink: IP, gateway and VLAN are the user's
-    T.wanemu.uplink.bridge = up.bridge; setSel("#wan-uplink-bridge", PVE_OPT.bridges, up.bridge, "(same as WAN emulator bridge)");
+  if (up && !$("#wan-uplink-ip").value.trim()) {          // uplink of this server's last deployment (it has no default)
+    T.wanemu.uplink.bridge = up.bridge || ""; setSel("#wan-uplink-bridge", PVE_OPT.bridges, up.bridge || "", "(same as WAN emulator bridge)");
+    $("#wan-uplink-vlan").value = up.vlan ?? ""; $("#wan-uplink-ip").value = up.ip || ""; $("#wan-uplink-gw").value = up.gw || "";
     topoDraw();
   }
 }

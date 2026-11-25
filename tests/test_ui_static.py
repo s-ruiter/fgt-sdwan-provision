@@ -314,9 +314,10 @@ ff = js[js.index("function flexFields()"):js.index("function flexFields()") + 90
 assert '["all", "fgt"].includes(sc)' in ff[ff.index('dataset.lic === "files"'):], "serials alleen vergrendeld waar ze uit de bestanden komen"
 print("OK  UI: licentiepagina volgt de namen; serienummers bij Model devices only blijven invulbaar")
 
-# no uplink IP/gateway/VLAN from an earlier deployment: the user fills them in (bridges are still remembered)
+# the uplink comes from this server's last deployment (no fixed default in the code)
 al = js[js.index("async function applyLast("):js.index("async function applyLast(") + 900]
-assert '$("#wan-uplink-ip").value =' not in al and '$("#wan-uplink-gw").value =' not in al and '$("#wan-uplink-vlan").value =' not in al, al
+assert '$("#wan-uplink-ip").value = up.ip' in al, al
+assert '"uplink": {"bridge": "", "vlan": None, "ip": "", "gw": ""}' in open(os.path.join(root, "app", "model.py")).read()
 # gateway follows the IP: first address of the subnet, unless the user typed a gateway of their own
 assert "function gwFor(" in js and "gwAuto(\"#fm_ip\", \"#fm_gw\")" in js and "gwAuto(\"#wan-uplink-ip\", \"#wan-uplink-gw\")" in js
 if shutil.which("node"):
@@ -330,4 +331,4 @@ if (bad.length) { console.log(bad.join("; ")); process.exit(1); }
 """
     r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
     assert r.returncode == 0, r.stdout + r.stderr
-print("OK  UI: geen uplink-IP vooraf ingevuld; gateway volgt het IP (eerste adres van het subnet)")
+print("OK  UI: uplink alleen uit de vorige uitrol (geen vaste default); gateway volgt het IP (eerste adres van het subnet)")
