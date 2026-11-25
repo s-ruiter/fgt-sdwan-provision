@@ -357,3 +357,7 @@ assert pos == sorted(pos)
 pos = [html.index(f'id="{i}"') for i in ("wan-uplink-ip", "wan-uplink-gw", "wan-uplink-bridge", "wan-uplink-vlan", "wan-bridge", "wan-vmid")]
 assert pos == sorted(pos), "uplink: IP, gateway, bridge, VLAN (as the FortiManager), then WAN emulator bridge"
 print("OK  UI: uplink-velden in dezelfde volgorde als de FortiManager")
+
+# the update badge also appears on a page that stays open, and the browser does not cache the version check
+assert "setInterval(updCheck" in js and 'fetch("/api/version", { cache: "no-store" })' in js
+print("OK  UI: update-badge ook zonder refresh")

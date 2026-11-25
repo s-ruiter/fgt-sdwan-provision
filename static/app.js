@@ -731,9 +731,10 @@ $("#mode_adv").onclick = () => modeSet("advanced");
 // ---- self-update: badge when GitHub main is newer; the update runs ct/install.sh and the tool restarts -----------
 let UPD = null;
 async function updCheck() {
-  try { const r = await fetch("/api/version"); UPD = await r.json(); } catch (_) { UPD = null; }
+  try { const r = await fetch("/api/version", { cache: "no-store" }); UPD = await r.json(); } catch (_) { UPD = null; }
   $("#upd_badge").hidden = !(UPD && UPD.behind > 0);
 }
+setInterval(updCheck, 5 * 60 * 1000);                     // an open page also shows a new version (the server caches the check)
 function updShow() {
   const v = UPD || {};
   $("#upd_body").textContent = v.error ? v.error : v.behind ? `Version ${v.current} → ${v.latest} (${v.behind} change${v.behind > 1 ? "s" : ""}). The tool restarts; a running deployment must be finished first.` : `Up to date (${v.current || "unknown"}).`;

@@ -7,7 +7,7 @@ import requests
 
 REPO = "s-ruiter/fgt-sdwan-provision"
 BRANCH = "main"
-CACHE_S = 600
+CACHE_S = 120         # short: a page refresh sees a new commit on main within two minutes (at most 30 checks/hour)
 CACHE = {}
 
 
@@ -21,8 +21,25 @@ def current(app_dir):
     return sha if r.returncode == 0 and len(sha) == 40 else None
 
 
+def _head(fetch):
+    """Commit of main (one small request; with the last ETag an unchanged main answers 304). The comparison, with the
+    commit titles, is only fetched when main or the running commit changed: GitHub allows 60 anonymous requests/hour."""
+    h = {"Accept": "application/vnd.github.sha"}
+    if CACHE.get("etag"):
+        h["If-None-Match"] = CACHE["etag"]
+    r = fetch(f"https://api.github.com/repos/{REPO}/commits/{BRANCH}", timeout=8, headers=h)
+    if r.status_code == 304 and CACHE.get("head"):
+        return CACHE["head"]
+    if r.status_code != 200:
+        raise OSError(f"GitHub answered {r.status_code}")
+    sha = (r.text or "").strip()
+    CACHE.update(etag=(r.headers or {}).get("ETag"), head=sha)
+    return sha
+
+
 def check(app_dir, fetch=requests.get):
-    """{current, latest, behind, commits: [{sha, title}], error}; cached CACHE_S seconds."""
+    """{current, latest, behind, commits: [{sha, title}], error}; cached CACHE_S seconds, and the comparison is only
+    fetched again when main or the running commit changed."""
     now = time.time()
     if CACHE.get("t", 0) > now - CACHE_S and CACHE.get("dir") == app_dir:
         return CACHE["v"]
@@ -32,6 +49,11 @@ def check(app_dir, fetch=requests.get):
         out["error"] = "version unknown (not a git checkout): updates are not available"
     else:
         try:
+            head = _head(fetch)
+            prev = CACHE.get("v")
+            if prev and not prev.get("error") and CACHE.get("dir") == app_dir and CACHE.get("own") == own and CACHE.get("vhead") == head:
+                CACHE.update(t=now)
+                return prev
             r = fetch(f"https://api.github.com/repos/{REPO}/compare/{own}...{BRANCH}", timeout=8,
                       headers={"Accept": "application/vnd.github+json"})
             if r.status_code != 200:
@@ -41,6 +63,7 @@ def check(app_dir, fetch=requests.get):
                        for c in j.get("commits") or []]
             out.update(behind=int(j.get("ahead_by") or 0), commits=commits,
                        latest=commits[-1]["sha"] if commits else own[:7])
+            CACHE.update(own=own, vhead=head)
         except Exception as e:                                       # no internet, rate limit, unknown commit ...
             out["error"] = f"could not check for updates ({type(e).__name__}: {str(e)[:120]})"
     CACHE.update(t=now, dir=app_dir, v=out)
