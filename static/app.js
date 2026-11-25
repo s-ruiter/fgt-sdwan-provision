@@ -67,7 +67,7 @@ function ipProblem(kind, v) {
   }
   return "";
 }
-const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip", tg_ip: "cidr" };
+const KIND_BY_ID = { fm_ip: "cidr", fm_gw: "ip", tg_ip: "cidr", "wan-uplink-ip": "cidr", "wan-uplink-gw": "ip" };
 const KIND_BY_FIELD = { wan1_ip: "cidr", wan1_gw: "ip", loopback: "ip" };
 function markIpFields() {
   for (const [id, k] of Object.entries(KIND_BY_ID)) $("#" + id).dataset.ip = k;
@@ -76,12 +76,62 @@ function markIpFields() {
     const f = el.dataset.f, k = KIND_BY_FIELD[f] || (/^lan\d+_ip$/.test(f) ? "cidr" : null);
     if (k) el.dataset.ip = k;
   });
+  prefixFields();
+}
+// a.b.c.d/nn -> [address, prefix]; a mask (255.255.255.0) counts as its prefix; no or an invalid prefix -> [text, null]
+function splitCidr(v) {
+  const s = String(v || "").trim(), i = s.lastIndexOf("/");
+  if (i < 0) return [s, null];
+  const a = s.slice(0, i), p = s.slice(i + 1);
+  if (/^\d{1,2}$/.test(p) && +p <= 32) return [a, +p];
+  const m = maskToPrefix(p);
+  return m === null ? [s, null] : [a, m];
+}
+// IP/prefix fields: the address in the field, the prefix in a dropdown next to it (default /24). The field's .value
+// stays "a.b.c.d/nn" for all other code (collect, checks, gateway); an existing FortiManager ("ipcidr") only uses the address.
+const NATIVE_VALUE = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+function prefixFields() {
+  document.querySelectorAll('input[data-ip="cidr"], input[data-ip="ipcidr"]').forEach((el) => {
+    if (el.dataset.pfx || el.disabled) return;
+    el.dataset.pfx = "1";
+    const sel = document.createElement("select");
+    sel.className = "pfx" + (el.id === "fm_ip" ? " only-fmg" : "");
+    sel.title = "prefix (subnet mask)";
+    for (let n = 32; n >= 8; n--) sel.add(new Option("/" + n, String(n)));
+    sel.value = "24";
+    const wrap = document.createElement("span");
+    wrap.className = "pfx-wrap";
+    el.replaceWith(wrap); wrap.append(el, sel);
+    const put = (v) => {                                   // "a.b.c.d/nn" or an address: split over field and dropdown
+      const [a, n] = splitCidr(v);
+      if (n !== null && n < 8) { NATIVE_VALUE.set.call(el, String(v || "").trim()); return; }   // no such option: leave it for the check
+      NATIVE_VALUE.set.call(el, a);
+      if (n !== null) sel.value = String(n); else if (!a) sel.value = "24";
+    };
+    const raw = NATIVE_VALUE.get.call(el);
+    Object.defineProperty(el, "value", {
+      configurable: true,
+      get() {
+        const a = NATIVE_VALUE.get.call(el).trim();
+        return !a || el.dataset.ip === "ipcidr" || a.includes("/") ? a : `${a}/${sel.value}`;
+      },
+      set: put,
+    });
+    put(raw);
+    el.placeholder = (el.placeholder || "").replace(/\/\d+$/, "");
+    el.addEventListener("change", () => {                  // typed or pasted a/nn: split when leaving the field
+      if (!NATIVE_VALUE.get.call(el).includes("/")) return;
+      put(NATIVE_VALUE.get.call(el)); el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    sel.addEventListener("change", () => { el.dispatchEvent(new Event("input", { bubbles: true })); if (el.classList.contains("bad") || NATIVE_VALUE.get.call(el)) checkIp(el); });
+  });
 }
 function checkIp(el) {
   let v = el.value.trim();
   const m = v.match(/^(.+)\/(\d+\.\d+\.\d+\.\d+)$/);   // 10.0.0.5/255.255.255.0 -> 10.0.0.5/24
   if (el.dataset.ip === "cidr" && m && maskToPrefix(m[2]) !== null) { v = `${m[1]}/${maskToPrefix(m[2])}`; el.value = v; }
-  const p = ipProblem(el.dataset.ip, v);
+  let p = ipProblem(el.dataset.ip, v);
+  if (p.startsWith("Use a.b.c.d/nn") && el.dataset.pfx) p = "Not a valid IPv4 address (a.b.c.d)";   // the prefix is the dropdown
   el.classList.toggle("bad", !!p); el.title = p;
   return p;
 }
@@ -175,7 +225,7 @@ function dev(kind, d, i) {
   const vrfs = T.region.multi_vrf === false ? [null] : T.region.vrfs.length ? T.region.vrfs : [null];
   vrfs.forEach((v, j) => {
     const l = (d.lans || [])[j] || {}, tag = v ? ` (VRF ${v.id})` : "";
-    h += pfld("lan" + j + "_intf", `LAN${j + 1} port${tag}`, l.intf, j ? "(none)" : "", j ? "" : "lan-first") + fld("lan" + j + "_ip", `LAN${j + 1} IP/prefix${tag}`, l.ip);
+    h += pfld("lan" + j + "_intf", `LAN${j + 1} port${tag}`, l.intf, j ? "(none)" : "", j ? "" : "lan-first") + fld("lan" + j + "_ip", `LAN${j + 1} IP${tag}`, l.ip);
   });
   return h + "</div></div>";
 }
@@ -229,7 +279,7 @@ function draw() {
 function tgDraw() {
   const up = (($("#wan-uplink-ip") && $("#wan-uplink-ip").value) || "").trim(), gw = (($("#wan-uplink-gw") && $("#wan-uplink-gw").value) || "").trim();
   const vlan = (($("#wan-uplink-vlan") && $("#wan-uplink-vlan").value) || "").trim();
-  if (!$("#tg_ip").value && /^\d+\.\d+\.\d+\.\d+\/\d+$/.test(up)) $("#tg_ip").placeholder = up.replace(/\.(\d+)\//, (m, o) => "." + Math.max(2, +o - 1) + "/");
+  if (!$("#tg_ip").value && /^\d+\.\d+\.\d+\.\d+\/\d+$/.test(up)) $("#tg_ip").placeholder = up.replace(/\.(\d+)\/\d+$/, (m, o) => "." + Math.max(2, +o - 1));
   const sp = (T.edges || []).find((e) => (e.lans || [])[0] && e.lans[0].ip), lan = sp ? sp.lans[0].ip.split("/")[0].split(".").slice(0, 3).join(".") : "";
   $("#tg_hint").textContent = `Management (web GUI https://<this IP>:8443, user admin) via the WAN emulation uplink: ${vlan ? "VLAN " + vlan : "untagged"}${gw ? ", gateway " + gw : ""}. ` +
     (sp ? `Test traffic from ${sp.name}'s LAN: ${lan}.20-${lan}.29 with ${sp.lans[0].ip.split("/")[0]} (the spoke) as gateway; adjustable later in the Traffic-Gen GUI.` : "Needs a spoke with a LAN.") +

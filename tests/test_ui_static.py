@@ -332,3 +332,21 @@ if (bad.length) { console.log(bad.join("; ")); process.exit(1); }
     r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
     assert r.returncode == 0, r.stdout + r.stderr
 print("OK  UI: uplink alleen uit de vorige uitrol (geen vaste default); gateway volgt het IP (eerste adres van het subnet)")
+
+# IP/prefix fields: the address in the field, the prefix in its own dropdown (default /24); .value stays a.b.c.d/nn
+assert "function splitCidr(" in js and "function prefixFields(" in js and '"wan-uplink-ip": "cidr"' in js
+mk = js[js.index("function markIpFields()"):js.index("function markIpFields()") + 900]
+assert "prefixFields()" in mk, "markIpFields voegt de dropdowns toe (ook na een nieuwe draw)"
+assert ".pfx" in css, "dropdown naast het IP-veld"
+if shutil.which("node"):
+    src = js[js.index("function splitCidr("):]
+    src = js[js.index("const OCT ="):js.index("function ipProblem(")] + src[:src.index("\n}\n") + 3]
+    probe = src + r"""
+const t = [["10.10.106.150/24", ["10.10.106.150", 24]], ["10.0.0.5/255.255.255.0", ["10.0.0.5", 24]], ["10.0.0.5", ["10.0.0.5", null]],
+           ["", ["", null]], ["10.20.3.77/22", ["10.20.3.77", 22]], ["10.0.0.5/40", ["10.0.0.5/40", null]]];
+const bad = t.filter(([i, g]) => JSON.stringify(splitCidr(i)) !== JSON.stringify(g)).map(([i, g]) => `${i}: ${JSON.stringify(splitCidr(i))}`);
+if (bad.length) { console.log(bad.join("; ")); process.exit(1); }
+"""
+    r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
+    assert r.returncode == 0, r.stdout + r.stderr
+print("OK  UI: IP-velden met een aparte prefix-dropdown (default /24)")

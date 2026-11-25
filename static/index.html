@@ -104,7 +104,7 @@
         <h2><span class="num">02</span>FortiManager <small class="only-fmg">(always a static IP; Day-0)</small><small class="only-existing">(existing FortiManager: IP, ADOM and API login)</small></h2>
         <div class="fields">
           <div class="f only-fmg adv"><label>Hostname</label><input id="fm_name"></div>
-          <div class="f"><label><span class="only-fmg">Static IP (a.b.c.d/nn)</span><span class="only-existing">IP address (a.b.c.d)</span></label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
+          <div class="f"><label><span class="only-fmg">Static IP</span><span class="only-existing">IP address (a.b.c.d)</span></label><input id="fm_ip" placeholder="10.0.0.5/24"></div>
           <div class="f only-fmg"><label>Gateway</label><input id="fm_gw" placeholder="10.0.0.1"></div>
           <div class="f only-fmg"><label>Bridge (VM)</label><select id="fmg_br"></select></div>
           <div class="f only-fmg"><label>VLAN (empty = untagged)</label><input id="fmg_vlan" type="number"></div>
@@ -127,7 +127,7 @@
           <div class="f"><label>WAN emulator bridge</label><select id="wan-bridge" title="ISP segments, FortiGate WAN/LAN ports and LAN clients (VLANs 3200+, 3300+, 3400+)"></select></div>
           <div class="f"><label>Uplink bridge</label><select id="wan-uplink-bridge" title="the bridge to your lab network (eth0 of wan-emu)"></select></div>
           <div class="f"><label>Uplink VLAN</label><input id="wan-uplink-vlan" type="number" placeholder="empty = untagged"></div>
-          <div class="f"><label>Uplink IP/prefix</label><input id="wan-uplink-ip" class="mono" placeholder="your lab network, e.g. 192.168.1.250/24"></div>
+          <div class="f"><label>Uplink IP</label><input id="wan-uplink-ip" class="mono" placeholder="your lab network, e.g. 192.168.1.250/24"></div>
           <div class="f"><label>Uplink gateway</label><input id="wan-uplink-gw" class="mono"></div>
         </div>
         <div class="adv"><table class="tbl" id="wan-segs"><thead><tr><th>ISP</th><th>Address block</th><th>VLAN base</th><th>Per WAN</th></tr></thead><tbody>
@@ -140,7 +140,7 @@
         <h3>Traffic Generator <small>(always deployed: realistic user traffic from the LAN of the first spoke)</small></h3>
         <div class="hint" id="tg_hint"></div>
         <div class="fields">
-          <div class="f"><label>Management IP/prefix (uplink network)</label><input id="tg_ip" class="mono" placeholder="e.g. the address below wan-emu"></div>
+          <div class="f"><label>Management IP (uplink network)</label><input id="tg_ip" class="mono" placeholder="e.g. the address below wan-emu"></div>
         </div>
       </div>
 
