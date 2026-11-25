@@ -260,10 +260,10 @@ P = Anc()
 P.feed(html)
 adv = lambda i: "adv" in P.cls[i]
 for i in ("hubs", "edges", "vrfs", "ports", "wan-segs", "pve_first", "pve_prefix", "fmg_cores", "fgt_cores", "fm_name",
-          "fmg_pass", "fgt_newpw", "client_pw", "tg_ip", "tg_pw", "wan-vmid", "hub2hub", "adom", "fmg_user"):
+          "fmg_pass", "fgt_newpw", "client_pw", "tg_pw", "wan-vmid", "hub2hub", "adom", "fmg_user"):
     assert adv(i), f"{i} hoort alleen in Advanced"
 for i in ("pve_server", "pve_node", "pve_dstore", "pve_br", "wan-bridge", "wan-uplink-ip", "wan-uplink-vlan", "wan-uplink-gw",
-          "fm_ip", "fm_gw", "r_multi", "pw_all", "img_fgt", "img_fmg", "fm_token"):
+          "fm_ip", "fm_gw", "r_multi", "pw_all", "img_fgt", "img_fmg", "fm_token", "tg_ip", "fmg_vlan", "fmg_br"):
     assert not adv(i), f"{i} hoort ook in Simple"
 assert "custom topology" in html.lower() or "custom topology" in js.lower()
 print("OK  UI: About weg, update-melding/-knop; Simple (standaard) / Advanced; één wachtwoord; Traffic-Gen altijd mee")
@@ -280,3 +280,17 @@ assert "PW_EXISTING" in js and 'only-existing-simple' in html
 assert re.search(r'\[data-scope="(fgt|tpl|dev)"\][^{]*\.only-existing-simple', open(os.path.join(root, "static", "style.css")).read())
 assert "last_update" in js and "journalctl -u fgt-sdwan-update" in js
 print("OK  UI: review-fixes Simple (LAN-only wachtwoord, gedeeld wachtwoord, fouten -> Advanced, bestaande FMG apart, mislukte update)")
+
+
+# FortiManager VLAN/bridge in the FortiManager card; own card "WAN emulation and Traffic Generator" with a choosable
+# Traffic-Gen IP (Simple too)
+def card_of(i):
+    pos = html.index(f'id="{i}"')
+    return html.rindex('<div class="card', 0, pos)
+fm = card_of("fm_ip")
+assert card_of("fmg_vlan") == fm and card_of("fmg_br") == fm, "FortiManager VLAN/bridge horen bij de FortiManager-kaart"
+assert 'id="sec_wan"' in html and "WAN emulation and Traffic Generator" in html
+w = card_of("wan-uplink-ip")
+assert html[w:w + 80].count('id="sec_wan"') == 1 and card_of("wan-bridge") == w and card_of("tg_ip") == w and card_of("wan-segs") == w
+assert card_of("pve_node") != w and card_of("img_fmg") == card_of("pve_node")
+print("OK  UI: FortiManager-VLAN bij FortiManager; eigen kaart WAN emulation and Traffic Generator met kiesbaar Traffic-Gen-IP")
