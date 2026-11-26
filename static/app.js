@@ -786,14 +786,20 @@ const XTERM = "https://cdn.jsdelivr.net/npm/xterm@5.3.0/", XFIT = "https://cdn.j
 async function wanFwdLoad() {
   const r = await fetch("/api/access"), j = await json(r);
   if (!r.ok) { $("#wanemu-fgts").innerHTML = `<div class="hint">${esc(errList(j).join(" "))}</div>`; return; }
-  const row = (d, key, kind) => `<div class="fgt-row"><b>${esc(d.name)}</b><span class="hint">${kind}</span><span class="mono">${esc(d.ip)}</span>` +
-    (d.gui ? `<a href="${esc(d.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` : "") +
-    (d.password ? `<button data-cpw="${esc(key)}" title="Copy the password to the clipboard">Copy password</button>` : "") +
-    (d.ssh ? `<button data-ssh="${esc(key)}" data-auto="${d.password ? 1 : ""}">SSH</button>` : "") +
+  // one row per device in fixed columns: name · how it is reached · IP (click = copy) · actions (same slots on every row) · SSH command (click = copy)
+  const slot = (html) => html || '<span class="acc-slot"></span>';
+  const row = (d, key, via) => `<div class="acc-row"><span class="acc-name"><b>${esc(d.name)}</b><span class="hint">${esc(via)}</span></span>` +
+    `<button class="acc-copy mono" data-copy="${esc(d.ip)}" title="Copy ${esc(d.ip)} to the clipboard">${esc(d.ip)}</button><span class="acc-act">` +
+    slot(d.gui ? `<a href="${esc(d.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` : "") +
+    slot(d.ssh ? `<button data-ssh="${esc(key)}" data-auto="${d.password ? 1 : ""}">SSH</button>` : "") +
     `<button data-console="${esc(key)}" title="Proxmox console (also when the network to the device is down)">Console</button>` +
-    (d.ssh ? `<span class="hint mono">${esc(d.ssh)}</span>` : "") + `</div>`;
-  const rows = (j.fmg ? row(j.fmg, "@fmg", "FortiManager") : "") + j.fgts.map((f) => row(f, f.name, "FortiGate")).join("") +
-    (j.clients || []).map((c) => row(c, c.name, `LAN client · ${esc(c.spoke)}`)).join("");
+    slot(d.password ? `<button data-cpw="${esc(key)}" title="Copy the password to the clipboard">Copy password</button>` : "") +
+    `</span>` + (d.ssh ? `<button class="acc-copy acc-cmd mono" data-copy="${esc(d.ssh)}" title="Copy: ${esc(d.ssh)}">${esc(d.ssh)}</button>` : "<span></span>") + `</div>`;
+  const group = (title, list) => (list.length ? `<div class="acc-group"><h3>${title}</h3>${list.join("")}</div>` : "");
+  const port = (d) => ((d.gui || "").match(/:(\d+)\/?$/) || [])[1];
+  const rows = group("FortiManager", j.fmg ? [row(j.fmg, "@fmg", "direct")] : []) +
+    group("FortiGates", j.fgts.map((f) => row(f, f.name, port(f) ? `via wan-emu :${port(f)}` : "via wan-emu"))) +
+    group("LAN clients", (j.clients || []).map((c) => row(c, c.name, `LAN of ${c.spoke}`)));
   $("#wanemu-fgts").innerHTML = rows || '<div class="hint">Nothing deployed yet: deploy the FortiManager and FortiGates first.</div>';
 }
 // clipboard: the modern API needs https (the tool usually runs on plain http) and may refuse after an await, so fall
@@ -897,6 +903,15 @@ $("#sess_tabs").addEventListener("click", sessClick);
 $("#sess_bar").addEventListener("click", sessClick);
 $("#sess_min").onclick = sessMin;
 $("#wanemu-fgts").addEventListener("click", async (e) => {
+  const cp = e.target.closest("[data-copy]");
+  if (cp) {                                                    // IP address or SSH command -> clipboard
+    const ok = await copyText(cp.dataset.copy);
+    if (!ok) return window.prompt("Copy it with Ctrl/Cmd+C", cp.dataset.copy);
+    const txt = cp.textContent;                                 // short confirmation in place (fits the column)
+    cp.classList.add("copied"); cp.textContent = "✓ Copied";
+    setTimeout(() => { cp.classList.remove("copied"); cp.textContent = txt; }, 1200);
+    return;
+  }
   const c = e.target.closest("[data-cpw]");
   if (c) {
     const r = await post("/api/access/password", { name: c.dataset.cpw }), j = await json(r);

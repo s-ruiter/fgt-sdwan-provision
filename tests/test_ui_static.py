@@ -361,3 +361,13 @@ print("OK  UI: uplink-velden in dezelfde volgorde als de FortiManager")
 # the update badge also appears on a page that stays open, and the browser does not cache the version check
 assert "setInterval(updCheck" in js and 'fetch("/api/version", { cache: "no-store" })' in js
 print("OK  UI: update-badge ook zonder refresh")
+
+# Remote access: grouped (FortiManager / FortiGates / LAN clients), aligned columns, click the IP (or the SSH command) to copy it
+wf = js[js.index("async function wanFwdLoad()"):js.index("async function copyText(")]
+for g in ("FortiManager", "FortiGates", "LAN clients"):
+    assert f">{g}<" in wf or f'"{g}"' in wf, g
+assert 'data-copy="${esc(d.ip)}"' in wf and 'data-copy="${esc(d.ssh)}"' in wf, "IP en SSH-commando klikbaar"
+ck = js[js.index('$("#wanemu-fgts").addEventListener("click"'):]
+assert "[data-copy]" in ck[:900] and "copyText(" in ck[:900]
+assert ".acc-row" in css and "grid-template-columns" in css[css.index(".acc-row"):css.index(".acc-row") + 300]
+print("OK  UI: Remote access gegroepeerd in kolommen; klik op IP/SSH-commando = kopiëren")

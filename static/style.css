@@ -353,3 +353,25 @@ body:not([data-lic="files"]) .files-only { display: none !important; }
 .pfx-wrap { display: flex; gap: 6px; align-items: stretch; min-width: 0; }
 .pfx-wrap > input { flex: 1 1 auto; min-width: 0; }
 .pfx-wrap > select.pfx { flex: 0 0 auto; width: 4.6em; }
+
+/* Remote access: grouped, aligned columns; IP and SSH command copy on click */
+.acc-group { margin: 4px 0 14px; }
+.acc-group h3 { margin: 10px 0 2px; }
+.acc-row { display: grid; grid-template-columns: 170px 130px auto minmax(0, 1fr); gap: 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.acc-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.acc-name .hint { font-size: 12px; }
+.acc-act { display: grid; grid-template-columns: 58px 58px 80px auto; gap: 6px; align-items: center; }
+.acc-act button { width: 100%; white-space: nowrap; }
+.acc-act a { display: block; }
+.acc-slot { display: block; }
+.acc-copy { display: block; min-width: 0; max-width: 100%; justify-self: start; background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 6px; color: inherit; cursor: copy; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-copy:hover { border-color: var(--line-strong); }
+.acc-cmd { color: var(--muted); font-size: 12px; }
+.acc-copy.copied { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 760px) {
+  .acc-row { grid-template-columns: 1fr auto; }
+  .acc-act, .acc-cmd { grid-column: 1 / -1; }
+  .acc-act { display: flex; flex-wrap: wrap; }
+  .acc-act button { width: auto; }
+  .acc-slot { display: none; }
+}
