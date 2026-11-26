@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Union
 
-from . import cloudinit, db, images, model
+from . import cancel, cloudinit, db, images, model
 from .bootstrap import Masker
 from .pve import Pve, PveError
 from .fmg import Fmg, FmgError, pipeline
@@ -410,8 +410,20 @@ def fmg_test(c: Fmgcfg):
         raise HTTPException(502, detail=str(e))
 
 
+CANCEL = {}                                             # job id -> threading.Event (Cancel on the progress page)
+
+
+def _start_job(job, thread):
+    CANCEL[job["id"]] = threading.Event()
+    thread.start()
+
+
 def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
+    ev = CANCEL.setdefault(job["id"], threading.Event())
+    cancel.bind(ev)                                     # waits in the pipeline wake up and stop on a cancel
+
     def emit(step, status, msg):
+        cancel.check()
         job["events"].append({"t": time.strftime("%H:%M:%S"), "step": step, "status": status, "msg": mask(msg)})
         if step in job["steps"] and status != "info":
             job["steps"][step] = status
@@ -426,6 +438,15 @@ def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
         pipeline(topo, cfg, fmg, emit, boot)
         job["state"] = "done"
         _persist(job)
+    except cancel.Cancelled:
+        cur = next((s for s, v in job["steps"].items() if v == "running"), None)
+        if cur:
+            job["steps"][cur] = "cancelled"
+        job["events"].append({"t": time.strftime("%H:%M:%S"), "step": cur, "status": "cancelled",
+                              "msg": "Cancelled by the user. What was already created stays (VMs, licences, FortiManager "
+                                     "objects): remove it with Cleanup, or deploy again."})
+        job["state"] = "cancelled"
+        _persist(job)
     except Exception as e:
         cur = next((s for s, v in job["steps"].items() if v == "running"), None)
         if cur:
@@ -437,6 +458,8 @@ def _run(job, topo, cfg, fmgcfg, dry, boot, mask):
         fmg.logout()
         fmgcfg.password = None  # do not keep credentials around
         boot.clear()
+        CANCEL.pop(job["id"], None)
+        cancel.bind(None)
 
 
 def _wanemu_secrets():
@@ -1459,7 +1482,7 @@ def deploy(r: DeployReq):
     job["steps"]["licenses"] = "ok" if lic else "skipped"
     JOBS[jid] = job
     _persist(job)
-    threading.Thread(target=_run, args=(job, topo, cfg, r.fmg, r.dry_run, boot, mask), daemon=True).start()
+    _start_job(job, threading.Thread(target=_run, args=(job, topo, cfg, r.fmg, r.dry_run, boot, mask), daemon=True))
     return {"job": jid}
 
 
@@ -1485,6 +1508,22 @@ def job(jid: str):
     if j is None:
         raise HTTPException(404, detail="This deployment does not exist (any more)")
     return j
+
+
+@app.post("/api/jobs/{jid}/cancel")
+def job_cancel(jid: str):
+    """Stop a running deployment at its next step or wait (seconds; a running Proxmox or FortiManager call first ends)."""
+    if _get_job(jid) is None:
+        raise HTTPException(404, detail="This deployment does not exist (any more)")
+    j, ev = JOBS.get(jid), CANCEL.get(jid)
+    if j is None or ev is None or j["state"] != "running":
+        raise HTTPException(409, detail="This deployment is not running (any more)")
+    if not ev.is_set():
+        ev.set()
+        j["events"].append({"t": time.strftime("%H:%M:%S"), "step": None, "status": "warn",
+                            "msg": "Cancel requested: the deployment stops at its next step or wait"})
+        _persist(j)
+    return {"ok": True}
 
 
 @app.get("/api/jobs/{jid}/stream")

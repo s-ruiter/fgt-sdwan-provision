@@ -548,6 +548,7 @@ const SCOPE_HINT = {
 const scope = () => (document.querySelector('input[name="scope"]:checked') || {}).value || "all";
 function scopeApply() {
   const s = scope();
+  if (s !== "all" && document.body.dataset.mode === "simple") modeSet("advanced");   // only Advanced offers the others
   $("#v_deploy").dataset.scope = s;
   $("#scope_hint").textContent = SCOPE_HINT[s];
   if (T) { flexFields(); topoDraw(); markIpFields(); $("#fm_ip").classList.remove("bad"); $("#fm_ip").title = ""; }
@@ -609,7 +610,7 @@ async function progressOpen(id) {
   }
   if (id === CUR_JOB && ES) return;                       // already showing this one
   if (ES) ES.close();
-  CUR_JOB = id;
+  CUR_JOB = id; $("#p_cancel").hidden = true; $("#p_cancel").disabled = false;
   const r = await fetch("/api/jobs/" + id);
   if (!r.ok) { ES = null; CUR_JOB = null; $("#p_title").textContent = "Progress"; stepsDraw(); $("#log").textContent = ""; return progressMsg("This deployment no longer exists (the list of deployments is empty or cleared). Start a new one on the Deploy page."); }
   const info = await r.json();
@@ -625,18 +626,27 @@ async function progressOpen(id) {
   ES.addEventListener("state", (e) => {
     const s = JSON.parse(e.data);
     document.querySelectorAll("#pl li").forEach((li) => { const st = s.steps[li.dataset.id]; li.className = "st-" + st; li.querySelector(".dot").className = "dot st-" + st; });
+    $("#p_cancel").hidden = s.state !== "running";
     if (s.state !== "running") {
       ES.close(); ES = null;
-      progressMsg(s.state === "done" ? "✔ Done" : "✕ Failed — see the log", s.state === "done" ? "ok" : "error");
+      if (s.state === "cancelled") progressMsg("■ Cancelled — what was already created stays; remove it with Cleanup", "warn");
+      else progressMsg(s.state === "done" ? "✔ Done" : "✕ Failed — see the log", s.state === "done" ? "ok" : "error");
     }
   });
 }
+$("#p_cancel").onclick = async () => {
+  if (!CUR_JOB || !confirm("Cancel this deployment? It stops at its next step or wait. What was already created (VMs, licences, FortiManager objects) stays; remove it with Cleanup.")) return;
+  const btn = $("#p_cancel"); btn.disabled = true; btn.textContent = "Cancelling…";
+  const r = await fetch(`/api/jobs/${CUR_JOB}/cancel`, { method: "POST" });
+  if (!r.ok) { btn.disabled = false; progressMsg("✕ " + errList(await json(r)).join("; "), "error"); }
+  btn.textContent = "Cancel deployment";
+};
 async function bannerLoad() {
   const el = $("#job_banner");
   try {
     const l = await (await fetch("/api/jobs")).json(), j = l.jobs[0];
     if (!j) { el.hidden = true; return; }
-    const st = { running: "is running", done: "is done", failed: "failed" }[j.state] || j.state;
+    const st = { running: "is running", done: "is done", failed: "failed", cancelled: "was cancelled" }[j.state] || j.state;
     el.hidden = false; el.innerHTML = `Last deployment: <b>${esc(j.title)}</b> (${esc(j.created)}) ${st} &middot; <a href="#/progress/${j.id}" style="color:var(--accent)">View progress and log</a>`;
   } catch (_) { el.hidden = true; }
 }
@@ -717,6 +727,7 @@ $("#srv_test").onclick = async () => {
 const modeGet = () => { try { return localStorage.getItem("fgt-sdwan-mode") === "advanced" ? "advanced" : "simple"; } catch (_) { return "simple"; } };
 function modeSet(m) {
   document.body.dataset.mode = m;
+  if (m === "simple" && scope() !== "all") { $("#scope_all").checked = true; scopeApply(); }   // Simple deploys everything
   try { localStorage.setItem("fgt-sdwan-mode", m); } catch (_) {}
   $("#mode_simple").classList.toggle("on", m === "simple"); $("#mode_adv").classList.toggle("on", m === "advanced");
   modeNote();

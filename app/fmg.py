@@ -4,6 +4,8 @@ import time
 import requests
 import urllib3
 
+from . import cancel
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
@@ -93,7 +95,7 @@ class Fmg:
                 return d
             if st in (3, 5, 6, 7):
                 raise FmgError(f"task {task_id} state={st}: {d.get('title','')} {self._task_errors(task_id)}")
-            time.sleep(2)
+            cancel.sleep(2)
         raise FmgError(f"task {task_id}: timeout")
 
 
@@ -118,7 +120,7 @@ def wait_online(fmg, adom, names, timeout, emit, step="install", poll=5):
                 emit(step, "running", f"{n}: online in FortiManager")
         if not pending or time.time() >= end:
             break
-        time.sleep(poll)
+        cancel.sleep(poll)
     return pending
 
 
@@ -163,7 +165,7 @@ def _bootstrap_fgts(topo, devices, boot, emit):
 
     emit("bootstrap_fgt", "running", f"{len(devices)} FortiGates: wan1, DNS, central-management, FortiFlex")
     with ThreadPoolExecutor(max_workers=len(devices)) as ex:
-        futs = {ex.submit(one, d): d["name"] for d, _ in devices}
+        futs = {ex.submit(cancel.wrap(one), d): d["name"] for d, _ in devices}
         for fut, name in futs.items():
             try:
                 fut.result()
@@ -279,7 +281,7 @@ def _login_retry(fmg, attempts, delay, progress=None):
             code = int(m.group(1)) if m else None
             if code == -23:                                   # lockout / login limit: wait it out (default lockout 60 s)
                 progress(f"login attempt {n}/{attempts}: account temporarily locked, waiting 70 s")
-                time.sleep(max(delay, 70))
+                cancel.sleep(max(delay, 70))
                 continue
             if code in (-22, -11):                            # login refused
                 refused += 1
@@ -291,7 +293,7 @@ def _login_retry(fmg, attempts, delay, progress=None):
                     raise FmgError(f"the FortiManager refused the login ({e}). Check user name and password; "
                                    "repeated attempts with a wrong password lock the account for a while.")
             progress(f"login attempt {n}/{attempts}: FortiManager not ready yet ({str(e)[:160]}); retrying in {delay} s")
-            time.sleep(delay)
+            cancel.sleep(delay)
     raise last
 
 
@@ -331,7 +333,7 @@ def wait_fmg_ready(fmg, boot, progress):
             if time.time() > end:
                 raise FmgError(f"FortiManager is still not licensed after {timeout} s ({why}). Check on the console "
                                "'get system status' and 'diagnose debug cloudinit show' (was the FortiFlex token applied?)")
-            time.sleep(delay)
+            cancel.sleep(delay)
     finally:
         fmg.timeout = old_timeout
 
