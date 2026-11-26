@@ -259,11 +259,11 @@ class Anc(HTMLParser):                          # classes of every real ancestor
 P = Anc()
 P.feed(html)
 adv = lambda i: "adv" in P.cls[i]
-for i in ("hubs", "edges", "vrfs", "ports", "wan-segs", "pve_first", "pve_prefix", "fmg_cores", "fgt_cores", "fm_name",
+for i in ("hubs", "edges", "vrfs", "ports", "wan-segs", "pve_first", "pve_prefix", "fmg_cores", "fgt_cores",
           "fmg_pass", "fgt_newpw", "client_pw", "tg_pw", "wan-vmid", "hub2hub", "adom", "fmg_user"):
     assert adv(i), f"{i} hoort alleen in Advanced"
 for i in ("pve_server", "pve_node", "pve_dstore", "pve_br", "wan-bridge", "wan-uplink-ip", "wan-uplink-vlan", "wan-uplink-gw",
-          "fm_ip", "fm_gw", "r_multi", "pw_all", "img_fgt", "img_fmg", "fm_token", "tg_ip", "fmg_vlan", "fmg_br"):
+          "fm_name", "fm_ip", "fm_gw", "r_multi", "pw_all", "img_fgt", "img_fmg", "fm_token", "tg_ip", "fmg_vlan", "fmg_br"):
     assert not adv(i), f"{i} hoort ook in Simple"
 assert "custom topology" in html.lower() or "custom topology" in js.lower()
 print("OK  UI: About weg, update-melding/-knop; Simple (standaard) / Advanced; één wachtwoord; Traffic-Gen altijd mee")

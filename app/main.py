@@ -182,6 +182,23 @@ def _check_bridges(topo, r):
                              "bridge for the ISP segments and the LAN VLANs"])
 
 
+def _check_fmg_reuse(topo, r):
+    """A FortiManager VM of this name already exists with another IP: refuse (a second one needs its own hostname)."""
+    from . import provision_vms as pv
+    from .pve import PveError
+    if r.scope not in ("all", "fmg") or _method(r.bootstrap.fmg) != "day0":
+        return
+    fm = _creds().get("fmg") or {}
+    known = {fm["name"]: fm["host"]} if fm.get("name") and fm.get("host") else {}
+    try:
+        pv.check_fmg_reuse(pv.make_pve(topo["pve"], r.secrets.pve_token_secret), topo, known)
+    except PveError as e:
+        if "is a FortiManager with IP" in str(e):
+            raise HTTPException(422, detail=[str(e)])
+    except Exception:                                  # Proxmox not readable here: the VM step reports it
+        pass
+
+
 def _check_trafficgen(topo, s):
     from . import trafficgen
     if not trafficgen.enabled(topo):
@@ -1334,6 +1351,7 @@ def deploy(r: DeployReq):
     _check_bootstrap(topo, r)
     if not r.dry_run:
         _check_bridges(topo, r)                # before FortiFlex creates anything: a wrong bridge costs no points
+        _check_fmg_reuse(topo, r)              # same FortiManager name with another IP: before a licence gets a new token
     if lic and not r.dry_run:
         lic = _licenses(topo, r, dry=False)    # real serials + tokens (under a lock), then render with the real serials
         _, _, cfg = render()
