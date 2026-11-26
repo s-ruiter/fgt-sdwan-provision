@@ -105,6 +105,37 @@ def _check_wan_layout(pve, node, specs, existing):
                                "added, removed or reordered: run Cleanup first, then deploy again")
 
 
+def fmg_note(ip):
+    """Proxmox notes of a FortiManager VM: the address its Day-0 config gave it (read back by check_fmg_reuse)."""
+    return f"fgt-sdwan FortiManager ip={ip}"
+
+
+def check_fmg_reuse(pve, topo, known=None):
+    """The FortiManager is known by its hostname (VM name and FortiFlex licence). A VM of that name is reused, and a
+    reused VM keeps its own Day-0 config: with another IP the deployment would wait in vain. Stop before anything is
+    touched. The address comes from the VM's notes; for an older VM without them from `known` ({hostname: address}
+    remembered by the tool); unknown = reuse as before. Raises PveError."""
+    from .model import pve_name, split_cidr
+    name = topo["fmgr"].get("name") or "fmg"
+    pn = pve_name(topo, name)
+    vms = {v["name"]: v for v in pve.find_vms(TAG)}
+    v = vms.get(pn) or vms.get(name)
+    want = split_cidr(topo["fmgr"].get("ip") or "")[0]
+    if not v or not want:
+        return
+    try:
+        note = str((pve.vm_config(topo["pve"]["node"], int(v["vmid"])) or {}).get("description") or "")
+    except PveError:
+        return
+    m = re.search(r"fgt-sdwan FortiManager ip=([0-9.]+)", note)
+    have = m.group(1) if m else (known or {}).get(name)
+    if have and have != want:
+        raise PveError(f"{v['name']} (VM {v['vmid']}) is a FortiManager with IP {have}; this deployment wants {want} for "
+                       f"the same name, and would reuse that VM. For a second FortiManager give it its own hostname "
+                       f"(FortiManager card, e.g. {name}2): it gets its own VM and licence. To redeploy this one, keep "
+                       f"IP {have}, or run Cleanup first.")
+
+
 def deploy_names(t, scope, fmg_vm=None, fgt_vm=None):
     """Names of everything a deployment creates on Proxmox, in the order of its id block: FortiManager, wan-emu,
     hubs, spokes, LAN clients. fmg_vm / fgt_vm default to what the scope deploys (the pipeline passes the methods)."""
@@ -162,7 +193,7 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which, lice
         lic = licenses.get(f.get("name") or "fmg")
         specs.append({"name": f.get("name") or "fmg", "pve_name": pve_name(topo, f.get("name") or "fmg"), "role": "fmg", "cores": fm["cores"], "memory_mb": fm["memory_mb"],
                       "nics": [{"bridge": fm.get("bridge") or cfg["default_bridge"], "vlan": fm.get("vlan")}],
-                      "extra_disks": [fm["data_disk_gb"]], "license": lic,
+                      "extra_disks": [fm["data_disk_gb"]], "license": lic, "ip": f.get("ip") or "",
                       "user_data": cloudinit.build_user_data(cli, None if lic else fmg_token, cloudinit.license_mode("fmg", mode))})
     else:
         fg = cfg["fgt"]
@@ -190,6 +221,8 @@ def vm_params(spec, cfg, import_volid, iso_volid):
     # serial console: the tool's console (Proxmox termproxy needs serial0) and a text console with paste in the
     # Proxmox GUI; FortiOS and FortiManager both log in on serial0 (tested: 'site1-3 login:', 'fmg login:')
     p["serial0"], p["vga"] = "socket", "serial0"
+    if spec.get("role") == "fmg" and spec.get("ip"):
+        p["description"] = fmg_note(spec["ip"])
     if iso_volid:
         p["ide2"] = f"{iso_volid},media=cdrom"
     for i, gb in enumerate(spec["extra_disks"], start=1):
