@@ -14,7 +14,7 @@ import time
 
 import paramiko
 
-from . import model
+from . import cancel, model
 from .model import split_cidr
 
 PROMPT = re.compile(r"(?m)^\S+(?: \([^)\n]*\))? # ?$")
@@ -241,7 +241,7 @@ def wait_tcp(host, port, up, timeout):
         except OSError:
             if not up:
                 return True
-        time.sleep(2)
+        cancel.sleep(2)
     return False
 
 

@@ -5,6 +5,8 @@ from pathlib import Path
 import requests
 import urllib3
 
+from . import cancel
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 CHUNK = 1024 * 1024
 
@@ -238,7 +240,7 @@ class Pve:
             except PveError as e:
                 if (e.status is None or e.status >= 500) and errors < 5:
                     errors += 1
-                    time.sleep(self.poll)
+                    cancel.sleep(self.poll)
                     continue
                 raise
             if st.get("status") == "stopped":
@@ -247,4 +249,4 @@ class Pve:
                 return
             if time.monotonic() > end:
                 raise PveError("timeout while waiting for the Proxmox task")
-            time.sleep(self.poll)
+            cancel.sleep(self.poll)

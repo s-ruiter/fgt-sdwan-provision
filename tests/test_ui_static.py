@@ -371,3 +371,24 @@ ck = js[js.index('$("#wanemu-fgts").addEventListener("click"'):]
 assert "[data-copy]" in ck[:900] and "copyText(" in ck[:900]
 assert ".acc-row" in css and "grid-template-columns" in css[css.index(".acc-row"):css.index(".acc-row") + 300]
 print("OK  UI: Remote access gegroepeerd in kolommen; klik op IP/SSH-commando = kopiëren")
+
+# Simple: only "Everything"; the other choices are Advanced (and a non-Everything choice switches to Advanced)
+import re as _re
+for v in ("fmg", "fgt", "dev", "tpl", "lan"):
+    m = _re.search(r'<div class="([^"]*)"><input type="radio" name="scope" id="scope_%s"' % v, html)
+    assert m and "adv" in m.group(1).split(), f"scope {v} only in Advanced"
+m = _re.search(r'<div class="([^"]*)"><input type="radio" name="scope" id="scope_all"', html)
+assert m and "adv" not in m.group(1).split(), "Everything stays in Simple"
+ms = js[js.index("function modeSet("):js.index("function modeNote(")]
+assert 'scope_all' in ms and "scopeApply()" in ms, "Simple puts the choice back on Everything"
+sa = js[js.index("function scopeApply("):js.index("function scopeInit(")]
+assert 'modeSet("advanced")' in sa, "a loaded non-Everything choice opens Advanced"
+
+# progress page: cancel a running deployment
+assert 'id="p_cancel"' in html
+pc = js[js.index('$("#p_cancel").onclick'):][:900]
+assert "/cancel" in pc and "confirm(" in pc
+po = js[js.index("async function progressOpen("):js.index("async function bannerLoad(")]
+assert '"cancelled"' in po and "p_cancel" in po
+assert ".st-cancelled" in css
+print("OK  UI: Simple = alleen Everything; annuleren op de voortgangspagina")
