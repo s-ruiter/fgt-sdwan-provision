@@ -797,7 +797,8 @@ async function wanFwdLoad() {
     `</span>` + (d.ssh ? `<button class="acc-copy acc-cmd mono" data-copy="${esc(d.ssh)}" title="Copy: ${esc(d.ssh)}">${esc(d.ssh)}</button>` : "<span></span>") + `</div>`;
   const group = (title, list) => (list.length ? `<div class="acc-group"><h3>${title}</h3>${list.join("")}</div>` : "");
   const port = (d) => ((d.gui || "").match(/:(\d+)\/?$/) || [])[1];
-  const rows = group("FortiManager", j.fmg ? [row(j.fmg, "@fmg", "direct")] : []) +
+  const fmgs = j.fmgs || (j.fmg ? [{ ...j.fmg, key: "@fmg" }] : []);
+  const rows = group(fmgs.length > 1 ? "FortiManagers" : "FortiManager", fmgs.map((f) => row(f, f.key, "direct"))) +
     group("FortiGates", j.fgts.map((f) => row(f, f.name, port(f) ? `via wan-emu :${port(f)}` : "via wan-emu"))) +
     group("LAN clients", (j.clients || []).map((c) => row(c, c.name, `LAN of ${c.spoke}`)));
   $("#wanemu-fgts").innerHTML = rows || '<div class="hint">Nothing deployed yet: deploy the FortiManager and FortiGates first.</div>';
@@ -823,7 +824,7 @@ function loadOnce(tag, attrs) {
 // sessions: several terminals (SSH via /api/term, Proxmox console via /api/console) in tabs; minimize keeps them open
 const SESS = new Map();
 let SESS_CUR = null, XTERM_OK = false;
-const sessLabel = (n) => (n === "@fmg" ? "FortiManager" : n);
+const sessLabel = (n) => (n === "@fmg" ? "FortiManager" : n.startsWith("@fmg:") ? n.slice(5) : n);
 function sessTabs() {
   const tab = (s) => `<button data-stab="${esc(s.key)}" class="${s.key === SESS_CUR ? "on" : ""} ${s.closed ? "closed" : ""}">${esc(s.title)}<span class="x" data-sclose="${esc(s.key)}" title="End this session">×</span></button>`;
   $("#sess_tabs").innerHTML = [...SESS.values()].map(tab).join("");

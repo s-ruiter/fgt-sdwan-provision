@@ -365,7 +365,7 @@ print("OK  UI: update-badge ook zonder refresh")
 # Remote access: grouped (FortiManager / FortiGates / LAN clients), aligned columns, click the IP (or the SSH command) to copy it
 wf = js[js.index("async function wanFwdLoad()"):js.index("async function copyText(")]
 for g in ("FortiManager", "FortiGates", "LAN clients"):
-    assert f">{g}<" in wf or f'"{g}"' in wf, g
+    assert f">{g}<" in wf or f'"{g}"' in wf or f'"{g}s"' in wf, g
 assert 'data-copy="${esc(d.ip)}"' in wf and 'data-copy="${esc(d.ssh)}"' in wf, "IP en SSH-commando klikbaar"
 ck = js[js.index('$("#wanemu-fgts").addEventListener("click"'):]
 assert "[data-copy]" in ck[:900] and "copyText(" in ck[:900]

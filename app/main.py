@@ -188,8 +188,7 @@ def _check_fmg_reuse(topo, r):
     from .pve import PveError
     if r.scope not in ("all", "fmg") or _method(r.bootstrap.fmg) != "day0":
         return
-    fm = _creds().get("fmg") or {}
-    known = {fm["name"]: fm["host"]} if fm.get("name") and fm.get("host") else {}
+    known = _fmg_known(_creds())
     try:
         pv.check_fmg_reuse(pv.make_pve(topo["pve"], r.secrets.pve_token_secret), topo, known)
     except PveError as e:
@@ -589,6 +588,51 @@ def _creds():
         return {}
 
 
+def _fmg_list(cr):
+    """Kept FortiManager logins, one per hostname, in deployment order (an older version kept a single 'fmg')."""
+    out = dict(cr.get("fmgs") or {})
+    old = cr.get("fmg") or {}
+    if old.get("host") and (old.get("name") or "fmg") not in out:
+        out = {old.get("name") or "fmg": old, **out}
+    return [dict(v, name=k) for k, v in out.items() if v.get("host")]
+
+
+def _fmg_find(cr, key):
+    """'@fmg:<name>' or the plain hostname; '@fmg' alone = the FortiManager deployed last. None if unknown."""
+    fl = _fmg_list(cr)
+    if key == "@fmg":
+        last = cr.get("fmg_last")
+        return next((f for f in fl if f["name"] == last), fl[-1] if fl else None)
+    name = key[5:] if key.startswith("@fmg:") else key
+    return next((f for f in fl if f["name"] == name), None)
+
+
+def _fmg_known(cr):
+    return {f["name"]: f["host"] for f in _fmg_list(cr)}
+
+
+def _remember_fmg(cr, rec):
+    """Keep this FortiManager's login next to the others (same hostname = replaced) and store the logins."""
+    fm = {f["name"]: {k: v for k, v in f.items() if k != "name"} for f in _fmg_list(cr)}
+    fm[rec["name"]] = {k: v for k, v in rec.items() if k != "name"}      # a redeploy keeps its place in the list
+    cr.pop("fmg", None)
+    cr["fmgs"], cr["fmg_last"] = fm, rec["name"]
+    db.put_secret(db.connect(DATA_DIR), "access_creds", json.dumps(cr))
+    return cr
+
+
+def _forget_fmgs(cr, results):
+    """Cleanup: drop the logins of the FortiManagers whose VM was deleted; the others stay."""
+    gone_vm = lambda f: any(r["kind"] == "vm" and r["ok"] and (r["name"] in (f["name"], f.get("vm")) or
+                                                              r["name"].endswith("-" + f["name"])) for r in results)
+    keep = {f["name"]: {k: v for k, v in f.items() if k != "name"} for f in _fmg_list(cr) if not gone_vm(f)}
+    for k in ("fmg", "fmgs", "fmg_last"):
+        cr.pop(k, None)
+    if keep:
+        cr["fmgs"], cr["fmg_last"] = keep, list(keep)[-1]
+    return cr
+
+
 def _forwards():
     raw = db.get_secret(db.connect(DATA_DIR), "wanemu_forwards")
     return json.loads(raw) if raw else {"host": "", "forwards": []}
@@ -619,17 +663,18 @@ def _console_keep(topo):
 def access():
     """What the Access page lists: GUI URL + SSH command per device; whether the tool knows the password."""
     cr, fw = _creds(), _forwards()
-    fm = cr.get("fmg") or {}
-    fmg = ({"name": fm.get("name") or "FortiManager", "ip": fm["host"], "gui": f"https://{fm['host']}/",
-            "ssh": f"ssh {fm.get('user') or 'admin'}@{fm['host']}", "password": bool(fm.get("password"))}
-           if fm.get("host") else None)
+    fmgs = [{"name": f["name"], "key": "@fmg:" + f["name"], "ip": f["host"], "gui": f"https://{f['host']}/",
+             "ssh": f"ssh {f.get('user') or 'admin'}@{f['host']}", "password": bool(f.get("password"))}
+            for f in _fmg_list(cr)]
+    last = _fmg_find(cr, "@fmg")
+    fmg = next(({k: v for k, v in f.items() if k != "key"} for f in fmgs if last and f["name"] == last["name"]), None)
     fg = cr.get("fgt") or {}
     fgts = [{"name": f["name"], "ip": f["ip"], "gui": f"https://{fw['host']}:{f['https']}/",
              "ssh": f"ssh -p {f['ssh']} {fg.get('user') or 'admin'}@{fw['host']}", "password": bool(fg.get("password"))}
             for f in fw["forwards"]]
     ci = cr.get("client") or {}
     clients = [dict(x, password=bool(ci.get("password"))) for x in ci.get("list") or []]
-    return {"fmg": fmg, "fgts": fgts, "clients": clients}
+    return {"fmg": fmg, "fmgs": fmgs, "fgts": fgts, "clients": clients}
 
 
 class AccessName(BaseModel):
@@ -640,8 +685,8 @@ class AccessName(BaseModel):
 def access_password(a: AccessName):
     """The kept admin login of one device, for the copy-password button (only on request)."""
     cr, fw = _creds(), _forwards()
-    fm, fg = cr.get("fmg") or {}, cr.get("fgt") or {}
-    if a.name in ("fmg", "@fmg", fm.get("name")) and fm.get("password"):
+    fm, fg = _fmg_find(cr, a.name) or ({} if a.name != "fmg" else _fmg_find(cr, "@fmg") or {}), cr.get("fgt") or {}
+    if fm.get("password"):
         return {"user": fm.get("user") or "admin", "password": fm["password"]}
     if any(f["name"] == a.name for f in fw["forwards"]) and fg.get("password"):
         return {"user": fg.get("user") or "admin", "password": fg["password"]}
@@ -706,8 +751,8 @@ async def term(ws: WebSocket, name: str):
             await say("invalid start message")
             return await close()
         cr = _creds()
-        if name == "@fmg":
-            fm = cr.get("fmg") or {}
+        if name.startswith("@fmg"):
+            fm = _fmg_find(cr, name) or {}
             if not fm.get("host"):
                 await say("unknown device FortiManager: deploy first")
                 return await close()
@@ -787,20 +832,25 @@ def _console_target(name):
         raise _console.ConsoleError("the Proxmox server of the deployment no longer exists in the tool")
     cr = _creds()
     clients = {x["name"] for x in (cr.get("client") or {}).get("list") or []}
-    if name == "@fmg" and (cr.get("fmg") or {}).get("host"):
-        fm = cr["fmg"]
-        dev, kept = fm.get("name") or "fmg", fm
+    fm = _fmg_find(cr, name) if name.startswith("@fmg") else None
+    if fm:
+        if fm.get("vm"):                        # the Proxmox name it was deployed with (its own name prefix)
+            return fm["vm"], row, _console_cons(tgt), fm
+        dev, kept = fm["name"], fm
     elif name in clients:
         dev, kept = name, cr.get("client") or {}
     elif any(f["name"] == name for f in _forwards()["forwards"]):
         dev, kept = name, cr.get("fgt") or {}
     else:                                       # only devices of this deployment, never an arbitrary VM/CT
         raise _console.ConsoleError(f"unknown device {name}: not part of the deployment")
+    return (tgt.get("prefix") or "") + dev, row, _console_cons(tgt), kept
+
+
+def _console_cons(tgt):
     try:
-        cons = db.get_console(db.connect(DATA_DIR), tgt["server_id"], DATA_DIR)
+        return db.get_console(db.connect(DATA_DIR), tgt["server_id"], DATA_DIR)
     except ValueError as e:
         raise _console.ConsoleError(str(e)) from None
-    return (tgt.get("prefix") or "") + dev, row, cons, kept
 
 
 @app.websocket("/api/console/{name}")
@@ -1291,9 +1341,7 @@ def cleanup_run(c: CleanupReq):
             for k in ("wanemu_addr", "wanemu_forwards"):
                 db.put_secret(conn, k, "")
         cr = _creds()                                        # remote access: forget logins of deleted devices
-        fmn = (cr.get("fmg") or {}).get("name")
-        if fmn and any(r["kind"] == "vm" and r["ok"] and (r["name"] == fmn or r["name"].endswith("-" + fmn)) for r in results):
-            cr.pop("fmg", None)
+        _forget_fmgs(cr, results)
         if gone_ct("wan-emu"):
             cr.pop("fgt", None)
         if any(r["kind"] == "ct" and r["ok"] and "client-" in r["name"] for r in results):
@@ -1373,9 +1421,10 @@ def deploy(r: DeployReq):
             "licenses": _licence_bytes(topo, r) if _files_mode() else {}}
     if not r.dry_run:                                  # remote access page: admin logins (database 0600)
         cr = _creds()
-        if r.fmg.password and topo["fmgr"].get("ip"):
-            cr["fmg"] = {"name": topo["fmgr"].get("name") or "FortiManager", "host": model.split_cidr(topo["fmgr"]["ip"])[0],
-                         "user": s.admin_user or "admin", "password": r.fmg.password}
+        if r.fmg.password and topo["fmgr"].get("ip"):       # next to FortiManagers deployed before (one per hostname)
+            fn = topo["fmgr"].get("name") or "fmg"
+            _remember_fmg(cr, {"name": fn, "host": model.split_cidr(topo["fmgr"]["ip"])[0], "user": s.admin_user or "admin",
+                               "password": r.fmg.password, "vm": model.pve_name(topo, fn) if r.scope in ("all", "fmg") else ""})
         if boot["fgt"] == "day0" and r.scope in ("all", "fgt") and s.fgt_new_pw:
             cr["fgt"] = {"user": s.admin_user or "admin", "password": s.fgt_new_pw}
         if s.client_pw and (r.scope == "lan" or (boot["fgt"] == "day0" and r.scope in ("all", "fgt"))):
