@@ -134,3 +134,14 @@ f = Fmg(NAMES); f.dry = True                                                    
 fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda *a: None)
 assert not any(u.endswith("internet-service-name") for _, u, _ in f.calls) and "_isdb_names" not in str(f.calls)
 print("OK  ISDB: vaste namen gecontroleerd tegen de FortiManager; ontbrekende naam weggelaten met melding")
+
+# Failures Before Inactive (failtime) 3 on every health-check a spoke runs itself (HUB, Internet; one or two WANs);
+# the hubs' EDGE check is detect-mode remote (measured by the spokes): no failtime there
+for multi in (True, False):
+    for r in ft.build_plan(topo(multi), ORCH)["roles"]:
+        for h in r["sdwan"].get("health-check", []):
+            if h.get("detect-mode") == "remote":
+                assert "failtime" not in h, (r["name"], h["name"])
+            else:
+                assert h.get("failtime") == 3, (r["name"], h["name"], h.get("failtime"))
+print("OK  SLA: Failures Before Inactive 3 op de health-checks van de spokes")
