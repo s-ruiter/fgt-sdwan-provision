@@ -434,3 +434,7 @@ body.dash-full #sess_panel { z-index: 100; }
 .sess-wan { margin: 0 0 10px; align-items: center; }
 .sess-wan .hint { margin: 0; }
 .sess-wan button.on { background: #d97706; border-color: #d97706; color: #fff; }
+.sess-wan { flex-wrap: wrap; }
+.sess-ips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
+.sess-ips .acc-copy { margin: 0; }
+.dash-tgmsg:empty { display: none; }

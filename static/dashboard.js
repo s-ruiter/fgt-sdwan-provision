@@ -71,14 +71,15 @@ const DASH_DEFS = `<defs>
 <circle cx="32" cy="27" r="15" fill="#fff" stroke="#4a4a4a" stroke-width="2"/>
 <path d="M32 15c5 6 9 9 9 15a9 9 0 0 1-18 0c0-4 2-6 4-8 0 3 1 5 3 5-1-4 0-8 2-12z" fill="#d52b1e" stroke="#4a4a4a" stroke-width="1.5"/>
 <path d="M32 26c2 3 4 4 4 7a4 4 0 0 1-8 0c0-2 2-4 4-7z" fill="#fff"/></symbol>
-<symbol id="ic-fmg" viewBox="0 0 64 54"><rect x="4" y="4" width="56" height="46" rx="6" fill="var(--card)" stroke="#4a4a4a" stroke-width="2"/>
-<rect x="12" y="13" width="40" height="7" rx="2" fill="#d52b1e"/><rect x="12" y="24" width="40" height="7" rx="2" fill="#4a4a4a"/><rect x="12" y="35" width="40" height="7" rx="2" fill="#4a4a4a"/></symbol>
+<symbol id="ic-fmg" viewBox="0 0 64 64"><rect x="10" y="8" width="44" height="54" rx="5" fill="#fff" stroke="#4a4a4a" stroke-width="3"/>
+<path d="M27 8a5 5 0 0 1 10 0" fill="none" stroke="#4a4a4a" stroke-width="3"/><path d="M21 8H43L40 17H24Z" fill="#d52b1e" stroke="#4a4a4a" stroke-width="2.5" stroke-linejoin="round"/>
+<g stroke="#4a4a4a" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="26" x2="45" y2="26"/><line x1="19" y1="32" x2="45" y2="32"/><line x1="19" y1="38" x2="45" y2="38"/><line x1="19" y1="44" x2="45" y2="44"/><line x1="19" y1="50" x2="45" y2="50"/><line x1="19" y1="56" x2="31" y2="56"/></g></symbol>
 <symbol id="ic-srv" viewBox="0 0 64 54"><rect x="14" y="2" width="36" height="50" rx="5" fill="var(--card)" stroke="#4a4a4a" stroke-width="2"/>
 <path d="M20 12H44M20 20H44M20 28H44" stroke="#4a4a4a" stroke-width="2"/><circle cx="32" cy="42" r="3" fill="#4a4a4a"/></symbol>
 <symbol id="ic-pc" viewBox="0 0 64 54"><rect x="8" y="4" width="48" height="32" rx="4" fill="var(--card)" stroke="#4a4a4a" stroke-width="2"/>
 <path d="M24 46H40M32 36V46" stroke="#4a4a4a" stroke-width="3"/></symbol>
 </defs>`;
-const DASH_IC = { fgt: ["ic-fgt", 64, 54], fmg: ["ic-fmg", 52, 44], wanemu: ["ic-srv", 44, 38], client: ["ic-pc", 40, 34], tgen: ["ic-pc", 40, 34] };
+const DASH_IC = { fgt: ["ic-fgt", 64, 54], fmg: ["ic-fmg", 48, 48], wanemu: ["ic-srv", 44, 38], client: ["ic-pc", 40, 34], tgen: ["ic-pc", 40, 34] };
 
 function dashSvg(m) {
   const at = {};
@@ -115,7 +116,8 @@ function dashDevicePanel(n) {
   const head = `<div class="dash-ph"><div><b>${dEsc(n.name)}</b><span class="hint">${n.kind === "fgt" ? n.role : DASH_KIND[n.kind] || ""}</span></div><button class="icon" data-dclose="1" title="Close" aria-label="Close">✕</button></div>`;
   let body;
   if (n.kind === "tgen") {
-    body = `<div class="btnrow">${a && a.gui ? `<a href="${dEsc(a.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` : ""}<a href="#/traffic"><button>Traffic tab</button></a></div>`;
+    body = `<div class="btnrow"><button class="primary" data-tgstart="1" title="Start traffic with the settings saved on the Traffic tab">▶ Start traffic</button><button data-tgstop="1">■ Stop</button></div><div class="hint dash-tgmsg"></div>` +
+      `<div class="btnrow">${a && a.gui ? `<a href="${dEsc(a.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` : ""}<a href="#/traffic"><button>Traffic tab</button></a></div>`;
   } else if (!a) {
     body = `<div class="hint">No connection data for this device in the tool (it keeps them for what it deployed itself). The WAN links below can still be changed.</div>`;
   } else {
@@ -196,6 +198,8 @@ $("#dash-panel").addEventListener("click", async (e) => {
   if (e.target.closest("[data-dclose]")) return dashSelect(null);
   const oe = e.target.closest("[data-openedge]");
   if (oe) return dashSelect({ type: "edge", id: oe.dataset.openedge });
+  const tg = e.target.closest("[data-tgstart],[data-tgstop]");
+  if (tg) return dashTraffic(tg);
   const nb = e.target.closest("[data-dneutral]");
   if (nb) {
     const box = nb.closest("[data-dl]");
@@ -221,3 +225,22 @@ document.addEventListener("fullscreenchange", () => {
   document.body.classList.toggle("dash-full", on);
   $("#dash-full").textContent = on ? "Exit full screen" : "Full screen";
 });
+// Traffic-Gen from the picture: start with the settings saved on the Traffic tab (its default), or stop
+async function dashTraffic(b) {
+  const msg = (t) => { const el = document.querySelector("#dash-panel .dash-tgmsg"); if (el) el.textContent = t; };
+  b.disabled = true;
+  try {
+    let r;
+    if (b.dataset.tgstart) {
+      const c = await fetch("/api/traffic/config", { cache: "no-store" }), cfg = await json(c);
+      if (!c.ok) throw new Error(typeof cfg.detail === "string" ? cfg.detail : "Traffic-Gen settings not readable");
+      const body = {};
+      for (const k of ["duration_minutes", "threads_per_ip", "intensity", "groups"]) if (cfg[k] !== undefined) body[k] = cfg[k];
+      r = await post("/api/traffic/start", body);
+    } else r = await post("/api/traffic/stop", {});
+    const j = await json(r);
+    if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : `HTTP ${r.status}`);
+    msg(b.dataset.tgstart ? "✓ Traffic started (settings of the Traffic tab)" : "✓ Traffic stopped");
+  } catch (e) { msg("✕ " + e.message); }
+  b.disabled = false;
+}
