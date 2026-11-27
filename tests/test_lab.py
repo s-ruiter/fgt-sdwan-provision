@@ -101,3 +101,98 @@ main.db.put_secret(main.db.connect(main.DATA_DIR), "fortiflex_password", "x")
 _, found = main._licences_for({"SDW-site1-H1", "SDW-fmg"})
 assert sorted(e["serialNumber"] for e in found) == ["FGVMH1", "FMVM1"], found
 print("OK  cleanup: licenties gevonden ook met een naamprefix")
+
+# ---- Task 3: stop and start flows
+import threading  # noqa: E402
+from app import cancel  # noqa: E402
+from app.pve import PveError  # noqa: E402
+
+
+class PowerPve:
+    """Records power calls; `stubborn` guests ignore a graceful shutdown (the task fails), `broken` fail to start."""
+    def __init__(self, status, stubborn=(), broken=()):
+        self.st, self.stubborn, self.broken, self.calls = dict(status), set(stubborn), set(broken), []
+    def _status(self, vmid): return self.st[vmid]
+    vm_status = ct_status = lambda self, node, vmid: self.st[vmid]
+    def _sd(self, kind, vmid, timeout):
+        self.calls.append(("shutdown", vmid, timeout))
+        return ("fail" if vmid in self.stubborn else "ok", "off", vmid)
+    def shutdown_vm(self, node, vmid, timeout): return self._sd("vm", vmid, timeout)
+    def shutdown_ct(self, node, vmid, timeout): return self._sd("ct", vmid, timeout)
+    def stop_vm(self, node, vmid): self.calls.append(("stop", vmid)); return ("ok", "off", vmid)
+    stop_ct = stop_vm
+    def start_vm(self, node, vmid):
+        self.calls.append(("start", vmid))
+        return ("fail" if vmid in self.broken else "ok", "on", vmid)
+    start_ct = start_vm
+    def wait_task(self, node, upid, timeout=3600):
+        res, to, vmid = upid
+        if res == "fail":
+            raise PveError("task failed: guest did not stop" if to == "off" else "task failed: start")
+        self.st[vmid] = "stopped" if to == "off" else "running"
+
+
+class Flex:
+    def __init__(self, fail=()): self.calls, self.fail = [], set(fail)
+    def stop(self, sn): self.calls.append(("stop", sn))
+    def reactivate(self, sn):
+        self.calls.append(("reactivate", sn))
+        if sn in self.fail:
+            raise RuntimeError("FortiFlex said no")
+    def create_vm(self, *a, **k): raise AssertionError("never a new licence")
+    def regen_token(self, *a, **k): raise AssertionError("never a new token")
+
+
+def ev():
+    out = []
+    return out, (lambda step, st, msg: out.append((step, st, msg)))
+
+
+G = lab.inventory(InvPve(VMS, CTS, NOTES), "pve01", set())
+ST = {g["vmid"]: g["status"] for g in G}
+LIC = [{"serial": "FMVM1", "status": "ACTIVE"}, {"serial": "FGVMH1", "status": "ACTIVE"}, {"serial": "FGVM11", "status": "EXPIRED"}]
+p, f = PowerPve(ST, stubborn={113}), Flex()
+log, emit = ev()
+r = lab.stop(p, "pve01", G, LIC, f, emit, timeouts={"default": 1, "fmg": 2})
+order = [c[1] for c in p.calls if c[0] == "shutdown"]
+assert order == [118, 121, 113, 116, 112, 111], order                 # clients, tgen, FortiGates, wan-emu, FortiManager
+assert 115 not in order                                                 # already stopped: skipped
+assert ("stop", 113) in p.calls and p.calls.index(("stop", 113)) > p.calls.index(("shutdown", 113, 1))   # hard stop after
+assert ("shutdown", 111, 2) in p.calls                                  # FortiManager: its own (longer) timeout
+assert f.calls == [("stop", "FMVM1"), ("stop", "FGVMH1")], f.calls     # EXPIRED skipped; after all guests
+assert all(s == "stopped" for s in p.st.values()) and r["warnings"] >= 1
+assert any(st == "ok" for s, st, _ in log if s == "licences")
+# no FortiFlex: no licence step
+p, log2 = PowerPve(ST), None
+log2, emit2 = ev()
+lab.stop(p, "pve01", G, [], None, emit2, timeouts={"default": 1, "fmg": 1})
+assert any(s == "licences" and st == "skipped" for s, st, _ in log2), log2
+# cancel during Stop: the licences stay
+evt = threading.Event(); evt.set(); cancel.bind(evt)
+f = Flex()
+try:
+    lab.stop(PowerPve(ST), "pve01", G, LIC, f, ev()[1], timeouts={"default": 1, "fmg": 1})
+    raise SystemExit("not cancelled")
+except cancel.Cancelled:
+    pass
+cancel.bind(None)
+assert f.calls == [], f.calls
+print("OK  lab stop: volgorde, overslaan wat al uit is, netjes en anders hard, licenties pas daarna; zonder FortiFlex/annuleren geen licenties")
+
+ST2 = {k: "stopped" for k in ST}; ST2[112] = "running"                  # wan-emu already on
+LIC2 = [{"serial": "FMVM1", "status": "STOPPED"}, {"serial": "FGVMH1", "status": "STOPPED"}, {"serial": "FGVM11", "status": "ACTIVE"}]
+p, f = PowerPve(ST2, broken={121}), Flex(fail={"FGVMH1"})
+seen = []
+checks = [lambda: (seen.append(1), {"site1-H1": "up", "site1-1": "up"})[1]]        # site1-2 never comes back
+log, emit = ev()
+r = lab.start(p, "pve01", G, LIC2, f, checks, emit, timeouts={"check": 0.05, "poll": 0.01})
+assert f.calls == [("reactivate", "FMVM1"), ("reactivate", "FGVMH1")], f.calls      # only STOPPED, nothing created
+assert [c[1] for c in p.calls if c[0] == "start"] == [111, 113, 115, 116, 118, 121], p.calls   # FMG, (wan-emu on), FGTs, clients
+assert any(s == "licences" and st == "warn" and "FGVMH1" in m for s, st, m in log), log
+assert any(s == "start" and st == "warn" and "SDW-trafficgen" in m for s, st, m in log), log     # failed start: goes on
+assert any(s == "check" and st == "warn" and "site1-2" in m for s, st, m in log), log
+assert r["warnings"] >= 3 and seen
+log, emit = ev()
+lab.start(PowerPve(ST2), "pve01", G, [], None, [], emit, timeouts={"check": 0.05, "poll": 0.01})
+assert any(s == "check" and st == "skipped" for s, st, _ in log) and any(s == "licences" and st == "skipped" for s, st, _ in log)
+print("OK  lab start: alleen STOPPED reactiveren (nooit nieuw), volgorde FMG > wan-emu > FGT > clients, controle in FortiManager")
