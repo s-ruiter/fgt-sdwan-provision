@@ -5,7 +5,6 @@ Paths follow the user's Postman collection (s-ruiter/sdwan-fmg-provision); they 
 FortiManager 8.0 yet.
 """
 import copy
-import re
 
 from .fmg import FmgError
 
@@ -137,45 +136,40 @@ def plan_calls(topo, plan, devices=True):
     return sorted(calls, key=lambda c: order.index(c["stage"]))      # stable: keeps order within a stage
 
 
-ISDB_PER_KEYWORD = 10
-
-
-def _norm(text):
-    return " " + re.sub(r"[-._/\s]+", " ", text.lower()).strip() + " "
-
-
 def resolve_isdb(names, plan, why=""):
-    """Turn the demo rules' keywords into internet-service names the FortiManager has (word match, at most 10 per
-    keyword); a rule without any hit is dropped. names=[] (list not available): all demo rules dropped. Returns
-    warnings. Removes every '_isdb_keywords'."""
-    norm = [(n, _norm(n)) for n in sorted(set(names or []))]
+    """Keep the spoke rules' fixed internet-service names that the FortiManager has (exact, in the given order); a
+    missing name is left out with a warning, a rule with none left is dropped. names=[] (list not available): those
+    rules dropped. Returns warnings. Removes every '_isdb_names'."""
+    have = set(names or [])
     warns, skipped_all = [], False
     for r in plan["roles"]:
         sv = r["sdwan"].get("service", [])
         keep = []
         for row in sv:
-            kws = row.pop("_isdb_keywords", None)
-            if kws is None:
+            want = row.pop("_isdb_names", None)
+            if want is None:
                 keep.append(row)
                 continue
-            if not norm:
+            if not have:
                 skipped_all = True
                 continue
-            hit = []
-            for kw in kws:
-                k = _norm(kw)
-                hit += [n for n, nn in norm if k in nn and n not in hit][:ISDB_PER_KEYWORD]
+            hit = [n for n in want if n in have]
+            miss = [n for n in want if n not in have]
             if not hit:
-                w = f"{row['name']}: no internet services found for {', '.join(kws)} (demo SD-WAN rule skipped)"
-                if w not in warns:
-                    warns.append(w)
-                continue
-            keep.append(dict(row, **{"internet-service": "enable", "internet-service-name": sorted(hit)}))
+                w = f"{row['name']}: none of {', '.join(want)} known to the FortiManager (SD-WAN rule skipped)"
+            elif miss:
+                w = f"{row['name']}: {', '.join(miss)} not known to the FortiManager (left out of the SD-WAN rule)"
+            else:
+                w = None
+            if w and w not in warns:
+                warns.append(w)
+            if hit:
+                keep.append(dict(row, **{"internet-service": "enable", "internet-service-name": hit}))
         if sv:
             r["sdwan"]["service"] = keep
     if skipped_all:
-        warns.insert(0, "demo SD-WAN rules skipped: the FortiManager's internet-service list is not available"
-                     + (f" ({why})" if why else " (empty: FortiGuard ISDB not downloaded?)"))
+        warns.insert(0, "SD-WAN rules with internet services skipped: the FortiManager's internet-service list is not "
+                     "available" + (f" ({why})" if why else " (empty: FortiGuard ISDB not downloaded?)"))
     return warns
 
 
@@ -194,15 +188,15 @@ def apply_plan(fmg, topo, plan, emit, step="templates", devices=True):
             names, why = [], f"not readable: {e}"
     if names is None:                                    # dry run: nothing is looked up, the demo rules are left out
         for r in plan["roles"]:
-            r["sdwan"]["service"] = [x for x in r["sdwan"].get("service", []) if "_isdb_keywords" not in x]
-        emit(step, "running", "dry run: the demo SD-WAN rules are matched with the FortiManager at deployment")
+            r["sdwan"]["service"] = [x for x in r["sdwan"].get("service", []) if "_isdb_names" not in x]
+        emit(step, "running", "dry run: the SD-WAN rules with internet services are checked with the FortiManager at deployment")
     else:
         for w in resolve_isdb(names, plan, why):
             emit(step, "warn", w)
         used = sorted({n for r in plan["roles"] for x in r["sdwan"].get("service", [])
                        for n in x.get("internet-service-name", [])})
         if used:
-            emit(step, "running", f"demo SD-WAN rules: internet services {', '.join(used)}")
+            emit(step, "running", f"SD-WAN rules: internet services {', '.join(used)}")
     calls = plan_calls(topo, plan, devices)
     stages = []
     for c in calls:
