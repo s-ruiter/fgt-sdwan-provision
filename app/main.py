@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, Union
 
-from . import cancel, cloudinit, db, images, model
+from . import cancel, cloudinit, db, images, lab, model
 from .bootstrap import Masker
 from .pve import Pve, PveError
 from .fmg import Fmg, FmgError, pipeline
@@ -52,7 +52,16 @@ def _get_job(jid):
     if j is not None:
         return j
     with _JOB_LOCK:
-        return db.load_job(_jobdb(), jid)
+        j = db.load_job(_jobdb(), jid)
+    return _job_kind(j) if j else j
+
+
+def _job_kind(j):
+    """A job read back from the database: a lab job is known by its steps (the store keeps no kind / step list)."""
+    for kind, defs in LAB_STEPS.items():
+        if list(j.get("steps") or {}) == [i for i, _ in defs]:
+            j.update(kind=kind, steps_def=[{"id": i, "title": t} for i, t in defs])
+    return j
 
 STEPS = [
     ("licenses", "Licences", "FortiFlex: per device reuse an existing licence (new token) or create a new one; serial number and token go into the deployment"),
@@ -1327,6 +1336,142 @@ def _licences_for(names):
                 and any(n == dev(e) or n.endswith("-" + dev(e)) for n in names)]
 
 
+def _busy_refuse(lab_only=False):
+    """One thing at a time: a deployment, a cleanup and a lab start/stop never run together (409 otherwise)."""
+    running = [j for j in JOBS.values() if j.get("state") == "running" and not j.get("dry_run")]
+    if any(str(j.get("kind", "")).startswith("lab-") for j in running):
+        raise HTTPException(409, detail=["a lab start / stop is running: wait until it is done"])
+    if lab_only:
+        return
+    if running:
+        raise HTTPException(409, detail=["a deployment is running: wait until it is done"])
+    if _CLEANUP_LOCK.locked():
+        raise HTTPException(409, detail=["a cleanup is running: wait until it is done"])
+
+
+# ---- Lab: start / stop a deployed lab (Lab tab); the licence of each VM comes from its Proxmox notes ---------------
+class LabReq(BaseModel):
+    server_id: int
+    node: str
+    serials: list = []                          # the licences the user ticked in the overview
+
+
+LAB_STEPS = {"lab-stop": [("shutdown", "Shut down"), ("licences", "FortiFlex licences")],
+             "lab-start": [("licences", "FortiFlex licences"), ("start", "Start"), ("check", "FortiGates back in FortiManager")]}
+
+
+def _lab_flex_mode():
+    if _files_mode():
+        return "files"
+    _, cfg = _flex_cfg()
+    return "fortiflex" if db.get_secret(db.connect(DATA_DIR), "fortiflex_password") and cfg["user"] else "none"
+
+
+def _lab_plan(c):
+    from .pve import PveError
+    pve = _cleanup_pve(c)
+    fmg_vms = {f.get("vm") for f in _fmg_list(_creds()) if f.get("vm")}
+    try:
+        guests = lab.inventory(pve, c.node, fmg_vms)
+        cts = [g for g in guests if g["kind"] == "ct"]
+    except PveError as e:
+        raise HTTPException(502, detail=str(e))
+    mode, lic = _lab_flex_mode(), []
+    if mode == "fortiflex":
+        _, cfg = _flex_cfg()
+        lic = lab.match_licences(guests, _tool_licenses(_flex_client(), cfg))
+    return pve, {"guests": guests, "licences": lic, "flex": mode, "prefix": lab.prefix_of(cts)}
+
+
+@app.post("/api/lab/plan")
+def lab_plan(c: LabReq):
+    return _lab_plan(c)[1]
+
+
+def _lab_fmg_checks(guests):
+    """Per FortiManager of this lab with a kept login: a callable -> {device: "up"|"down"} over all ADOMs."""
+    out = []
+    for f in _fmg_list(_creds()):
+        if not any(g["role"] == "fmg" and (g["name"] == f.get("vm") or g["device"] == f["name"]) for g in guests):
+            continue
+
+        def chk(f=f):
+            fm = Fmg(f["host"], f.get("user") or "admin", f.get("password"))
+            try:
+                rows = fm.call("get", "/dvmdb/device", fields=["name", "conn_status"]).get("data") or []
+                return {r.get("name"): "up" if r.get("conn_status") in (1, "up", "UP") else "down" for r in rows}
+            finally:
+                fm.logout()
+        out.append(chk)
+    return out
+
+
+def _lab_job(kind, c):
+    _no_update_running()
+    _busy_refuse()
+    pve, pl = _lab_plan(c)
+    known = {l["serial"]: l for l in pl["licences"]}
+    unknown = [s for s in c.serials if s not in known]
+    if unknown:
+        raise HTTPException(422, detail=[f"not a licence of this lab: {', '.join(unknown)}"])
+    chosen = [known[s] for s in dict.fromkeys(c.serials)]
+    flex = _flex_client() if pl["flex"] == "fortiflex" else None
+    guests = pl["guests"]
+    jid = uuid.uuid4().hex[:8]
+    defs = [{"id": i, "title": t} for i, t in LAB_STEPS[kind]]
+    title = ("Stop lab" if kind == "lab-stop" else "Start lab") + f" on {c.node}" + (f" ({pl['prefix'].rstrip('-')})" if pl["prefix"] else "")
+    job = {"id": jid, "kind": kind, "state": "running", "dry_run": False, "events": [], "title": title,
+           "created": time.strftime("%Y-%m-%d %H:%M:%S"), "steps_def": defs, "steps": {d["id"]: "pending" for d in defs}}
+
+    def run():
+        ev = CANCEL.setdefault(jid, threading.Event())
+        cancel.bind(ev)
+
+        def emit(step, status, msg):
+            cancel.check()
+            job["events"].append({"t": time.strftime("%H:%M:%S"), "step": step, "status": status, "msg": msg})
+            if step in job["steps"] and status != "info":
+                job["steps"][step] = status
+            _persist(job)
+        try:
+            if kind == "lab-stop":
+                lab.stop(pve, c.node, guests, chosen, flex, emit)
+            else:
+                lab.start(pve, c.node, guests, chosen, flex, _lab_fmg_checks(guests), emit)
+            job["state"] = "done"
+        except cancel.Cancelled:
+            cur = next((s for s, v in job["steps"].items() if v == "running"), None)
+            if cur:
+                job["steps"][cur] = "cancelled"
+            job["events"].append({"t": time.strftime("%H:%M:%S"), "step": cur, "status": "cancelled",
+                                  "msg": "Cancelled by the user: the guests done so far stay as they are."})
+            job["state"] = "cancelled"
+        except Exception as e:                                  # noqa: BLE001
+            cur = next((s for s, v in job["steps"].items() if v == "running"), None)
+            if cur:
+                job["steps"][cur] = "error"
+            job["events"].append({"t": time.strftime("%H:%M:%S"), "step": cur, "status": "error", "msg": str(e)})
+            job["state"] = "failed"
+        finally:
+            _persist(job)
+            CANCEL.pop(jid, None)
+            cancel.bind(None)
+    JOBS[jid] = job
+    _persist(job)
+    _start_job(job, threading.Thread(target=run, daemon=True))
+    return {"job": jid}
+
+
+@app.post("/api/lab/stop")
+def lab_stop(c: LabReq):
+    return _lab_job("lab-stop", c)
+
+
+@app.post("/api/lab/start")
+def lab_start(c: LabReq):
+    return _lab_job("lab-start", c)
+
+
 @app.post("/api/cleanup/plan")
 def cleanup_plan(c: CleanupReq):
     from . import cleanup
@@ -1348,8 +1493,7 @@ def cleanup_run(c: CleanupReq):
     from .pve import PveError
     if c.confirm != "DELETE":
         raise HTTPException(422, detail=["type DELETE to confirm"])
-    if any(j.get("state") == "running" and not j.get("dry_run") for j in JOBS.values()):
-        raise HTTPException(409, detail=["a deployment is running: wait until it is done"])
+    _busy_refuse()
     if not _CLEANUP_LOCK.acquire(blocking=False):
         raise HTTPException(409, detail=["a cleanup is already running"])
     try:
@@ -1398,6 +1542,7 @@ def deploy(r: DeployReq):
     _no_update_running()
     if _CLEANUP_LOCK.locked():
         raise HTTPException(409, detail=["a cleanup is running: wait until it is done"])
+    _busy_refuse(lab_only=True)
     topo = model.merged(r.topology)
     sid = topo["pve"].get("server_id")
     if sid:                                    # saved server: url/token-id/secret come from the database

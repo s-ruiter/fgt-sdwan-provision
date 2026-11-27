@@ -196,3 +196,60 @@ log, emit = ev()
 lab.start(PowerPve(ST2), "pve01", G, [], None, [], emit, timeouts={"check": 0.05, "poll": 0.01})
 assert any(s == "check" and st == "skipped" for s, st, _ in log) and any(s == "licences" and st == "skipped" for s, st, _ in log)
 print("OK  lab start: alleen STOPPED reactiveren (nooit nieuw), volgorde FMG > wan-emu > FGT > clients, controle in FortiManager")
+
+# ---- Task 4: endpoints as jobs, locks shared with deploy and cleanup
+import time  # noqa: E402
+
+
+class LabFake(InvPve, PowerPve):
+    def __init__(self):
+        InvPve.__init__(self, VMS, CTS, NOTES)
+        PowerPve.__init__(self, {g["vmid"]: g["status"] for g in G})
+
+
+FAKE = LabFake()
+main._cleanup_pve = lambda c: FAKE
+main._tool_licenses = lambda cl, cfg: ENTS
+main._flex_client = lambda *a, **k: Flex()
+main._creds = lambda: {}
+main.lab.TIMEOUTS.update(default=1, fmg=1, check=0.05, poll=0.01)
+pl = main.lab_plan(main.LabReq(server_id=1, node="pve01"))
+assert pl["prefix"] == "SDW-" and pl["flex"] == "fortiflex" and len(pl["guests"]) == 7, pl
+assert {l["serial"]: l["source"] for l in pl["licences"]}["FGVM12"] == "name"
+try:
+    main.lab_stop(main.LabReq(server_id=1, node="pve01", serials=["FGVM99"]))           # not a licence of this lab
+    raise SystemExit("no 422")
+except main.HTTPException as e:
+    assert e.status_code == 422, e.status_code
+jid = main.lab_stop(main.LabReq(server_id=1, node="pve01", serials=["FMVM1", "FGVMH1"]))["job"]
+job = main.JOBS[jid]
+assert job["kind"] == "lab-stop" and [s["id"] for s in job["steps_def"]] == ["shutdown", "licences"], job.get("steps_def")
+for _ in range(200):
+    if job["state"] != "running":
+        break
+    time.sleep(0.02)
+assert job["state"] == "done", (job["state"], job["events"][-3:])
+assert all(s == "stopped" for s in FAKE.st.values()) and job["steps"]["licences"] in ("ok", "warn"), job["steps"]
+# a running lab job blocks another lab job, a deployment and a cleanup (shared lock)
+main.JOBS["busy0001"] = {"id": "busy0001", "state": "running", "dry_run": False, "kind": "lab-start", "events": [], "steps": {}}
+for fn in (lambda: main.lab_start(main.LabReq(server_id=1, node="pve01", serials=[])),
+           lambda: main.cleanup_run(main.CleanupReq(server_id=1, node="pve01", confirm="DELETE"))):
+    try:
+        fn()
+        raise SystemExit("no 409")
+    except main.HTTPException as e:
+        assert e.status_code == 409, e.status_code
+assert "_busy_refuse(" in inspect.getsource(main.deploy)
+del main.JOBS["busy0001"]
+jid = main.lab_start(main.LabReq(server_id=1, node="pve01", serials=[]))["job"]
+assert [s["id"] for s in main.JOBS[jid]["steps_def"]] == ["licences", "start", "check"]
+print("OK  lab: /api/lab/plan, stop/start als taak met eigen stappen, alleen licenties van dit lab, gedeelde vergrendeling")
+# a lab job read back from the database (after a restart) still has its own steps
+for _ in range(200):
+    if main.JOBS[jid]["state"] != "running":
+        break
+    time.sleep(0.02)
+main.JOBS.pop(jid)
+back = main._get_job(jid)
+assert back and [s["id"] for s in back.get("steps_def", [])] == ["licences", "start", "check"] and back["kind"] == "lab-start", back
+print("OK  lab: taak uit de database houdt zijn eigen stappen")
