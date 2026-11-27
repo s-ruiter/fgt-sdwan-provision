@@ -51,7 +51,7 @@ def plan_calls(topo, plan, devices=True):
     add("Metadata variables", "update", f"{base}/obj/fmg/variable/vm_interface_number",
         {"name": "vm_interface_number", "value": str(VM_INTERFACE_NUMBER)}, soft=True)
 
-    # 3. system template (DNS, admin)
+    # 3. system template (DNS, admin, logging to this FortiManager)
     dns1, dns2 = plan["dns"]
     add("System template", "set", f"/pm/devprof/adom/{adom}/", [{"name": "Basic-Settings", "type": "devprof"}])
     add("System template", "set", f"{base}/devprof/Basic-Settings/device/profile/setting", {"enabled-pages": ["dns", "log", "admin"]})
@@ -60,6 +60,11 @@ def plan_calls(topo, plan, devices=True):
     if dns2:
         dns["secondary"] = dns2
     add("System template", "set", f"{base}/devprof/Basic-Settings/system/dns", dns)
+    # logs to this FortiManager, real-time (GUI: Log Settings > Send logs to FortiAnalyzer/FortiManager > This
+    # FortiManager). Field names as FMG 8.0.2 stores them; soft: a FortiManager without FortiAnalyzer features may
+    # refuse it, which must not stop the deployment
+    add("System template", "update", f"{base}/devprof/Basic-Settings/device/profile/fortianalyzer", {"target": "this-fmg"}, soft=True)
+    add("System template", "update", f"{base}/devprof/Basic-Settings/log/fortianalyzer/setting", {"upload-option": "realtime"}, soft=True)
 
     # 4. SD-WAN templates (native) + static route templates
     add("SD-WAN templates", "set", f"/pm/wanprof/adom/{adom}/", [{"name": r["name"], "type": "wanprof"} for r in roles])
