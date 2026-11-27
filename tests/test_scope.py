@@ -178,6 +178,12 @@ assert all(a["sn"] and a["device action"] == "add_model" for a in added), added 
 assert any("dynamic_mapping" in str(d) for _, _, d in bodies)                         # per-device values set
 dns = next(d for _, u, d in bodies if u.endswith("/devprof/Basic-Settings/system/dns"))
 assert dns["protocol"] == ["cleartext"] and dns["primary"] == "1.1.1.1", dns            # system template: no DoT
+# system template: the FortiGates log to this FortiManager, real-time (field names read from FMG 8.0.2 with
+# tests/probe_fmg_devprof_log.py: device/profile/fortianalyzer target 'this-fmg', log/fortianalyzer/setting upload-option)
+faz = [(m, d) for m, u, d in bodies if u.endswith("/devprof/Basic-Settings/device/profile/fortianalyzer")]
+assert faz and faz[-1][1] == {"target": "this-fmg"}, faz
+lg = [(m, d) for m, u, d in bodies if u.endswith("/devprof/Basic-Settings/log/fortianalyzer/setting")]
+assert lg and lg[-1] == ("update", {"upload-option": "realtime"}), lg
 var_maps = [m for _, u, d in bodies if "/obj/fmg/variable/" in u for m in (d or {}).get("dynamic_mapping", [])]
 assert var_maps and all(m["_scope"][0]["vdom"] == "global" for m in var_maps), var_maps[:2]   # device-level (FMG GUI)
 host = next(d for _, u, d in bodies if u.endswith("/obj/fmg/variable/hostname"))
