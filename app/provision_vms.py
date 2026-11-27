@@ -110,6 +110,31 @@ def fmg_note(ip):
     return f"fgt-sdwan FortiManager ip={ip}"
 
 
+def vm_note(role, ip="", serial=""):
+    """Proxmox notes of a tool VM: FortiManager address (check_fmg_reuse) and the licence serial of the device (Lab
+    start / stop take the licence from here, so each VM gets its own licence back). "" when there is nothing to note."""
+    parts = []
+    if role == "fmg" and ip:
+        parts.append(fmg_note(ip))
+    if serial:
+        parts.append(f"licence={serial}")
+    if not parts:
+        return ""
+    return " ".join(parts) if parts[0].startswith("fgt-sdwan") else "fgt-sdwan " + " ".join(parts)
+
+
+def note_serial(note):
+    m = re.search(r"\blicence=([A-Za-z0-9-]+)", str(note or ""))
+    return m.group(1) if m else ""
+
+
+def refresh_note(pve, node, vmid, spec):
+    """A reused VM: rewrite its notes with this deployment's serial (and FortiManager address)."""
+    note = vm_note(spec.get("role"), spec.get("ip") or "", spec.get("serial") or "")
+    if note:
+        pve.set_config(node, int(vmid), {"description": note})
+
+
 def check_fmg_reuse(pve, topo, known=None):
     """The FortiManager is known by its hostname (VM name and FortiFlex licence). A VM of that name is reused, and a
     reused VM keeps its own Day-0 config: with another IP the deployment would wait in vain. Stop before anything is
@@ -193,7 +218,7 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which, lice
         lic = licenses.get(f.get("name") or "fmg")
         specs.append({"name": f.get("name") or "fmg", "pve_name": pve_name(topo, f.get("name") or "fmg"), "role": "fmg", "cores": fm["cores"], "memory_mb": fm["memory_mb"],
                       "nics": [{"bridge": fm.get("bridge") or cfg["default_bridge"], "vlan": fm.get("vlan")}],
-                      "extra_disks": [fm["data_disk_gb"]], "license": lic, "ip": f.get("ip") or "",
+                      "extra_disks": [fm["data_disk_gb"]], "license": lic, "ip": f.get("ip") or "", "serial": (f.get("serial") or "").strip(),
                       "user_data": cloudinit.build_user_data(cli, None if lic else fmg_token, cloudinit.license_mode("fmg", mode))})
     else:
         fg = cfg["fgt"]
@@ -203,7 +228,7 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which, lice
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
             specs.append({"name": d["name"], "pve_name": pve_name(topo, d["name"]), "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
                           "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n, n + 1 if n < nh else n - nh + 1),
-                          "extra_disks": [], "license": licenses.get(d["name"]),
+                          "extra_disks": [], "license": licenses.get(d["name"]), "serial": (d.get("serial") or "").strip(),
                           "user_data": cloudinit.build_user_data(cli, None if licenses.get(d["name"]) else tokens.get(d["name"]),
                                                                  cloudinit.license_mode("fgt", mode))})
     return specs
@@ -221,8 +246,9 @@ def vm_params(spec, cfg, import_volid, iso_volid):
     # serial console: the tool's console (Proxmox termproxy needs serial0) and a text console with paste in the
     # Proxmox GUI; FortiOS and FortiManager both log in on serial0 (tested: 'site1-3 login:', 'fmg login:')
     p["serial0"], p["vga"] = "socket", "serial0"
-    if spec.get("role") == "fmg" and spec.get("ip"):
-        p["description"] = fmg_note(spec["ip"])
+    note = vm_note(spec.get("role"), spec.get("ip") or "", spec.get("serial") or "")
+    if note:
+        p["description"] = note
     if iso_volid:
         p["ide2"] = f"{iso_volid},media=cdrom"
     for i, gb in enumerate(spec["extra_disks"], start=1):
@@ -268,6 +294,10 @@ def deploy_vms(pve, cfg, specs, image_paths, emit, step, state, start=True, vmid
                 v = existing[pn]
                 state[s["name"]] = {"vmid": int(v["vmid"]), "iso_volid": None}
                 emit(step, "running", f"{pn}: exists (VMID {v['vmid']}), reused")
+                try:                                          # this deployment's licence serial in its notes
+                    refresh_note(pve, node, v["vmid"], s)
+                except PveError as e:
+                    emit(step, "warn", f"{pn}: notes not updated ({e})")
             else:
                 todo.append(s)
         import_vol = {}
