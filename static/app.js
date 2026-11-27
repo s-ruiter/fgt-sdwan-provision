@@ -271,7 +271,7 @@ function segPerDraw() {
 WAN_SEGS.forEach((k) => ["block", "vlanbase"].forEach((f) => $(`#wan-seg-${k}-${f}`).addEventListener("input", segPerDraw)));
 function draw() {
   const p = T.pve;
-  $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub; $("#sdwan_app_rules").checked = T.sdwan_app_rules !== false;
+  $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub; $("#sdwan_app_rules").checked = T.sdwan_app_rules === true;
   $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port;
   pveFill(p); wanFill(T.wanemu);
   const mv = T.region.multi_vrf !== false;

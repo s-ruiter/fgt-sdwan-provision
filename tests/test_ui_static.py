@@ -490,7 +490,12 @@ print("OK  UI: menubalk breekt geen namen af")
 # Deploy page: the "SD-WAN app rules" switch goes into the topology and back
 assert 'id="sdwan_app_rules"' in html
 assert "t.sdwan_app_rules = $(\"#sdwan_app_rules\").checked" in js
-assert '$("#sdwan_app_rules").checked = T.sdwan_app_rules !== false' in js
+assert '$("#sdwan_app_rules").checked = T.sdwan_app_rules === true' in js          # off unless chosen
+_sw = re.search(r'<div class="([^"]*)"><input type="checkbox" id="sdwan_app_rules"([^>]*)>', html)
+assert _sw and "adv" not in _sw.group(1).split() and "checked" not in _sw.group(2), "in Simple, unticked by default"
+_warn = html[html.index('id="sdwan_app_rules"'):]
+_warn = _warn[_warn.index('<div class="hint warn'):][:40]
+assert "adv" not in _warn, "the warning shows in Simple too"
 print("OK  UI: schakelaar SD-WAN app rules")
 
 # the app-rules switch warns that the deployment takes longer (FortiGuard database updates first)
