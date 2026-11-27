@@ -1322,8 +1322,9 @@ def _licences_for(names):
     if not (db.get_secret(db.connect(DATA_DIR), "fortiflex_password") and cfg["user"]):
         return None, []
     cl = _flex_client()
+    dev = lambda e: str(e.get("description", "")).split(" ")[-1]     # the device; Proxmox names may carry a prefix
     return cl, [e for e in _tool_licenses(cl, cfg) if e.get("status") in ("ACTIVE", "PENDING")
-                and str(e.get("description", "")).split(" ")[-1] in names]
+                and any(n == dev(e) or n.endswith("-" + dev(e)) for n in names)]
 
 
 @app.post("/api/cleanup/plan")

@@ -180,6 +180,13 @@ class Pve:
     def stop_vm(self, node, vmid):
         return self._req("POST", f"/nodes/{node}/qemu/{vmid}/status/stop")
 
+    def shutdown_vm(self, node, vmid, timeout):
+        """Graceful shutdown (ACPI); the task fails when the guest is not off within `timeout` s."""
+        return self._req("POST", f"/nodes/{node}/qemu/{vmid}/status/shutdown", data={"timeout": int(timeout)})
+
+    def shutdown_ct(self, node, vmid, timeout):
+        return self._req("POST", f"/nodes/{node}/lxc/{vmid}/status/shutdown", data={"timeout": int(timeout)})
+
     def list_content(self, node, storage, content):
         return self._req("GET", f"/nodes/{node}/storage/{storage}/content", params={"content": content}) or []
 
