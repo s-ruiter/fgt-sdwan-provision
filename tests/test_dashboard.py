@@ -45,6 +45,7 @@ out.labels = [dashLabel({delay_ms: 80, jitter_ms: 0, loss_pct: 2, rate_kbit: 0, 
               dashLabel({delay_ms: 0, jitter_ms: 0, loss_pct: 0, rate_kbit: 0, down: true}),
               dashLabel({delay_ms: 0, jitter_ms: 0, loss_pct: 0, rate_kbit: 0, down: false}),
               dashLabel({delay_ms: 10, jitter_ms: 5, loss_pct: 0, rate_kbit: 2000, down: false})];
+out.tgpanel = (m.nodes.find((n) => n.kind === "tgen") && dashDevicePanel(m.nodes.find((n) => n.kind === "tgen"))) || "";
 if (typeof dashDevicePanel === "function") {
   out.panels = m.nodes.filter((n) => n.kind === "fgt" || n.kind === "fmg").map((n) => [n.name, dashDevicePanel(n)]);
   const le = m.edges.find((e) => e.id === "site1-1-wan1");
@@ -142,3 +143,11 @@ print("OK  dashboard: labels botsen niet bij 3 spokes; Traffic-Gen los van de ee
 o = run(LINKS)
 assert "10.0.1.10" in o["svg"], "client IP in the picture"
 print("OK  dashboard: IP-adres onder de LAN-client")
+
+# Traffic-Gen panel: start (the saved default traffic) and stop; FortiManager icon = clipboard (red clip, text lines)
+o = run(LINKS, traffic={"deployed": True, "url": "https://10.10.106.252:8443"})
+assert "data-tgstart" in o["tgpanel"] and "data-tgstop" in o["tgpanel"], o["tgpanel"]
+fmg_ic = o["svg"][o["svg"].index('<symbol id="ic-fmg"'):]
+fmg_ic = fmg_ic[:fmg_ic.index("</symbol>")]
+assert "#d52b1e" in fmg_ic and fmg_ic.count("<line") >= 5, fmg_ic
+print("OK  dashboard: Traffic-Gen start/stop in het paneel; FortiManager-icoon = klembord")
