@@ -480,3 +480,9 @@ for sel in ('$("#cl_server").addEventListener("change"', '$("#cl_node").addEvent
     assert "LAB = null" in js[js.index(sel):js.index(sel) + 200], sel
 assert "flex_error" in js[js.index("async function labShow("):][:2500]
 print("OK  UI: Lab vergeet het overzicht bij een andere server/node; FortiFlex-fout zichtbaar")
+
+# menu bar: names never break over two lines (brand, menu items, update badge); it scrolls sideways when too narrow
+blk = lambda sel: css[css.index("\n" + sel):css.index("}", css.index("\n" + sel))]        # the rule itself, not a media query
+assert "white-space: nowrap" in blk("nav a {") and "white-space: nowrap" in blk(".brand {")
+assert "overflow-x: auto" in blk("nav {") and "flex-shrink: 0" in blk(".brand {")
+print("OK  UI: menubalk breekt geen namen af")
