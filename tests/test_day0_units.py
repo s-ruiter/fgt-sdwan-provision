@@ -272,3 +272,17 @@ if __name__ == "__main__":
     test_pve_perm_warning()
     test_ct_template()
     print("alle day-0 unit-tests geslaagd")
+
+# central-management pinned to wan1: an SD-WAN rule (Local-Breakout wan2 first) must not move the FortiManager
+# tunnel to wan2 in the middle of an install (the source address changes, FortiManager waits ~15 min per task)
+from app import model as _m  # noqa: E402
+from app.bootstrap import fgt_network_lines as _fnl  # noqa: E402
+_t = _m.merged({})
+_t["fmgr"].update(ip="10.10.106.251/24", gateway="10.10.106.1")
+for _d in _t["hubs"] + _t["edges"]:
+    _l = _fnl(_d, _t)
+    _cm = _l[_l.index("config system central-management"):]
+    _cm = _cm[:_cm.index("end")]
+    assert "set interface-select-method specify" in _cm and f'set interface "{_d["wan1_intf"]}"' in _cm, (_d["name"], _cm)
+    assert _cm.index("set interface-select-method specify") < _cm.index(f'set interface "{_d["wan1_intf"]}"')
+print("OK  Day-0: central-management via wan1 (interface-select-method specify)")
