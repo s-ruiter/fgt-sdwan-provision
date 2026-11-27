@@ -145,3 +145,11 @@ for multi in (True, False):
             else:
                 assert h.get("failtime") == 3, (r["name"], h["name"], h.get("failtime"))
 print("OK  SLA: Failures Before Inactive 3 op de health-checks van de spokes")
+
+# spokes: application detection for SD-WAN on by default (system settings, in a CLI template of every spoke role)
+for multi in (True, False):
+    for r in ft.build_plan(topo(multi), ORCH)["roles"]:
+        text = "\n".join(t for _, t, _ in r["cli"])
+        has = "config system settings" in text and "set gui-app-detection-sdwan enable" in text
+        assert has == (r["kind"] == "edge"), (r["name"], has)
+print("OK  spokes: gui-app-detection-sdwan enable (hubs niet)")

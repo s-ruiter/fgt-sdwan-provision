@@ -217,6 +217,9 @@ def _short(fname):
     return f"{m.group(1)}-{m.group(2)}" if m else fname
 
 
+EDGE_SETTINGS_CLI = "config system settings\n  set gui-app-detection-sdwan enable\nend\n"
+
+
 def mgmt_cli(dev, pe=PE_VRF):
     """ZTP/management fragment: the FMG tunnel follows the VRF move of wan1.
     No static route for a static (hub) wan1: wan1 is an SD-WAN member, so a route on it next to the SD-WAN default route
@@ -272,6 +275,8 @@ def build_plan(topo, orch_dir):
         for fname, text in s["core"].items():
             if text.strip():
                 r["cli"].append((f"{role}_{_short(fname)}", text, sorted(set(VAR_RE.findall(text)))))
+        if r["kind"] == "edge":                      # spokes: application detection for SD-WAN (GUI shows the apps)
+            r["cli"].append((f"{role}_99-Settings", EDGE_SETTINGS_CLI, []))
         sd, un1 = cli_to_json(s["sdwan"])
         fw, un2 = cli_to_json(s["firewall"])
         for u in un1 + un2:
