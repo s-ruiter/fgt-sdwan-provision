@@ -18,6 +18,7 @@ from ..model import TAG_VM
 from . import net
 
 PACKAGES = "dnsmasq nftables iproute2 python3"
+DNSMASQ_DROPIN = "[Unit]\nStartLimitIntervalSec=0\n\n[Service]\nRestart=on-failure\nRestartSec=3\n"
 AGENT_SRC = Path(__file__).with_name("agent.py")
 # not changeable on an existing container (or only meaningful at creation)
 CREATE_ONLY = {"vmid", "ostemplate", "storage", "rootfs", "unprivileged", "start", "ssh-public-keys"}
@@ -101,7 +102,10 @@ def provision(sh, t, agent_token, emit, step="pve_wan"):
     sh.put("/etc/sysctl.d/90-wan-emu.conf", SYSCTL)
     _must(sh, "sysctl -q -p /etc/sysctl.d/90-wan-emu.conf", "turning on forwarding failed")   # not --system: kernel.* is read-only in a CT
     sh.put("/etc/dnsmasq.d/wan-emu.conf", net.dnsmasq_conf(t))
-    _must(sh, "systemctl enable -q dnsmasq && systemctl restart dnsmasq", "starting dnsmasq failed")
+    # never stay down after a boot of the container (Lab start): retry until the link NICs are there
+    _must(sh, "mkdir -p /etc/systemd/system/dnsmasq.service.d", "creating the dnsmasq drop-in directory failed")
+    sh.put("/etc/systemd/system/dnsmasq.service.d/wan-emu.conf", DNSMASQ_DROPIN)
+    _must(sh, "systemctl daemon-reload && systemctl enable -q dnsmasq && systemctl restart dnsmasq", "starting dnsmasq failed")
     _must(sh, "mkdir -p /etc/wan-emu /opt/wan-emu && chmod 700 /etc/wan-emu", "creating directories failed")
     sh.put("/etc/wan-emu/topology.json", json.dumps(net.agent_topology(t), indent=1))
     sh.put("/etc/wan-emu/token", agent_token, 0o600)
