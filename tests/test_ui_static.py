@@ -486,3 +486,9 @@ blk = lambda sel: css[css.index("\n" + sel):css.index("}", css.index("\n" + sel)
 assert "white-space: nowrap" in blk("nav a {") and "white-space: nowrap" in blk(".brand {")
 assert "overflow-x: auto" in blk("nav {") and "flex-shrink: 0" in blk(".brand {")
 print("OK  UI: menubalk breekt geen namen af")
+
+# Deploy page: the "SD-WAN app rules" switch goes into the topology and back
+assert 'id="sdwan_app_rules"' in html
+assert "t.sdwan_app_rules = $(\"#sdwan_app_rules\").checked" in js
+assert '$("#sdwan_app_rules").checked = T.sdwan_app_rules !== false' in js
+print("OK  UI: schakelaar SD-WAN app rules")

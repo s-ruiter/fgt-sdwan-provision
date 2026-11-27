@@ -153,3 +153,16 @@ for multi in (True, False):
         has = "config system settings" in text and "set gui-app-detection-sdwan enable" in text
         assert has == (r["kind"] == "edge"), (r["name"], has)
 print("OK  spokes: gui-app-detection-sdwan enable (hubs niet)")
+
+# switch "SD-WAN app rules" (default on): off = no O365-Teams / Vimeo rules (no ISDB / application references);
+# Local-Breakout keeps wan2 first and the rest of the template is unchanged
+assert model.DEFAULTS["sdwan_app_rules"] is True
+for multi in (True, False):
+    t = topo(multi, one_wan=False)
+    t["sdwan_app_rules"] = False
+    r = [x for x in ft.build_plan(t, ORCH)["roles"] if x["kind"] == "edge"][0]
+    sv = {s["id"]: s for s in r["sdwan"]["service"]}
+    assert sorted(sv) == [1, 10] and "_isdb_names" not in str(r["sdwan"]), sorted(sv)
+    under = [str(m["seq-num"]) for m in r["sdwan"]["members"] if m.get("zone") == "underlay"]
+    assert sv[10]["priority-members"] == under[::-1]
+print("OK  schakelaar SD-WAN app rules uit: geen O365-Teams/Vimeo, Local-Breakout ongewijzigd")
