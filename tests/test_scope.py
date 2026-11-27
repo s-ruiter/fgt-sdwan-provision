@@ -42,12 +42,20 @@ from app.wanemu.setup import new_ssh_key  # noqa: E402
 WANEMU_KEY = new_ssh_key()
 
 
+class _FreshFgt:
+    """A FortiGate whose FortiGuard application database is already current (SD-WAN app rules, phase 2)."""
+    def run(self, line, timeout=30, shown=None):
+        return "Application Definitions\n---------\nVersion: 38.00349 signed\nLast Updated using manual update on Thu Nov 26 00:10:00 2026\n"
+    def close(self): pass
+
+
 def boot(**kw):
     b = {"dry": False, "fmg": "day0", "fgt": "day0", "fmg_token": "FMGTOKEN0123456789", "fgt_tokens": TOKS,
          "fmg_new_pw": PW, "fgt_new_pw": PW, "client_pw": "Client-pw1", "pve_secret": "pve-secret", "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
          "waiter": lambda h, p, up, tmo: True, "poll": 0, "login_delay": 0, "online_timeout": 5, "fgt_boot_timeout": 5}
     b.setdefault("wanemu_secrets", {"ssh_key": WANEMU_KEY, "agent_token": "agenttoken1234567890"})
     b.setdefault("wanemu_connector", fake_wanemu.connector(fake_wanemu.FakeShell(installed=True)))
+    b.setdefault("fgt_connector", lambda *a, **k: _FreshFgt())          # SD-WAN app rules phase 2 (SSH to the spokes)
     b.update(kw)
     return b
 
@@ -105,7 +113,9 @@ assert fake_proxmox.STATE["cts"], "alleen FortiGates (Day-0): WAN-emulator hoort
 assert any(s == "adom" and "reused" in m for s, _, m in ev)
 assert any("dynamic_mapping" in str(d) for _, _, d in mock_fmg.STATE["bodies"])        # per-device values filled now
 inst = [(u, d) for _, u, d in mock_fmg.STATE["bodies"] if u.startswith("securityconsole/")]
-assert [d["scope"][0]["name"] for u, d in inst if u.endswith("install/device")] == [x["name"] for x in devs], inst
+_qi = [d["scope"][0]["name"] for u, d in inst if u.endswith("install/device")]
+assert _qi[:len(devs)] == [x["name"] for x in devs], inst
+assert sorted(_qi[len(devs):]) == sorted(x["name"] for x in t["edges"] if x.get("wan2_intf")), _qi   # app rules: spokes once more
 assert [u for u, _ in inst][:len(devs)] == ["securityconsole/install/device"] * len(devs)             # same as model devices
 assert len([1 for u, _ in inst if u.endswith("install/package")]) == len(cfg["roles"])
 o = [s_ for s_, _, _ in ev]
@@ -226,7 +236,8 @@ print("OK  alleen model devices: bestaande FortiManager; ADOM, model devices (me
 # ---------------------------------------------------------------- everything (default) is unchanged
 fake_proxmox.reset()
 last, _ = run()
-assert names() == {"fmg", *TOKS} and all(v == "ok" for v in last.values()), (names(), last)
+assert names() == {"fmg", *TOKS} and all(v == "ok" for k, v in last.items() if k != "app_rules"), (names(), last)
+assert last["app_rules"] in ("ok", "skipped"), last          # skipped when the topology has no two-WAN spokes
 try:
     run(scope="bogus")
     raise AssertionError("moest falen")

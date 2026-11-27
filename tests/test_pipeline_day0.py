@@ -57,6 +57,13 @@ from app.wanemu.setup import new_ssh_key  # noqa: E402
 WANEMU_KEY = new_ssh_key()
 
 
+class _FreshFgt:
+    """A FortiGate whose FortiGuard application database is already current (SD-WAN app rules, phase 2)."""
+    def run(self, line, timeout=30, shown=None):
+        return "Application Definitions\n---------\nVersion: 38.00349 signed\nLast Updated using manual update on Thu Nov 26 00:10:00 2026\n"
+    def close(self): pass
+
+
 def boot(**kw):
     b = {"dry": False, "fmg": "day0", "fgt": "day0", "fmg_token": TOK_FMG, "fgt_tokens": TOKS, "fmg_new_pw": NEWPW,
          "fgt_new_pw": NEWPW, "client_pw": "Client-pw1", "pve_secret": PVE_SECRET, "images": {"fgt": str(fgt_img), "fmg": str(fmg_img)},
@@ -64,6 +71,7 @@ def boot(**kw):
          "fgt_boot_timeout": 5}
     b.setdefault("wanemu_secrets", {"ssh_key": WANEMU_KEY, "agent_token": "agenttoken1234567890"})
     b.setdefault("wanemu_connector", fake_wanemu.connector(fake_wanemu.FakeShell(installed=True)))
+    b.setdefault("fgt_connector", lambda *a, **k: _FreshFgt())          # SD-WAN app rules phase 2 (SSH to the spokes)
     b.update(kw)
     return b
 

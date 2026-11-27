@@ -77,6 +77,7 @@ STEPS = [
     ("bootstrap_fgt", "FortiGate ZTP", "Day-0: wait until they are licensed and online in FMG; or via SSH on existing VMs"),
     ("install", "Install", "Quick install (device settings) per device, then Re-install policy per role; real FortiGates once they are online"),
     ("clients", "LAN clients", "Per spoke a container on the LAN1 VLAN (.10, spoke as gateway) to test traffic; operated from the Proxmox console. Optional: Traffic-Gen in the LAN of the first spoke"),
+    ("app_rules", "SD-WAN app rules", "Spokes: FortiGuard application database updated first (execute update-now; takes 5-15 minutes longer), then the O365-Teams / Vimeo rules added and installed once more"),
 ]
 
 
