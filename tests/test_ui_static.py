@@ -492,3 +492,8 @@ assert 'id="sdwan_app_rules"' in html
 assert "t.sdwan_app_rules = $(\"#sdwan_app_rules\").checked" in js
 assert '$("#sdwan_app_rules").checked = T.sdwan_app_rules !== false' in js
 print("OK  UI: schakelaar SD-WAN app rules")
+
+# the app-rules switch warns that the deployment takes longer (FortiGuard database updates first)
+sw = html[html.index('id="sdwan_app_rules"'):html.index('id="sdwan_app_rules"') + 900]
+assert "longer" in sw and "FortiGuard" in sw, sw
+print("OK  UI: waarschuwing bij SD-WAN app rules (langere uitrol door FortiGuard-updates)")

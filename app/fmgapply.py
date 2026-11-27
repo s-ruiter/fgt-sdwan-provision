@@ -73,17 +73,8 @@ def plan_calls(topo, plan, devices=True):
     # 4. SD-WAN templates (native) + static route templates
     add("SD-WAN templates", "set", f"/pm/wanprof/adom/{adom}/", [{"name": r["name"], "type": "wanprof"} for r in roles])
     for r in roles:
-        body = copy.deepcopy(r["sdwan"])
-        advpn = {}
-        for z in body.get("zone", []):
-            for k in ("advpn-select", "advpn-health-check"):
-                if k in z:
-                    advpn.setdefault(z["name"], {})[k] = z.pop(k)
-        if not any(z["name"] == "virtual-wan-link" for z in body.get("zone", [])):
-            body.setdefault("zone", []).insert(0, {"name": "virtual-wan-link"})   # reserved zone: FMG refuses to delete it
-        add("SD-WAN templates", "update", f"{base}/wanprof/{r['name']}/system/sdwan", body)
-        for zname, vals in advpn.items():
-            add("SD-WAN templates", "update", f"{base}/wanprof/{r['name']}/system/sdwan/zone/{zname}", vals)
+        for method, url, data in sdwan_calls(base, r["name"], r["sdwan"]):
+            add("SD-WAN templates", method, url, data)
     for r in roles:
         add("Static-route templates", "set", f"/pm/template/_router_static/adom/{adom}/",
             [{"name": f"Underlay-{r['name']}", "type": "template", "template setting": {"stype": "_router_static", "widgets": ["_router_static"]}}])
@@ -182,19 +173,53 @@ def resolve_isdb(names, plan, why=""):
     return warns
 
 
+def sdwan_calls(base, role, sdwan):
+    """[(method, url, data)] that write one SD-WAN template (the ADVPN zone settings separately, as FMG wants them)."""
+    body = copy.deepcopy(sdwan)
+    advpn = {}
+    for z in body.get("zone", []):
+        for k in ("advpn-select", "advpn-health-check"):
+            if k in z:
+                advpn.setdefault(z["name"], {})[k] = z.pop(k)
+    if not any(z["name"] == "virtual-wan-link" for z in body.get("zone", [])):
+        body.setdefault("zone", []).insert(0, {"name": "virtual-wan-link"})   # reserved zone: FMG refuses to delete it
+    out = [("update", f"{base}/wanprof/{role}/system/sdwan", body)]
+    out += [("update", f"{base}/wanprof/{role}/system/sdwan/zone/{z}", v) for z, v in advpn.items()]
+    return out
+
+
+def isdb_names(fmg, topo):
+    """(names, why): the internet-service names the FortiManager has; ([], reason) when not readable."""
+    try:
+        # the ISDB entries are built-in (reserved) objects: FMG 8.0.2 returns them only with option "get reserved"
+        # (without it: 0 of 1773 entries)
+        rows = fmg.call("get", f"/pm/config/adom/{topo['adom']}/obj/firewall/internet-service-name",
+                        fields=["name"], option=["get reserved"]).get("data") or []
+        return [x["name"] for x in rows if isinstance(x, dict) and x.get("name")], ""
+    except FmgError as e:
+        return [], f"not readable: {e}"
+
+
+def apply_app_rules(fmg, topo, plan, emit, step="app_rules"):
+    """Phase 2: write the spoke SD-WAN templates again, now with the app rules kept in role["app_sdwan"] (internet
+    services checked against the FortiManager's list). Returns the names of the roles written."""
+    names, why = isdb_names(fmg, topo)
+    mini = {"roles": [{"name": r["name"], "sdwan": copy.deepcopy(r["app_sdwan"])} for r in plan["roles"] if r.get("app_sdwan")]}
+    for w in resolve_isdb(names, mini, why):
+        emit(step, "warn", w)
+    base = f"/pm/config/adom/{topo['adom']}"
+    for r in mini["roles"]:
+        for method, url, data in sdwan_calls(base, r["name"], r["sdwan"]):
+            fmg.call(method, url, data)
+    return [r["name"] for r in mini["roles"]]
+
+
 def apply_plan(fmg, topo, plan, emit, step="templates", devices=True):
     why = ""
     if fmg.dry:
         names = None
     else:
-        try:
-            # the ISDB entries are built-in (reserved) objects: FMG 8.0.2 returns them only with option "get reserved"
-            # (without it: 0 of 1773 entries)
-            rows = fmg.call("get", f"/pm/config/adom/{topo['adom']}/obj/firewall/internet-service-name",
-                            fields=["name"], option=["get reserved"]).get("data") or []
-            names = [x["name"] for x in rows if isinstance(x, dict) and x.get("name")]
-        except FmgError as e:
-            names, why = [], f"not readable: {e}"
+        names, why = isdb_names(fmg, topo)
     if names is None:                                    # dry run: nothing is looked up, the demo rules are left out
         for r in plan["roles"]:
             r["sdwan"]["service"] = [x for x in r["sdwan"].get("service", []) if "_isdb_names" not in x]

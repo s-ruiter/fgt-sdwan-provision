@@ -533,7 +533,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     _check_bridges(topo, boot, fgt_vm, fgt_vm or scope == "lan")
     if scope == "lan":                         # LAN clients only: no FortiManager, no FortiGates, no WAN emulator
         for s in ("pve_fmg", "bootstrap_fmg", "preflight", "fmg_settings", "adom", "devices", "templates", "pve_wan",
-                  "pve_fgt", "bootstrap_fgt", "install"):
+                  "pve_fgt", "bootstrap_fgt", "install", "app_rules"):
             emit(s, "skipped", "skipped (LAN clients only)")
         _clients(topo, boot, emit)
         return
@@ -611,6 +611,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
         emit("templates", "ok", f"{n} FortiManager calls done; per-device values follow with 'FortiGates only'")
         emit("install", "skipped", f"{why[scope]}: then deploy the FortiGates with 'FortiGates only'")
         emit("clients", "skipped", why_fgt)
+        emit("app_rules", "skipped", "no FortiGates in this run: the app rules are in the templates")
         return
 
     emit("devices", "running", f"adding {len(devices)} model devices")
@@ -655,7 +656,11 @@ def pipeline(topo, configs, fmg, emit, boot=None):
 
     # templates first: the model devices are complete before any real FortiGate registers against them
     from .fmgapply import apply_plan
-    emit("templates", "running", "creating templates, variables, policy packages and blueprints in the ADOM")
+    from .fmgtemplates import defer_app_rules
+    # real FortiGates (Day-0): the app rules wait for phase 2, so the first install is not slowed down by them
+    deferred = defer_app_rules(configs) if (m_fgt == "day0" and not boot.get("dry")) else []
+    emit("templates", "running", "creating templates, variables, policy packages and blueprints in the ADOM"
+         + (" (SD-WAN app rules follow at the end, after the FortiGuard update)" if deferred else ""))
     n = apply_plan(fmg, topo, configs, emit)
     emit("templates", "ok", f"{n} FortiManager calls done")
 
@@ -696,12 +701,17 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     if scope == "dev":
         install_devices(fmg, adom, configs, devices, emit)
         emit("clients", "skipped", why_fgt)
+        emit("app_rules", "skipped", "model devices only: the app rules are in the templates")
         return
     _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt)
     if m_fgt == "day0":
         _clients(topo, boot, emit)
     else:
         emit("clients", "skipped", why_fgt if m_fgt == "none" else "skipped (only with FortiGate VMs via Day-0)")
+    if deferred:
+        app_rules_phase(fmg, topo, configs, boot, emit)
+    else:
+        emit("app_rules", "skipped", "no SD-WAN app rules waiting (switch off, no two-WAN spokes, or in the templates already)")
 
 
 def _check_bridges(topo, boot, fgts, clients):
@@ -772,3 +782,97 @@ def _install_online(fmg, adom, configs, devices, names, boot, emit, m_fgt):
         return
     install_devices(fmg, adom, configs, online, emit, pending=offline)
 
+
+
+# ---- SD-WAN app rules, phase 2 ----------------------------------------------------------------------------------
+APP_UPDATE_TIMEOUT, APP_POLL = 900, 30
+
+
+def app_db(text):
+    """(version, year last updated) of 'Application Definitions' in `diagnose autoupdate versions`; ("", 0) if absent."""
+    m = re.search(r"(?m)^Application Definitions\s*\n-+\s*\n((?:.+\n?)*)", str(text or ""))
+    if not m:
+        return "", 0
+    block = m.group(1)
+    v = re.search(r"Version:\s*([0-9.]+)", block)
+    y = re.search(r"Last Updated[^\n]*?(\d{4})\s*$", block, re.M)
+    return (v.group(1) if v else ""), (int(y.group(1)) if y else 0)
+
+
+def app_rules_phase(fmg, topo, plan, boot, emit, step="app_rules"):
+    """Phase 2 of the SD-WAN app rules: per spoke (SSH via the wan-emu port forward) bring the FortiGuard application
+    database up to date (execute update-now, wait until its version changes), then put the rules in the spoke
+    templates and do one Quick install per spoke. Nothing here fails the deployment: problems are warnings."""
+    from . import bootstrap as bs, fmgapply, model
+    from .wanemu import net
+    roles = [r for r in plan["roles"] if r.get("app_sdwan")]
+    devs = [n for r in roles for n in r["devices"]]
+    emit(step, "running", "This step takes longer (often 5-15 minutes): the FortiGates first update their FortiGuard "
+                          "databases (application definitions), otherwise FortiManager needs ~15 min per spoke for the rules")
+    host = model.split_cidr(topo["wanemu"]["uplink"]["ip"])[0] if topo["wanemu"]["uplink"].get("ip") else ""
+    port = {f["name"]: f["ssh"] for f in net.forwards(topo)}
+    connect = boot.get("fgt_connector") or bs.ssh_connect
+    user, pw = boot.get("fgt_user") or "admin", boot.get("fgt_new_pw") or ""
+    cmd = 'diagnose autoupdate versions | grep -A5 "Application Definitions"'
+    this_year = int(time.strftime("%Y"))
+
+    def read(dev, update=False):
+        sh = connect(host, user, pw, port=port[dev], mask=bs.Masker(pw))
+        try:
+            out = app_db(sh.run(cmd, timeout=60))
+            if update:
+                sh.run("execute update-now", timeout=60)
+            return out
+        finally:
+            sh.close()
+
+    warn, pending = 0, {}
+    for dev in devs:
+        cancel.check()
+        try:
+            if dev not in port or not host:
+                raise RuntimeError("no SSH port forward on wan-emu")
+            ver, year = read(dev)
+            if year >= this_year - 1:
+                emit(step, "running", f"{dev}: application database {ver} is current")
+                continue
+            read(dev, update=True)
+            pending[dev] = ver
+            emit(step, "running", f"{dev}: application database {ver or '?'} ({year or '?'}): FortiGuard update started")
+        except cancel.Cancelled:
+            raise
+        except Exception as e:                                   # noqa: BLE001
+            warn += 1
+            emit(step, "warn", f"{dev}: FortiGuard update not started ({e}); its rules go in anyway (install may be slow)")
+    end = time.monotonic() + float(boot.get("app_timeout", APP_UPDATE_TIMEOUT))
+    while pending and time.monotonic() < end:
+        cancel.sleep(float(boot.get("app_poll", APP_POLL)))
+        for dev in list(pending):
+            try:
+                ver, year = read(dev)
+            except Exception:                                    # noqa: BLE001 - FortiGate busy reloading its engine
+                continue
+            if ver and (ver != pending[dev] or year >= this_year - 1):
+                emit(step, "running", f"{dev}: application database {ver}: up to date")
+                pending.pop(dev)
+    for dev in pending:
+        warn += 1
+        emit(step, "warn", f"{dev}: application database not updated in time; its rules go in anyway (install may be slow)")
+    try:
+        written = fmgapply.apply_app_rules(fmg, topo, plan, emit, step)
+        emit(step, "running", f"app rules (O365-Teams, Vimeo) in the SD-WAN template(s) {', '.join(written)}")
+    except FmgError as e:
+        emit(step, "warn", f"SD-WAN templates not updated: {e}")
+        return
+    adom = topo["adom"]
+    for dev in devs:
+        cancel.check()
+        try:
+            r = fmg.call("exec", "/securityconsole/install/device",
+                         {"adom": adom, "flags": ["none"], "scope": [{"name": dev, "vdom": "root"}]})
+            fmg.wait_task((r.get("data") or {}).get("task"))
+            emit(step, "running", f"{dev}: Quick install with the app rules done")
+        except FmgError as e:
+            warn += 1
+            emit(step, "warn", f"{dev}: Quick install with the app rules failed: {e}")
+    emit(step, "warn" if warn else "ok", "SD-WAN app rules installed" + (f" ({warn} warning(s))" if warn else ""))

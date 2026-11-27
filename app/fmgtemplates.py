@@ -370,6 +370,25 @@ LOCAL_BREAKOUT = ("Local-Breakout", "w2w1")          # local internet: wan2 firs
 INTERNET_SLA = {"id": 1, "latency-threshold": 150, "jitter-threshold": 30, "packetloss-threshold": 2}
 
 
+APP_RULE_NAMES = frozenset(r["name"] for r in DEMO_RULES)
+
+
+def defer_app_rules(plan):
+    """Phase 1 of a deployment with real FortiGates: take the app rules (internet services / application ids) out of
+    the spoke SD-WAN templates and keep the full template in role["app_sdwan"] for phase 2 (fmg.app_rules_phase).
+    A fresh FortiGate still has the application database of its firmware; installing references to it makes
+    FortiManager spend ~15 min per spoke. Returns the names of the roles that have rules waiting."""
+    import copy
+    out = []
+    for r in plan["roles"]:
+        sv = r["sdwan"].get("service", [])
+        if any(x.get("name") in APP_RULE_NAMES for x in sv):
+            r["app_sdwan"] = copy.deepcopy(r["sdwan"])
+            r["sdwan"]["service"] = [x for x in sv if x.get("name") not in APP_RULE_NAMES]
+            out.append(r["name"])
+    return out
+
+
 def add_demo_rules(sdwan, apps=True):
     """Spoke SD-WAN with two underlay members: O365-Teams after Corporate (1), Local-Breakout wan2 first, SLA on
     'Internet'."""
