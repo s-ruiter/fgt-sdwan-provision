@@ -182,7 +182,8 @@ def dnsmasq_conf(t):
     """DHCP on every spoke link (hub links are static): a small pool in its /24 and the reservation (.2) of its
     FortiGate; router = the wan-emu (.1) of that link."""
     dns = ",".join(x for x in (t.get("dns_primary"), t.get("dns_secondary")) if x)
-    lines = ["# fgt-sdwan-provision: WAN-emulator DHCP (one /24 per spoke WAN)", "port=0", "bind-interfaces",
+    lines = ["# fgt-sdwan-provision: WAN-emulator DHCP (one /24 per spoke WAN)", "port=0",
+             "bind-dynamic",      # not bind-interfaces: at boot dnsmasq may start before the last link NIC exists
              "dhcp-authoritative", "no-resolv"]
     for x in links(t):
         if x["seg"] == "hub":

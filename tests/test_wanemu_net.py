@@ -35,6 +35,9 @@ assert p["unprivileged"] == 1 and p["hostname"] == "wan-emu" and "fgt-sdwan" in 
 assert p["ostemplate"].startswith("local:vztmpl/debian-13") and p["ssh-public-keys"] == "ssh-ed25519 AAAA test"
 at = net.agent_topology(t)
 assert at["links"] == L and at["nat"] == ["100.64.0.0/16", "100.65.0.0/16", "100.66.0.0/16"]
+# boot race: dnsmasq may start before the last link NIC exists ("unknown interface eth8" -> FAILED, seen after a
+# lab start); bind-dynamic binds interfaces as they appear instead of refusing to start
+assert "bind-dynamic" in c and "bind-interfaces" not in c, c[:200]
 print("OK  netwerkfuncties: MAC stabiel, .2 per eigen /24, 8 links (eth1..eth8), dnsmasq per lijn, LXC-params, agent-topologie")
 
 # validation

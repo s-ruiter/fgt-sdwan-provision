@@ -31,6 +31,10 @@ assert ct["status"] == "running" and ct["params"]["net3"].startswith("name=eth3,
 assert ct["params"]["ssh-public-keys"] == setup.public_key(key) and con.seen[0][0] == "10.10.106.250"
 assert "apt-get install -y -q dnsmasq nftables iproute2 python3" in " ".join(sh.cmds)
 assert "dhcp-host=" in sh.files["/etc/dnsmasq.d/wan-emu.conf"][0]
+dropin = sh.files["/etc/systemd/system/dnsmasq.service.d/wan-emu.conf"][0]                 # never stays down after a boot
+assert "Restart=on-failure" in dropin and "RestartSec=" in dropin, dropin
+_i = " ".join(sh.cmds)
+assert _i.index("systemctl daemon-reload") < _i.index("systemctl restart dnsmasq"), "the drop-in is loaded before the restart"
 assert sh.files["/etc/wan-emu/token"] == ("agenttoken1234567890", 0o600)
 assert '"links"' in sh.files["/etc/wan-emu/topology.json"][0] and "def tc_commands" in sh.files["/opt/wan-emu/agent.py"][0]
 unit = sh.files["/etc/systemd/system/wan-emu-agent.service"][0]
