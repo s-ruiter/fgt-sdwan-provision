@@ -1,7 +1,6 @@
-"""Demo SD-WAN rules for the Traffic-Gen apps, always on in the SD-WAN template of spokes with two WANs:
-O365 + Collab over wan2 (Collab on SLA), streaming/social wan1 only, updates/downloads load-balanced, SaaS on the
-lowest latency. Apps are matched with ISDB internet services the FortiManager actually has (keywords resolved at
-deployment)."""
+"""SD-WAN rules of spokes with two WANs: Corporate (overlay), O365-Teams on SLA 'Internet' (wan1, then wan2) with
+three fixed internet services, Local-Breakout wan2 first. The internet-service names are checked against the
+FortiManager's list at deployment (a name it does not have is left out, with a warning)."""
 import os
 import sys
 
@@ -36,71 +35,71 @@ for multi in (True, False):
     assert edge_roles[0]["devices"] == ["site1-1", "site1-2", "site1-3"], edge_roles[0]["devices"]
 print("OK  defaults: alle spokes twee WANs, een SPOKES-template")
 
+O365 = ["Microsoft-Skype_Teams", "Microsoft-Office365", "Microsoft-Outlook"]
 for multi in (True, False):
     plan = ft.build_plan(topo(multi), ORCH)
     edges2 = [r for r in plan["roles"] if r["kind"] == "edge" and two_wan(r)]
     others = [r for r in plan["roles"] if r not in edges2]
     assert edges2 and any(r["kind"] == "edge" for r in others), [r["name"] for r in plan["roles"]]   # site1-2 has one WAN
     for r in edges2:
+        under = [str(m["seq-num"]) for m in r["sdwan"]["members"] if m.get("zone") == "underlay"]
         sv = {s["id"]: s for s in r["sdwan"]["service"]}
-        assert [s["id"] for s in r["sdwan"]["service"]] == [1, 2, 3, 4, 5, 6, 10], [s["id"] for s in r["sdwan"]["service"]]
-        assert [sv[i]["name"] for i in (2, 3, 4, 5, 6)] == ["O365", "Collab", "Streaming-Social", "Updates-Downloads", "SaaS"]
-        assert sv[2]["mode"] == "sla" and sv[2]["priority-members"] == ["2", "1"] and sv[2]["sla"] == [{"health-check": "Internet", "id": 1}]
-        assert sv[3]["mode"] == "sla" and sv[3]["priority-members"] == ["2", "1"] and sv[3]["sla"] == [{"health-check": "Internet", "id": 1}]
-        assert sv[4]["priority-members"] == ["1"]
-        assert sv[5]["mode"] == "load-balance" and sv[5]["priority-members"] == ["1", "2"] and sv[5]["sla"] == [{"health-check": "Internet", "id": 1}]
-        assert sv[6]["mode"] == "priority" and sv[6]["link-cost-factor"] == "latency" and sv[6]["health-check"] == "Internet"
-        for i in (2, 3, 4, 5, 6):
-            assert sv[i]["_isdb_keywords"] and "dst" not in sv[i], sv[i]
+        assert [s["id"] for s in r["sdwan"]["service"]] == [1, 2, 10], [s["id"] for s in r["sdwan"]["service"]]
+        assert sv[2]["name"] == "O365-Teams" and sv[2]["mode"] == "sla", sv[2]
+        assert sv[2]["priority-members"] == under and sv[2]["sla"] == [{"health-check": "Internet", "id": 1}], sv[2]
+        assert sv[2]["_isdb_names"] == O365 and "dst" not in sv[2], sv[2]
+        assert sv[10]["name"] == "Local-Breakout" and sv[10]["priority-members"] == under[::-1], sv[10]   # wan2 first
         hc = {h["name"]: h for h in r["sdwan"]["health-check"]}["Internet"]
         assert hc["sla"] == [{"id": 1, "latency-threshold": 150, "jitter-threshold": 30, "packetloss-threshold": 2}], hc
     for r in others:
         assert not any(2 <= s.get("id", 0) <= 6 for s in r["sdwan"].get("service", [])), r["name"]
+        if r["kind"] == "edge":                                   # one WAN: Local-Breakout as rendered
+            lb = [s for s in r["sdwan"]["service"] if s.get("name") == "Local-Breakout"]
+            assert all(len(s["priority-members"]) == 1 for s in lb), lb
 # member numbers come from the template's underlay members (wan1 first, wan2 second), not fixed values
 sd = {"members": [{"interface": "port1", "zone": "underlay", "seq-num": 5}, {"interface": "port2", "zone": "underlay", "seq-num": 6},
                   {"interface": "H1-WAN1", "zone": "overlay", "seq-num": 1}],
-      "health-check": [{"name": "Internet", "members": ["5", "6"]}], "service": [{"id": 1, "name": "Corporate"}, {"id": 10, "name": "x"}]}
+      "health-check": [{"name": "Internet", "members": ["5", "6"]}],
+      "service": [{"id": 1, "name": "Corporate"}, {"id": 10, "name": "Local-Breakout", "priority-members": ["5", "6"]}]}
 ft.add_demo_rules(sd)
 sv = {s["name"]: s for s in sd["service"]}
-assert sv["O365"]["priority-members"] == ["6", "5"] and sv["Streaming-Social"]["priority-members"] == ["5"]
-assert sv["Updates-Downloads"]["priority-members"] == ["5", "6"]
-print("OK  demo-regels: spokes met 2 WAN's krijgen O365/Collab/Streaming/Updates/SaaS (ids 2-6) tussen Corporate en Local-Breakout")
+assert [s["name"] for s in sd["service"]] == ["Corporate", "O365-Teams", "Local-Breakout"]
+assert sv["O365-Teams"]["priority-members"] == ["5", "6"] and sv["Local-Breakout"]["priority-members"] == ["6", "5"]
+print("OK  spokes met 2 WAN's: Corporate, O365-Teams (SLA, wan1 dan wan2), Local-Breakout wan2 eerst")
 
-# ---- resolve the keywords against the FortiManager's internet-service names at deployment
+# ---- the fixed internet-service names are checked against the FortiManager's list at deployment
 import copy  # noqa: E402
 
 from app import fmgapply  # noqa: E402
 from app.fmg import FmgError  # noqa: E402
 
-NAMES = ["Microsoft-Office365", "Microsoft-Office365.Published", "Microsoft-Teams", "Zoom.us-Zoom.Meeting",
-         "Netflix-Netflix", "Google-YouTube", "Microsoft-Xbox", "Microsoft-Windows.Update", "Ookla-Speedtest"]
+NAMES = ["Microsoft-Office365", "Microsoft-Office365.Published", "Microsoft-Skype_Teams", "Microsoft-Outlook", "Zoom.us-Zoom.Meeting"]
 base = ft.build_plan(topo(True), ORCH)
+
+
+def o365(p):
+    r = [x for x in p["roles"] if x["kind"] == "edge" and two_wan(x)][0]
+    return {s["name"]: s for s in r["sdwan"]["service"]}.get("O365-Teams")
+
+
 p = copy.deepcopy(base)
-w = fmgapply.resolve_isdb(NAMES, p)
-r = [x for x in p["roles"] if x["kind"] == "edge" and two_wan(x)][0]
-sv = {s["name"]: s for s in r["sdwan"]["service"]}
-assert sv["O365"]["internet-service"] == "enable" and sv["O365"]["internet-service-name"] == ["Microsoft-Office365", "Microsoft-Office365.Published"]
-assert sv["Collab"]["internet-service-name"] == ["Microsoft-Teams", "Zoom.us-Zoom.Meeting"], sv["Collab"]
-assert sv["Streaming-Social"]["internet-service-name"] == ["Google-YouTube", "Netflix-Netflix"]
-assert sv["Updates-Downloads"]["internet-service-name"] == ["Microsoft-Windows.Update", "Ookla-Speedtest"]
-assert "SaaS" not in sv and "Microsoft-Xbox" not in str(sv)                    # 'box' is not 'Xbox'
-assert any("SaaS: no internet services found" in x for x in w), w
-assert "_isdb_keywords" not in str(p["roles"])
-# no list from the FortiManager: all demo rules skipped, one warning, the rest unchanged
-p = copy.deepcopy(base)
+assert fmgapply.resolve_isdb(NAMES, p) == []
+assert o365(p)["internet-service"] == "enable" and o365(p)["internet-service-name"] == O365, o365(p)   # exact, in order
+assert "_isdb_names" not in str(p["roles"])
+p = copy.deepcopy(base)                                             # a name the FortiManager lacks: left out, warning
+w = fmgapply.resolve_isdb([n for n in NAMES if n != "Microsoft-Outlook"], p)
+assert o365(p)["internet-service-name"] == ["Microsoft-Skype_Teams", "Microsoft-Office365"]
+assert len(w) == 1 and "Microsoft-Outlook" in w[0] and "O365-Teams" in w[0], w
+p = copy.deepcopy(base)                                             # none of them: rule left out
+w = fmgapply.resolve_isdb(["Netflix-Netflix"], p)
+assert o365(p) is None and any("O365-Teams" in x and "skipped" in x for x in w), w
+p = copy.deepcopy(base)                                             # no list from the FortiManager
 w = fmgapply.resolve_isdb([], p)
-assert len(w) == 1 and "demo SD-WAN rules skipped" in w[0]
+assert len(w) == 1 and "skipped" in w[0] and o365(p) is None
 r = [x for x in p["roles"] if x["kind"] == "edge" and two_wan(x)][0]
 assert [s["id"] for s in r["sdwan"]["service"]] == [1, 10]
-# many hits per keyword: at most 10
-many = [f"Vendor-Netflix.{i}" for i in range(30)]
-p = copy.deepcopy(base)
-fmgapply.resolve_isdb(many, p)
-r = [x for x in p["roles"] if x["kind"] == "edge" and two_wan(x)][0]
-assert len({s["name"]: s for s in r["sdwan"]["service"]}["Streaming-Social"]["internet-service-name"]) == 10
 
 
-# apply_plan: reads the names from the ADOM first; the calls to FMG carry no keywords; a failing lookup = a warning
 class Fmg:
     dry = False
 
@@ -120,20 +119,15 @@ class Fmg:
 
 t = topo(True)
 ev = []
-for f in (Fmg(NAMES), Fmg(fail=True)):
-    ev.clear()
-    fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda st, s, m: ev.append((s, m)))
-    assert f.calls[0][1] == f"/pm/config/adom/{t['adom']}/obj/firewall/internet-service-name"
-    assert "_isdb_keywords" not in str(f.calls)
-    assert any(s == "warn" and ("SaaS" in m or "skipped" in m) for s, m in ev), ev
-    if f.fail:                                                       # one warning, with the reason
-        demo = [m for s, m in ev if s == "warn" and ("internet-service" in m or "demo" in m)]
-        assert len(demo) == 1 and "no permission" in demo[0], demo
-assert any("Microsoft-Teams" in str(d) for _, _, d in Fmg(NAMES).calls) is False   # (fresh object: nothing called)
+f = Fmg(fail=True)
+fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda st, s, m: ev.append((s, m)))
+assert f.calls[0][1] == f"/pm/config/adom/{t['adom']}/obj/firewall/internet-service-name"
+demo = [m for s, m in ev if s == "warn"]
+assert len(demo) == 1 and "no permission" in demo[0], demo
 f = Fmg(NAMES)
 fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda *a: None)
-assert any("Microsoft-Teams" in str(d) for _, _, d in f.calls)
+assert any("Microsoft-Skype_Teams" in str(d) for _, _, d in f.calls) and "_isdb_names" not in str(f.calls)
 f = Fmg(NAMES); f.dry = True                                                        # dry run: no lookup
 fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda *a: None)
-assert not any(u.endswith("internet-service-name") for _, u, _ in f.calls) and "_isdb_keywords" not in str(f.calls)
-print("OK  ISDB: zoekwoorden -> bestaande namen (max 10, woordgrens), regel zonder treffer overgeslagen, geen lijst = melding")
+assert not any(u.endswith("internet-service-name") for _, u, _ in f.calls) and "_isdb_names" not in str(f.calls)
+print("OK  ISDB: vaste namen gecontroleerd tegen de FortiManager; ontbrekende naam weggelaten met melding")

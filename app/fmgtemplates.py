@@ -340,45 +340,39 @@ def check_dyn_ifaces(plan):
                              "the device: FortiManager would abort the policy install")
 
 
-# Demo SD-WAN rules for the Traffic-Gen apps (spokes with two WANs: member 1 = wan1, member 2 = wan2). The apps are
-# matched with ISDB internet services; the keywords are resolved against the FortiManager's list at deployment
-# (fmgapply.resolve_isdb), because the exact names differ per FortiOS version.
-# member roles: "w2w1" = wan2 then wan1, "w1" = wan1 only, "w1w2" = wan1 and wan2 (filled in from the template's
-# underlay members, wan1 first). O365/Collab use SLA mode: in-SLA members in list order, so wan2 while it is good.
+# SD-WAN rules of spokes with two WANs (member 1 = wan1, member 2 = wan2): O365-Teams on SLA 'Internet', wan1 while
+# it is in SLA, else wan2, with three fixed ISDB internet services. The names are checked against the FortiManager's
+# list at deployment (fmgapply.resolve_isdb): one it does not have is left out instead of failing the install.
+# member roles: "w1w2" = wan1 then wan2, "w2w1" = wan2 then wan1 (from the template's underlay members, wan1 first).
 SLA_INTERNET = [{"health-check": "Internet", "id": 1}]
 DEMO_RULES = [
-    {"id": 2, "name": "O365", "mode": "sla", "members": "w2w1", "sla": SLA_INTERNET,
-     "keywords": ["office365", "office 365", "outlook", "sharepoint", "onedrive"]},
-    {"id": 3, "name": "Collab", "mode": "sla", "members": "w2w1", "sla": SLA_INTERNET,
-     "keywords": ["teams", "zoom", "webex", "google meet", "meet", "slack"]},
-    {"id": 4, "name": "Streaming-Social", "mode": "priority", "members": "w1", "health-check": "Internet",
-     "keywords": ["netflix", "youtube", "spotify", "disney", "prime video", "primevideo", "twitch", "facebook",
-                  "instagram", "whatsapp", "linkedin", "twitter", "tiktok", "reddit"]},
-    {"id": 5, "name": "Updates-Downloads", "mode": "load-balance", "members": "w1w2", "sla": SLA_INTERNET,
-     "keywords": ["windows update", "windowsupdate", "apple update", "software update", "speedtest", "ookla"]},
-    {"id": 6, "name": "SaaS", "mode": "priority", "members": "w1w2", "health-check": "Internet",
-     "link-cost-factor": "latency",
-     "keywords": ["salesforce", "google workspace", "gsuite", "dropbox", "box", "github", "aws", "adobe", "servicenow"]},
+    {"id": 2, "name": "O365-Teams", "mode": "sla", "members": "w1w2", "sla": SLA_INTERNET,
+     "names": ["Microsoft-Skype_Teams", "Microsoft-Office365", "Microsoft-Outlook"]},
 ]
+LOCAL_BREAKOUT = ("Local-Breakout", "w2w1")          # local internet: wan2 first
 INTERNET_SLA = {"id": 1, "latency-threshold": 150, "jitter-threshold": 30, "packetloss-threshold": 2}
 
 
 def add_demo_rules(sdwan):
-    """Spoke SD-WAN with two underlay members: demo rules between Corporate (1) and the rest; SLA on 'Internet'."""
+    """Spoke SD-WAN with two underlay members: O365-Teams after Corporate (1), Local-Breakout wan2 first, SLA on
+    'Internet'."""
     under = [str(m["seq-num"]) for m in sdwan.get("members", []) if m.get("zone") == "underlay"]
     hcs = {h["name"]: h for h in sdwan.get("health-check", [])}
     if len(under) != 2 or "Internet" not in hcs:
         return
     w1, w2 = under
-    order = {"w2w1": [w2, w1], "w1": [w1], "w1w2": [w1, w2]}
+    order = {"w2w1": [w2, w1], "w1w2": [w1, w2]}
     rows = []
     for r in DEMO_RULES:
-        row = {k: v for k, v in r.items() if k not in ("keywords", "members")}
-        row.update({"priority-members": order[r["members"]], "_isdb_keywords": list(r["keywords"])})
+        row = {k: v for k, v in r.items() if k not in ("names", "members")}
+        row.update({"priority-members": order[r["members"]], "_isdb_names": list(r["names"])})
         if "sla" in row:
             row["sla"] = [dict(x) for x in row["sla"]]
         rows.append(row)
     sv = sdwan.setdefault("service", [])
+    for x in sv:
+        if x.get("name") == LOCAL_BREAKOUT[0]:
+            x["priority-members"] = order[LOCAL_BREAKOUT[1]]
     pos = next((i + 1 for i, x in enumerate(sv) if x.get("id") == 1), 0)
     sv[pos:pos] = rows
     hcs["Internet"]["sla"] = [dict(INTERNET_SLA)]
