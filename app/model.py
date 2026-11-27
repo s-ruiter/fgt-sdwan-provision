@@ -31,7 +31,7 @@ DEFAULTS = {
     "platform": "FortiGate-VM64",
     "psk": "",
     "hub2hub": False,
-    "sdwan_app_rules": True,                # spokes: O365-Teams (ISDB) and Vimeo (application ids) SD-WAN rules
+    "sdwan_app_rules": False,               # spokes: O365-Teams (ISDB) and Vimeo (application ids) SD-WAN rules; off by default
     "lo_summary": "10.200.0.0/14",
     "dns_primary": "1.1.1.1",
     "dns_secondary": "8.8.8.8",

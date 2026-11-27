@@ -149,8 +149,8 @@
         <h2><span class="num">04</span>Topology</h2>
         <div class="opts">
           <div class="inline adv"><input type="checkbox" id="hub2hub"><label for="hub2hub">Hub-to-hub tunnels (DC-to-DC)</label></div>
-          <div class="inline adv"><input type="checkbox" id="sdwan_app_rules" checked><label for="sdwan_app_rules">SD-WAN app rules on the spokes (O365-Teams via internet services, Vimeo via application ids; off = only Corporate and Local-Breakout)</label></div>
-          <div class="hint warn adv">⚠ With the app rules on, the deployment takes longer (often 5–15 minutes): at the end the spokes first update their FortiGuard databases (application definitions), then the rules are added and installed once more. Without that update FortiManager needs about 15 minutes per spoke for these rules.</div>
+          <div class="inline"><input type="checkbox" id="sdwan_app_rules"><label for="sdwan_app_rules">SD-WAN app rules on the spokes (O365-Teams via internet services, Vimeo via application ids; off = only Corporate and Local-Breakout)</label></div>
+          <div class="hint warn">⚠ With the app rules on, the deployment takes longer (often 5–15 minutes): at the end the spokes first update their FortiGuard databases (application definitions), then the rules are added and installed once more. Without that update FortiManager needs about 15 minutes per spoke for these rules.</div>
           <div class="inline"><input type="checkbox" id="r_multi"><label for="r_multi">Multi-VRF (PE-VRF 1 + customer VRFs leaking to the PE-VRF; off = classic single-VRF, one LAN per device, everything in VRF 0)</label></div>
         </div>
         <div class="adv">

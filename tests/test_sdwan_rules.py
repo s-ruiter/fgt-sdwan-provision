@@ -11,7 +11,7 @@ ORCH = os.environ.get("ORCH_DIR", os.path.join(os.path.dirname(os.path.dirname(o
 
 
 def topo(multi, one_wan=True):
-    t = model.merged({"region": dict(model.DEFAULTS["region"], multi_vrf=multi)})
+    t = model.merged({"region": dict(model.DEFAULTS["region"], multi_vrf=multi), "sdwan_app_rules": True})
     if one_wan:                                  # site1-2 with one WAN: its own role without the wan2 rules
         t["edges"][1]["wan2_intf"] = ""
     t["dns_primary"] = "1.1.1.1"
@@ -156,7 +156,7 @@ print("OK  spokes: gui-app-detection-sdwan enable (hubs niet)")
 
 # switch "SD-WAN app rules" (default on): off = no O365-Teams / Vimeo rules (no ISDB / application references);
 # Local-Breakout keeps wan2 first and the rest of the template is unchanged
-assert model.DEFAULTS["sdwan_app_rules"] is True
+assert model.DEFAULTS["sdwan_app_rules"] is False                    # default off (Sander's choice)
 for multi in (True, False):
     t = topo(multi, one_wan=False)
     t["sdwan_app_rules"] = False
@@ -166,3 +166,9 @@ for multi in (True, False):
     under = [str(m["seq-num"]) for m in r["sdwan"]["members"] if m.get("zone") == "underlay"]
     assert sv[10]["priority-members"] == under[::-1]
 print("OK  schakelaar SD-WAN app rules uit: geen O365-Teams/Vimeo, Local-Breakout ongewijzigd")
+
+# a topology without the key (older saved settings) counts as off
+_t = topo(False, one_wan=False); _t.pop("sdwan_app_rules")
+_r = [x for x in ft.build_plan(_t, ORCH)["roles"] if x["kind"] == "edge"][0]
+assert sorted(s["id"] for s in _r["sdwan"]["service"]) == [1, 10]
+print("OK  SD-WAN app rules standaard uit (ook zonder sleutel in oude instellingen)")

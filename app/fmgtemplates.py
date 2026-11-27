@@ -298,7 +298,7 @@ def build_plan(topo, orch_dir):
             if hc.get("detect-mode") != "remote":          # the hubs' remote check, which the spokes measure
                 hc["failtime"] = SLA_FAILTIME
         if r["kind"] == "edge":
-            add_demo_rules(r["sdwan"], apps=topo.get("sdwan_app_rules", True) is not False)
+            add_demo_rules(r["sdwan"], apps=topo.get("sdwan_app_rules") is True)
         r["static"] = sd.get("router static", [])
         for row in r["static"]:
             row.setdefault("dst", ["0.0.0.0", "0.0.0.0"])

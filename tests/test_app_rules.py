@@ -10,7 +10,7 @@ ORCH = os.environ.get("ORCH_DIR", os.path.join(os.path.dirname(os.path.dirname(o
 
 
 def topo():
-    t = model.merged({})
+    t = model.merged({"sdwan_app_rules": True})
     t["dns_primary"] = "1.1.1.1"
     t["fmgr"].update(ip="10.10.106.251/24", gateway="10.10.106.1")
     t["wanemu"]["uplink"].update(ip="10.10.106.250/24", gw="10.10.106.1")

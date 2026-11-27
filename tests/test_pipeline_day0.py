@@ -28,6 +28,7 @@ srv = HTTPServer(("127.0.0.1", 8098), mock_fmg.H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 
 t = base_topo()
+t["sdwan_app_rules"] = True                  # exercise the two-phase app rules (default is off)
 t["pve"].update(url=PVE, token_id="root@pam!deploy", node="pve1", disk_storage="local-lvm", import_storage="local",
                 iso_storage="local", default_bridge="vmbr0")
 t["pve"]["ports"]["port3"] = {"bridge": "vmbr1", "vlan": 20}      # unused port: per-port table
