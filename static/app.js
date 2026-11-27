@@ -271,7 +271,7 @@ function segPerDraw() {
 WAN_SEGS.forEach((k) => ["block", "vlanbase"].forEach((f) => $(`#wan-seg-${k}-${f}`).addEventListener("input", segPerDraw)));
 function draw() {
   const p = T.pve;
-  $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub;
+  $("#adom").value = T.adom; $("#hub2hub").checked = !!T.hub2hub; $("#sdwan_app_rules").checked = T.sdwan_app_rules !== false;
   $("#fm_name").value = T.fmgr.name; $("#fm_ip").value = T.fmgr.ip; $("#fm_gw").value = T.fmgr.gateway; $("#fm_port").value = T.fmgr.port;
   pveFill(p); wanFill(T.wanemu);
   const mv = T.region.multi_vrf !== false;
@@ -319,7 +319,7 @@ gwAuto("#wan-uplink-ip", "#wan-uplink-gw");
 ["#wan-uplink-ip", "#wan-uplink-gw", "#wan-uplink-vlan"].forEach((id) => $(id).addEventListener("input", tgDraw));
 function collect() {
   const t = JSON.parse(JSON.stringify(T)), n = (v) => (v === "" ? null : +v);
-  t.adom = $("#adom").value.trim(); t.hub2hub = $("#hub2hub").checked;
+  t.adom = $("#adom").value.trim(); t.hub2hub = $("#hub2hub").checked; t.sdwan_app_rules = $("#sdwan_app_rules").checked;
   t.fmgr = { ...T.fmgr, name: $("#fm_name").value.trim(), ip: $("#fm_ip").value.trim(), gateway: $("#fm_gw").value.trim(), port: $("#fm_port").value.trim() || "port1" };
   t.pve = {
     server_id: $("#pve_server").value ? +$("#pve_server").value : null, url: "", token_id: "", verify_tls: true, node: $("#pve_node").value.trim(),

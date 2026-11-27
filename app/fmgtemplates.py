@@ -298,7 +298,7 @@ def build_plan(topo, orch_dir):
             if hc.get("detect-mode") != "remote":          # the hubs' remote check, which the spokes measure
                 hc["failtime"] = SLA_FAILTIME
         if r["kind"] == "edge":
-            add_demo_rules(r["sdwan"])
+            add_demo_rules(r["sdwan"], apps=topo.get("sdwan_app_rules", True) is not False)
         r["static"] = sd.get("router static", [])
         for row in r["static"]:
             row.setdefault("dst", ["0.0.0.0", "0.0.0.0"])
@@ -370,7 +370,7 @@ LOCAL_BREAKOUT = ("Local-Breakout", "w2w1")          # local internet: wan2 firs
 INTERNET_SLA = {"id": 1, "latency-threshold": 150, "jitter-threshold": 30, "packetloss-threshold": 2}
 
 
-def add_demo_rules(sdwan):
+def add_demo_rules(sdwan, apps=True):
     """Spoke SD-WAN with two underlay members: O365-Teams after Corporate (1), Local-Breakout wan2 first, SLA on
     'Internet'."""
     under = [str(m["seq-num"]) for m in sdwan.get("members", []) if m.get("zone") == "underlay"]
@@ -380,7 +380,7 @@ def add_demo_rules(sdwan):
     w1, w2 = under
     order = {"w2w1": [w2, w1], "w1w2": [w1, w2]}
     rows = []
-    for r in DEMO_RULES:
+    for r in (DEMO_RULES if apps else []):         # apps off: no ISDB / application references at all
         row = {k: v for k, v in r.items() if k not in ("names", "members")}
         row["priority-members"] = order[r["members"]]
         if "names" in r:
