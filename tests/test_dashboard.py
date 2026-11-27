@@ -137,3 +137,8 @@ cl1 = next(n for n in m["nodes"] if n["kind"] == "client" and n["name"] == "clie
 tg = next(n for n in m["nodes"] if n["kind"] == "tgen")
 assert abs(tg["x"] - cl1["x"]) >= 110, (tg["x"], cl1["x"])
 print("OK  dashboard: labels botsen niet bij 3 spokes; Traffic-Gen los van de eerste client")
+
+# client devices show their IP address under the name
+o = run(LINKS)
+assert "10.0.1.10" in o["svg"], "client IP in the picture"
+print("OK  dashboard: IP-adres onder de LAN-client")

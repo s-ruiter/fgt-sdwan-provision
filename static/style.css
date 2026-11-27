@@ -429,3 +429,8 @@ body.dash-full #sess_panel { z-index: 100; }
   .dash-panel { position: static; width: auto; max-height: none; box-shadow: none; }
   .dash-svg { min-width: 640px; }          /* labels stay readable on a phone: scroll the picture sideways */
 }
+
+/* a LAN client's session: WAN1 / WAN2 latency buttons of its spoke */
+.sess-wan { margin: 0 0 10px; align-items: center; }
+.sess-wan .hint { margin: 0; }
+.sess-wan button.on { background: #d97706; border-color: #d97706; color: #fff; }

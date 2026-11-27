@@ -98,7 +98,8 @@ function dashSvg(m) {
       return `<g class="dn dn-cloud"><path d="${c}"/><text class="dn-txt dn-ctxt" x="${n.x}" y="${n.y + 6}">${dEsc(n.name)}</text></g>`;
     }
     const [ic, iw, ih] = DASH_IC[n.kind] || DASH_IC.client;
-    const sub = n.kind === "fgt" ? (n.role === "hub" ? "hub" : "spoke") : n.kind === "fmg" ? "FortiManager" : "";
+    const sub = n.kind === "fgt" ? (n.role === "hub" ? "hub" : "spoke") : n.kind === "fmg" ? "FortiManager" :
+      n.kind === "client" ? (n.access && n.access.ip) || "" : "";
     return `<g class="dn dn-${n.kind}" data-node="${dEsc(n.id)}" tabindex="0"><title>${dEsc(n.name)}</title>` +
       `<use href="#${ic}" x="${n.x - iw / 2}" y="${n.y - ih / 2}" width="${iw}" height="${ih}"/>` +
       `<text class="dn-txt" x="${n.x}" y="${n.y + ih / 2 + 16}">${dEsc(n.name)}</text>` +
