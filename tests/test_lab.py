@@ -98,9 +98,11 @@ main._flex_cfg = lambda: (None, {"user": "u", "fmg_config": 1, "fgt_config": 2})
 main._flex_client = lambda *a, **k: object()
 main._tool_licenses = lambda cl, cfg: ENTS
 main.db.put_secret(main.db.connect(main.DATA_DIR), "fortiflex_password", "x")
-_, found = main._licences_for({"SDW-site1-H1", "SDW-fmg"})
-assert sorted(e["serialNumber"] for e in found) == ["FGVMH1", "FMVM1"], found
-print("OK  cleanup: licenties gevonden ook met een naamprefix")
+_, found = main._licences_for({"SDW-site1-H1", "SDW-fmg", "SDW-site1-2"}, G0 := lab.inventory(InvPve(VMS, CTS, NOTES), "pve01", set()))
+assert sorted(e["serialNumber"] for e in found) == ["FGVM12", "FGVM12B", "FGVMH1", "FMVM1"], found     # notes; site1-2 by exact name
+_, found = main._licences_for({"SDW-site1-H1"}, G0)
+assert [e["serialNumber"] for e in found] == ["FGVMH1"], found        # never another lab's site1-H1 by a name suffix
+print("OK  cleanup: licenties uit de VM-notities (met prefix), anders alleen exact op apparaatnaam")
 
 # ---- Task 3: stop and start flows
 import threading  # noqa: E402
@@ -239,7 +241,7 @@ for fn in (lambda: main.lab_start(main.LabReq(server_id=1, node="pve01", serials
         raise SystemExit("no 409")
     except main.HTTPException as e:
         assert e.status_code == 409, e.status_code
-assert "_busy_refuse(" in inspect.getsource(main.deploy)
+assert "_reserve(" in inspect.getsource(main.deploy)                  # check + hold a place (atomic)
 del main.JOBS["busy0001"]
 jid = main.lab_start(main.LabReq(server_id=1, node="pve01", serials=[]))["job"]
 assert [s["id"] for s in main.JOBS[jid]["steps_def"]] == ["licences", "start", "check"]
@@ -253,3 +255,62 @@ main.JOBS.pop(jid)
 back = main._get_job(jid)
 assert back and [s["id"] for s in back.get("steps_def", [])] == ["licences", "start", "check"] and back["kind"] == "lab-start", back
 print("OK  lab: taak uit de database houdt zijn eigen stappen")
+
+
+# ---- review fixes
+# the FortiManager check logs in first (FortiManager refuses calls without a session)
+class LoginFmg:
+    def __init__(self, host, user=None, password=None, *a, **k): self.session = None
+    def login(self): self.session = "s"
+    def call(self, method, url, data=None, **kw):
+        if not self.session:
+            raise RuntimeError("no session")
+        return {"data": [{"name": "site1-H1", "conn_status": 1}, {"name": "site1-1", "conn_status": "down"}]}
+    def logout(self): self.session = None
+
+
+main.Fmg = LoginFmg
+main._creds = lambda: {"fmgs": {"fmg": {"host": "10.10.106.251", "user": "admin", "password": "pw", "vm": "SDW-fmg"}}}
+chks = main._lab_fmg_checks(G)
+assert len(chks) == 1 and chks[0]() == {"site1-H1": "up", "site1-1": "down"}
+main._creds = lambda: {}
+
+# FortiFlex mode: the FortiManager's serial reaches its VM spec (notes), not only the FortiGates'
+_t2 = __import__("app.model", fromlist=["x"]).merged({})
+_t2["fmgr"].update(ip="10.0.0.5/24", gateway="10.0.0.1", flex_serial="FMVMFLEX")
+assert pv.build_specs(_t2, "a", "b", {}, None, "fmg")[0]["serial"] == "FMVMFLEX"
+assert "flex_serial" in inspect.getsource(main._licenses)
+
+# a reused VM without a serial this time keeps the licence= already in its notes
+class KeepPve(NotePve):
+    def vm_config(self, node, vmid): return {"description": "fgt-sdwan FortiManager ip=10.0.0.5 licence=FMVMOLD"}
+kp = KeepPve()
+pv.refresh_note(kp, "pve01", 111, {"role": "fmg", "ip": "10.0.0.5/24", "serial": ""})
+assert kp.calls and pv.note_serial(kp.calls[0][2]["description"]) == "FMVMOLD", kp.calls
+
+# FortiFlex unreachable: the lab can still be seen and stopped (no licences, a message)
+def boom(*a, **k): raise main.HTTPException(400, detail="FortiFlex: login failed")
+main._tool_licenses = boom
+pl = main.lab_plan(main.LabReq(server_id=1, node="pve01"))
+assert pl["licences"] == [] and "login failed" in pl.get("flex_error", ""), pl
+main._tool_licenses = lambda cl, cfg: ENTS
+
+# check + register is atomic: a reservation blocks the others
+tok = main._reserve("lab")
+for fn in (lambda: main._reserve("deploy", lab_only=True), lambda: main._reserve("lab"), lambda: main._reserve("cleanup")):
+    try:
+        fn()
+        raise SystemExit("no 409")
+    except main.HTTPException as e:
+        assert e.status_code == 409
+main._release(tok)
+t1 = main._reserve("deploy", lab_only=True)
+try:
+    main._reserve("lab")
+    raise SystemExit("no 409")
+except main.HTTPException as e:
+    assert e.status_code == 409
+main._release(t1)
+for f in (main.deploy, main.cleanup_run, main._lab_job):
+    assert "_reserve(" in inspect.getsource(f) and "_release(" in inspect.getsource(f), f.__name__
+print("OK  review: FMG-controle logt in, FMG-serie in FortiFlex-modus, notities behouden, FortiFlex-fout blokkeert niet, reservering atomair")

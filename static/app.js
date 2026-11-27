@@ -1342,7 +1342,7 @@ async function clNodes() {
   if (!r.ok) return clErr(errList(j).join(" · "));
   setSel("#cl_node", j.nodes, $("#pve_node").value || j.nodes[0]);
 }
-let CL_SHOWN = null;
+let CL_SHOWN = null, LAB = null;
 async function clShow() {
   clErr(""); $("#cl_list").innerHTML = '<div class="hint">looking at Proxmox…</div>'; CL_SHOWN = null;
   const r = await post("/api/cleanup/plan", { server_id: +$("#cl_server").value, node: $("#cl_node").value, stop_licences: $("#cl_licences").checked }), j = await json(r);
@@ -1377,15 +1377,14 @@ async function clRun() {
   }
 }
 $("#cl_licences").addEventListener("change", () => { if (CL_SHOWN) clShow(); });
-$("#cl_server").addEventListener("change", () => { clNodes(); $("#lab_overview").innerHTML = ""; });
-$("#cl_node").addEventListener("change", () => { $("#lab_overview").innerHTML = ""; $("#cl_list").innerHTML = ""; });
+$("#cl_server").addEventListener("change", () => { LAB = null; clNodes(); $("#lab_overview").innerHTML = ""; });
+$("#cl_node").addEventListener("change", () => { LAB = null; $("#lab_overview").innerHTML = ""; $("#cl_list").innerHTML = ""; });
 $("#cl_show").onclick = labShow;
 $("#cl_list_btn").onclick = clShow;
 $("#cl_run").onclick = clRun;
 
 // ---- Lab: what is deployed on the node, with state and licences; start / stop it as a job ---------------------------
 const LAB_ROLE = { fmg: "FortiManager", fgt: "FortiGate", wanemu: "WAN emulator", client: "LAN client", tgen: "Traffic-Gen" };
-let LAB = null;
 async function labShow() {
   clErr(""); $("#lab_overview").innerHTML = '<div class="hint">looking at Proxmox…</div>'; LAB = null;
   const r = await post("/api/lab/plan", { server_id: +$("#cl_server").value, node: $("#cl_node").value }), j = await json(r);
@@ -1396,7 +1395,8 @@ async function labShow() {
     j.guests.map((g) => `<tr><td class="mono">${esc(g.name)}</td><td>${esc(LAB_ROLE[g.role] || g.role)}</td><td class="mono">${g.kind.toUpperCase()} ${g.vmid}</td>` +
       `<td><span class="dot st-${g.status === "running" ? "ok" : "pending"}"></span> ${esc(g.status || "?")}</td><td class="mono">${esc(g.serial || "")}</td></tr>`).join("") + "</tbody></table>";
   const src = { notes: "from the VM's notes", name: "matched by name: check it belongs to this lab" };
-  const lic = j.flex === "fortiflex"
+  const lic = j.flex_error ? `<div class="error">✕ FortiFlex not reachable (${esc(j.flex_error)}): the VMs and containers can be stopped / started, the licences not.</div>`
+    : j.flex === "fortiflex"
     ? (j.licences.length ? `<h3>FortiFlex licences</h3><div class="lab-lic">` + j.licences.map((l) =>
         `<label class="inline"><input type="checkbox" data-lser="${esc(l.serial)}" ${l.source === "notes" ? "checked" : ""}> <span class="mono">${esc(l.serial)}</span> ${esc(l.device)} · ${esc(l.status || "not found in FortiFlex")} <span class="hint">(${src[l.source]})</span></label>`).join("") + "</div>"
       : '<div class="hint">No FortiFlex licences found for this lab.</div>')

@@ -1295,6 +1295,8 @@ def _licenses(topo, r, dry):
             d["serial"] = res[d["name"]]["serial"]
             if res[d["name"]]["token"]:
                 r.secrets.fgt_tokens[d["name"]] = res[d["name"]]["token"]
+    if fmg_name in res:
+        topo["fmgr"]["flex_serial"] = res[fmg_name]["serial"]     # into the FortiManager VM's notes (Lab start / stop)
     if fmg_name in res and res[fmg_name]["token"]:
         r.secrets.fmg_token = res[fmg_name]["token"]
     for x in rows:
@@ -1324,29 +1326,61 @@ def _cleanup_pve(c):
                     row["token_secret"])
 
 
-def _licences_for(names):
-    """Tool licences (ACTIVE/PENDING) of exactly these devices ('fgt-sdwan <ADOM> <name>'), so another deployment's
-    licences are never stopped."""
+def _licences_for(names, guests):
+    """Tool licences (ACTIVE/PENDING) of exactly these VMs: the serial in their Proxmox notes; a VM deployed before the
+    notes held it by its device name (the Proxmox name without this lab's prefix), exactly. guests = lab.inventory(...)
+    taken before anything was deleted."""
     _, cfg = _flex_cfg()
     if not (db.get_secret(db.connect(DATA_DIR), "fortiflex_password") and cfg["user"]):
         return None, []
     cl = _flex_client()
-    dev = lambda e: str(e.get("description", "")).split(" ")[-1]     # the device; Proxmox names may carry a prefix
+    mine = [g for g in guests if g["kind"] == "vm" and g["name"] in names]
+    serials = {g["serial"] for g in mine if g["serial"]}
+    by_name = {g["device"] for g in mine if not g["serial"]}
     return cl, [e for e in _tool_licenses(cl, cfg) if e.get("status") in ("ACTIVE", "PENDING")
-                and any(n == dev(e) or n.endswith("-" + dev(e)) for n in names)]
+                and (e.get("serialNumber") in serials or str(e.get("description", "")).split(" ")[-1] in by_name)]
+
+
+_BUSY_LOCK = threading.Lock()
+_RESV = {}                                     # reservations: token -> "deploy" | "cleanup" | "lab" (check + register)
 
 
 def _busy_refuse(lab_only=False):
     """One thing at a time: a deployment, a cleanup and a lab start/stop never run together (409 otherwise)."""
     running = [j for j in JOBS.values() if j.get("state") == "running" and not j.get("dry_run")]
-    if any(str(j.get("kind", "")).startswith("lab-") for j in running):
+    kinds = [str(j.get("kind") or "deploy") for j in running] + list(_RESV.values())
+    if any(k.startswith("lab") for k in kinds):
         raise HTTPException(409, detail=["a lab start / stop is running: wait until it is done"])
     if lab_only:
         return
-    if running:
+    if any(k == "deploy" for k in kinds):
         raise HTTPException(409, detail=["a deployment is running: wait until it is done"])
-    if _CLEANUP_LOCK.locked():
+    if _CLEANUP_LOCK.locked() or "cleanup" in kinds:
         raise HTTPException(409, detail=["a cleanup is running: wait until it is done"])
+
+
+def _reserve(kind, lab_only=False):
+    """Check that nothing conflicts and hold a place until the job is registered (or the request ends): two requests
+    at the same moment can no longer both pass the check."""
+    with _BUSY_LOCK:
+        _busy_refuse(lab_only=lab_only)
+        tok = uuid.uuid4().hex
+        _RESV[tok] = kind
+        return tok
+
+
+def _release(tok):
+    with _BUSY_LOCK:
+        _RESV.pop(tok, None)
+
+
+def _lab_guests(c, pve=None):
+    """The lab's inventory (with the serials in the notes) for the licence lookup; [] when Proxmox cannot be read."""
+    from .pve import PveError
+    try:
+        return lab.inventory(pve or _cleanup_pve(c), c.node, {f.get("vm") for f in _fmg_list(_creds()) if f.get("vm")})
+    except PveError:
+        return []
 
 
 # ---- Lab: start / stop a deployed lab (Lab tab); the licence of each VM comes from its Proxmox notes ---------------
@@ -1376,11 +1410,17 @@ def _lab_plan(c):
         cts = [g for g in guests if g["kind"] == "ct"]
     except PveError as e:
         raise HTTPException(502, detail=str(e))
-    mode, lic = _lab_flex_mode(), []
+    mode, lic, err = _lab_flex_mode(), [], ""
     if mode == "fortiflex":
         _, cfg = _flex_cfg()
-        lic = lab.match_licences(guests, _tool_licenses(_flex_client(), cfg))
-    return pve, {"guests": guests, "licences": lic, "flex": mode, "prefix": lab.prefix_of(cts)}
+        try:
+            lic = lab.match_licences(guests, _tool_licenses(_flex_client(), cfg))
+        except HTTPException as e:                       # FortiFlex down: the lab can still be stopped / started
+            err = str(e.detail)
+    out = {"guests": guests, "licences": lic, "flex": mode, "prefix": lab.prefix_of(cts)}
+    if err:
+        out["flex_error"] = err
+    return pve, out
 
 
 @app.post("/api/lab/plan")
@@ -1398,6 +1438,7 @@ def _lab_fmg_checks(guests):
         def chk(f=f):
             fm = Fmg(f["host"], f.get("user") or "admin", f.get("password"))
             try:
+                fm.login()
                 rows = fm.call("get", "/dvmdb/device", fields=["name", "conn_status"]).get("data") or []
                 return {r.get("name"): "up" if r.get("conn_status") in (1, "up", "UP") else "down" for r in rows}
             finally:
@@ -1408,14 +1449,21 @@ def _lab_fmg_checks(guests):
 
 def _lab_job(kind, c):
     _no_update_running()
-    _busy_refuse()
+    tok = _reserve("lab")
+    try:
+        return _lab_job_start(kind, c)
+    finally:
+        _release(tok)
+
+
+def _lab_job_start(kind, c):
     pve, pl = _lab_plan(c)
     known = {l["serial"]: l for l in pl["licences"]}
     unknown = [s for s in c.serials if s not in known]
     if unknown:
         raise HTTPException(422, detail=[f"not a licence of this lab: {', '.join(unknown)}"])
     chosen = [known[s] for s in dict.fromkeys(c.serials)]
-    flex = _flex_client() if pl["flex"] == "fortiflex" else None
+    flex = _flex_client() if pl["flex"] == "fortiflex" and not pl.get("flex_error") else None
     guests = pl["guests"]
     jid = uuid.uuid4().hex[:8]
     defs = [{"id": i, "title": t} for i, t in LAB_STEPS[kind]]
@@ -1482,7 +1530,7 @@ def cleanup_plan(c: CleanupReq):
         raise HTTPException(502, detail=str(e))
     lic = []
     if c.stop_licences:
-        _, lic = _licences_for({i["name"] for i in items if i["kind"] == "vm"})
+        _, lic = _licences_for({i["name"] for i in items if i["kind"] == "vm"}, _lab_guests(c))
     return {"items": items, "licences": [{k: e.get(k) for k in ("serialNumber", "description", "status")} for e in lic]}
 
 
@@ -1493,11 +1541,21 @@ def cleanup_run(c: CleanupReq):
     from .pve import PveError
     if c.confirm != "DELETE":
         raise HTTPException(422, detail=["type DELETE to confirm"])
-    _busy_refuse()
+    tok = _reserve("cleanup")
+    try:
+        return _cleanup_run(c)
+    finally:
+        _release(tok)
+
+
+def _cleanup_run(c):
+    from . import cleanup
+    from .pve import PveError
     if not _CLEANUP_LOCK.acquire(blocking=False):
         raise HTTPException(409, detail=["a cleanup is already running"])
     try:
         pve, log = _cleanup_pve(c), []
+        guests = _lab_guests(c, pve)                         # licences from the notes: read before deleting
         try:
             results = cleanup.run(pve, c.node, cleanup.plan(pve, c.node), log.append,
                                   only=set(c.only) if c.only is not None else None)
@@ -1522,7 +1580,7 @@ def cleanup_run(c: CleanupReq):
         if c.stop_licences:                                  # only the licences of devices that are really gone now
             gone = {r["name"] for r in results if r["kind"] == "vm" and r["ok"]}
             try:
-                cl, lic = _licences_for(gone)
+                cl, lic = _licences_for(gone, guests)
                 for e in lic:
                     name = f"licence {e.get('serialNumber')} ({e.get('description', '')})"
                     try:
@@ -1542,7 +1600,14 @@ def deploy(r: DeployReq):
     _no_update_running()
     if _CLEANUP_LOCK.locked():
         raise HTTPException(409, detail=["a cleanup is running: wait until it is done"])
-    _busy_refuse(lab_only=True)
+    tok = _reserve("deploy", lab_only=True)          # held until the job is registered (end of this request)
+    try:
+        return _deploy(r)
+    finally:
+        _release(tok)
+
+
+def _deploy(r):
     topo = model.merged(r.topology)
     sid = topo["pve"].get("server_id")
     if sid:                                    # saved server: url/token-id/secret come from the database

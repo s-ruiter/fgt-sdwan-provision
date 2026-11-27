@@ -129,8 +129,12 @@ def note_serial(note):
 
 
 def refresh_note(pve, node, vmid, spec):
-    """A reused VM: rewrite its notes with this deployment's serial (and FortiManager address)."""
-    note = vm_note(spec.get("role"), spec.get("ip") or "", spec.get("serial") or "")
+    """A reused VM: rewrite its notes with this deployment's serial (and FortiManager address). Without a serial this
+    time the one already in the notes is kept."""
+    serial = spec.get("serial") or ""
+    if not serial and hasattr(pve, "vm_config"):
+        serial = note_serial((pve.vm_config(node, int(vmid)) or {}).get("description"))
+    note = vm_note(spec.get("role"), spec.get("ip") or "", serial)
     if note:
         pve.set_config(node, int(vmid), {"description": note})
 
@@ -218,7 +222,7 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which, lice
         lic = licenses.get(f.get("name") or "fmg")
         specs.append({"name": f.get("name") or "fmg", "pve_name": pve_name(topo, f.get("name") or "fmg"), "role": "fmg", "cores": fm["cores"], "memory_mb": fm["memory_mb"],
                       "nics": [{"bridge": fm.get("bridge") or cfg["default_bridge"], "vlan": fm.get("vlan")}],
-                      "extra_disks": [fm["data_disk_gb"]], "license": lic, "ip": f.get("ip") or "", "serial": (f.get("serial") or "").strip(),
+                      "extra_disks": [fm["data_disk_gb"]], "license": lic, "ip": f.get("ip") or "", "serial": (f.get("flex_serial") or f.get("serial") or "").strip(),
                       "user_data": cloudinit.build_user_data(cli, None if lic else fmg_token, cloudinit.license_mode("fmg", mode))})
     else:
         fg = cfg["fgt"]

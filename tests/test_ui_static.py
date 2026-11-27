@@ -474,3 +474,9 @@ assert "steps_def" in po
 sd = js[js.index("function stepsDraw("):][:300]
 assert "defs" in sd
 print("OK  UI: tabblad Lab (start/stop/delete), Progress met eigen stappen van een taak")
+
+# Lab: changing server or node forgets the previous overview (no stale plan, no silent unticked licences)
+for sel in ('$("#cl_server").addEventListener("change"', '$("#cl_node").addEventListener("change"'):
+    assert "LAB = null" in js[js.index(sel):js.index(sel) + 200], sel
+assert "flex_error" in js[js.index("async function labShow("):][:2500]
+print("OK  UI: Lab vergeet het overzicht bij een andere server/node; FortiFlex-fout zichtbaar")
