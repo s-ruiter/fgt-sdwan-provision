@@ -25,8 +25,9 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 
 // ---- routing ----------------------------------------------------------------
 function route() {
-  const [r, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
-  const VIEWS = ["deploy", "progress", "wanemu", "dashboard", "traffic", "fortiflex", "images", "servers", "cleanup"];
+  const [r0, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
+  const r = r0 === "cleanup" ? "lab" : r0;                     // the Lab tab was called Cleanup
+  const VIEWS = ["deploy", "progress", "wanemu", "dashboard", "traffic", "fortiflex", "images", "servers", "lab"];
   const view = VIEWS.includes(r) ? r : "deploy";
   for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
@@ -34,7 +35,7 @@ function route() {
   if (view === "progress") progressOpen(arg);
   if (view === "deploy") { bannerLoad(); flexApply(); }
   if (view === "fortiflex") { ffLoad(); licLoad(); }
-  if (view === "cleanup") clLoad();
+  if (view === "lab") clLoad();
   clearInterval(WAN_TIMER); WAN_TIMER = null;
   if (view === "wanemu") { wanLoad(); wanFwdLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
   clearInterval(DASH_TIMER); DASH_TIMER = null;
@@ -572,8 +573,8 @@ function scopeInit() {
 }
 
 // ---- deploy + progress ------------------------------------------------------
-function stepsDraw(states = {}) {
-  $("#pl").innerHTML = STEPS.map((s) => { const st = states[s.id] || "pending"; return `<li data-id="${s.id}" class="st-${st}"><span class="ic"><span class="dot st-${st}"></span></span><span class="t">${esc(s.title)}</span><span class="msg"></span></li>`; }).join("");
+function stepsDraw(states = {}, defs = STEPS) {         // defs: a lab job brings its own steps
+  $("#pl").innerHTML = defs.map((s) => { const st = states[s.id] || "pending"; return `<li data-id="${s.id}" class="st-${st}"><span class="ic"><span class="dot st-${st}"></span></span><span class="t">${esc(s.title)}</span><span class="msg"></span></li>`; }).join("");
 }
 $("#btn_deploy").onclick = async () => {
   showErr([]);
@@ -622,7 +623,7 @@ async function progressOpen(id) {
   if (!r.ok) { ES = null; CUR_JOB = null; $("#p_title").textContent = "Progress"; stepsDraw(); $("#log").textContent = ""; return progressMsg("This deployment no longer exists (the list of deployments is empty or cleared). Start a new one on the Deploy page."); }
   const info = await r.json();
   $("#p_title").textContent = info.title || "Deployment";
-  progressMsg("Working…"); $("#log").textContent = ""; stepsDraw();
+  progressMsg("Working…"); $("#log").textContent = ""; stepsDraw({}, info.steps_def || STEPS);
   ES = new EventSource(`/api/jobs/${id}/stream`);        // replays the whole log, then follows a running job
   ES.addEventListener("log", (e) => {
     const x = JSON.parse(e.data), d = document.createElement("div");
@@ -1376,9 +1377,46 @@ async function clRun() {
   }
 }
 $("#cl_licences").addEventListener("change", () => { if (CL_SHOWN) clShow(); });
-$("#cl_server").addEventListener("change", clNodes);
-$("#cl_show").onclick = clShow;
+$("#cl_server").addEventListener("change", () => { clNodes(); $("#lab_overview").innerHTML = ""; });
+$("#cl_node").addEventListener("change", () => { $("#lab_overview").innerHTML = ""; $("#cl_list").innerHTML = ""; });
+$("#cl_show").onclick = labShow;
+$("#cl_list_btn").onclick = clShow;
 $("#cl_run").onclick = clRun;
+
+// ---- Lab: what is deployed on the node, with state and licences; start / stop it as a job ---------------------------
+const LAB_ROLE = { fmg: "FortiManager", fgt: "FortiGate", wanemu: "WAN emulator", client: "LAN client", tgen: "Traffic-Gen" };
+let LAB = null;
+async function labShow() {
+  clErr(""); $("#lab_overview").innerHTML = '<div class="hint">looking at Proxmox…</div>'; LAB = null;
+  const r = await post("/api/lab/plan", { server_id: +$("#cl_server").value, node: $("#cl_node").value }), j = await json(r);
+  if (!r.ok) { $("#lab_overview").innerHTML = ""; clErr(errList(j).join(" · ")); return null; }
+  LAB = j;
+  if (!j.guests.length) { $("#lab_overview").innerHTML = '<div class="hint">No lab of this tool on this node.</div>'; return j; }
+  const guests = `<table class="tbl"><thead><tr><th>Name</th><th>Role</th><th>ID</th><th>State</th><th>Licence</th></tr></thead><tbody>` +
+    j.guests.map((g) => `<tr><td class="mono">${esc(g.name)}</td><td>${esc(LAB_ROLE[g.role] || g.role)}</td><td class="mono">${g.kind.toUpperCase()} ${g.vmid}</td>` +
+      `<td><span class="dot st-${g.status === "running" ? "ok" : "pending"}"></span> ${esc(g.status || "?")}</td><td class="mono">${esc(g.serial || "")}</td></tr>`).join("") + "</tbody></table>";
+  const src = { notes: "from the VM's notes", name: "matched by name: check it belongs to this lab" };
+  const lic = j.flex === "fortiflex"
+    ? (j.licences.length ? `<h3>FortiFlex licences</h3><div class="lab-lic">` + j.licences.map((l) =>
+        `<label class="inline"><input type="checkbox" data-lser="${esc(l.serial)}" ${l.source === "notes" ? "checked" : ""}> <span class="mono">${esc(l.serial)}</span> ${esc(l.device)} · ${esc(l.status || "not found in FortiFlex")} <span class="hint">(${src[l.source]})</span></label>`).join("") + "</div>"
+      : '<div class="hint">No FortiFlex licences found for this lab.</div>')
+    : `<div class="hint">${j.flex === "files" ? "Licence files are used: there are no FortiFlex licences to stop or start." : "FortiFlex is not set up: only the VMs and containers are stopped / started."}</div>`;
+  $("#lab_overview").innerHTML = guests + lic;
+  return j;
+}
+async function labRun(kind) {
+  clErr("");
+  const j = LAB || (await labShow()); if (!j) return;
+  if (!j.guests.length) return clErr("No lab of this tool on this node");
+  const serials = [...document.querySelectorAll("#lab_overview [data-lser]:checked")].map((x) => x.dataset.lser);
+  const what = kind === "stop" ? `Stop the lab on ${$("#cl_node").value}: shut down ${j.guests.length} VM(s)/container(s)` : `Start the lab on ${$("#cl_node").value}: ${j.guests.length} VM(s)/container(s)`;
+  if (!confirm(what + (serials.length ? ` and ${kind === "stop" ? "stop" : "reactivate"} ${serials.length} licence(s)` : "") + "?")) return;
+  const r = await post(`/api/lab/${kind}`, { server_id: +$("#cl_server").value, node: $("#cl_node").value, serials }), res = await json(r);
+  if (!r.ok) return clErr(errList(res).join(" · "));
+  location.hash = "#/progress/" + res.job;
+}
+$("#lab_start").onclick = () => labRun("start");
+$("#lab_stop").onclick = () => labRun("stop");
 
 
 // ---- theme: light / dark, remembered per browser (otherwise the system setting, applied in index.html) ------------

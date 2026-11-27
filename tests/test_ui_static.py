@@ -177,10 +177,10 @@ except FileNotFoundError:
 print("OK  UI: keuze 'LAN clients only' (FortiManager-kaart weg, geen FMG/FGT, clients niet gedimd in de topologie)")
 
 # Cleanup page: server/node, show what will be deleted, type DELETE, optional licence stop
-assert 'href="#/cleanup" data-nav="cleanup"' in html and 'id="v_cleanup"' in html
+assert 'href="#/lab" data-nav="lab"' in html and 'id="v_lab"' in html          # Cleanup is now part of the Lab tab
 for i in ("cl_server", "cl_node", "cl_show", "cl_list", "cl_confirm", "cl_licences", "cl_run", "cl_res", "cl_err"):
     assert f'id="{i}"' in html, i
-assert '"cleanup"' in js[js.index("const VIEWS"):js.index("const VIEWS") + 160]
+assert '"lab"' in js[js.index("const VIEWS"):js.index("const VIEWS") + 160]
 for f in ("clLoad", "clShow", "clRun"):
     assert re.search(rf"(async\s+)?function\s+{f}\b", js), f
 assert "/api/cleanup/plan" in js and '"/api/cleanup"' in js and '"DELETE"' in js
@@ -454,5 +454,23 @@ print("OK  UI: client-sessie heeft WAN1/WAN2 200 ms en Reset voor de eigen spoke
 
 # nav order: Deploy, Dashboard, Progress, Access & WAN control, Traffic, Licenses, Images, Servers, Cleanup
 nav = re.findall(r'data-nav="(\w+)"', html[html.index("<nav"):html.index("</nav>")])
-assert nav == ["deploy", "dashboard", "progress", "wanemu", "traffic", "fortiflex", "images", "servers", "cleanup"], nav
+assert nav == ["deploy", "dashboard", "progress", "wanemu", "traffic", "fortiflex", "images", "servers", "lab"], nav
 print("OK  UI: menuvolgorde (Dashboard naast Deploy, Images naast Licenses)")
+
+# Lab tab (was Cleanup): start / stop / delete a lab; Progress draws a job's own steps
+navs = html[html.index("<nav"):html.index("</nav>")]
+assert re.search(r'href="#/lab" data-nav="lab"[^>]*>Lab</a>', navs) and "Cleanup" not in navs
+rt = js[js.index("function route()"):js.index("function route()") + 900]
+assert '"lab"' in rt and '=== "cleanup" ? "lab"' in rt, "cleanup stays an alias"
+assert 'id="v_lab"' in html and 'id="v_cleanup"' not in html
+for i in ("lab_overview", "lab_start", "lab_stop", "cl_run", "cl_confirm"):
+    assert f'id="{i}"' in html, i
+ls = js[js.index("async function labShow("):][:2500]
+assert "/api/lab/plan" in ls and "data-lser" in ls and '"name"' in ls or "by name" in ls
+lj = js[js.index("async function labRun("):][:1200]
+assert "/api/lab/" in lj and "data-lser" in lj and "#/progress/" in lj and "confirm(" in lj
+po = js[js.index("async function progressOpen("):js.index("async function bannerLoad(")]
+assert "steps_def" in po
+sd = js[js.index("function stepsDraw("):][:300]
+assert "defs" in sd
+print("OK  UI: tabblad Lab (start/stop/delete), Progress met eigen stappen van een taak")

@@ -438,3 +438,8 @@ body.dash-full #sess_panel { z-index: 100; }
 .sess-ips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; }
 .sess-ips .acc-copy { margin: 0; }
 .dash-tgmsg:empty { display: none; }
+
+/* Lab tab */
+.lab-lic { display: grid; gap: 6px; margin-top: 6px; }
+.lab-lic .inline { margin: 0; }
+.lab-lic label { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 400; color: var(--text); }
