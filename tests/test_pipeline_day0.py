@@ -119,6 +119,8 @@ assert set(by) == {"fmg", *TOKS}, set(by)
 assert all(p["tags"] == "fgt-sdwan" and p["ostype"] == "l26" and p["bios"] == "seabios" for p in by.values())
 assert all(v["status"] == "running" for v in vms.values())
 assert "scsi1" in by["fmg"] and by["fmg"]["scsi1"] == "local-lvm:100" and by["fmg"]["cores"] == "4" and by["fmg"]["memory"] == "16384"
+fgts = [v for k, v in by.items() if k != "fmg" and "scsihw" in v]                     # FortiGate VMs: a 10 GB log disk
+assert fgts and all(v.get("scsi1") == "local-lvm:10" for v in fgts), [v.get("scsi1") for v in fgts]
 assert by["fmg"]["net0"] == "virtio,bridge=vmbr0" and "net1" not in by["fmg"]
 nics = lambda p: len([k for k in p if re.fullmatch(r"net\d+", k)])
 assert nics(by["site1-H1"]) == 6 and nics(by["site1-1"]) == 6, (nics(by["site1-H1"]), nics(by["site1-1"]))   # always 6 (vm_interface_number)

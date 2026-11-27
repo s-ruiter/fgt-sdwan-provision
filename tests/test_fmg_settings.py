@@ -38,13 +38,13 @@ mock_fmg.STATE["cli_sets"] = []
 ev = run()
 cli = mock_fmg.STATE["cli"]
 assert all(cli[A][k] == 10800 for k in ("idle_timeout", "idle_timeout_api", "idle_timeout_gui", "idle_timeout_sso")), cli[A]
-assert cli[G]["timezone"] == "28" and cli[G]["adom-mode"] == "advanced" and cli[G]["faz-status"] == "enable", cli[G]
+assert cli[G]["timezone"] == "26" and cli[G]["adom-mode"] == "advanced" and cli[G]["faz-status"] == "enable", cli[G]
 sets = mock_fmg.STATE["cli_sets"]
 assert sets[-1] == (G, {"faz-status": "enable"}), sets                 # FAZ (reboot) is the very last change
 assert not any("adom-status" in d for _, d in sets), sets             # already enabled: not sent again
 assert waits == [("127.0.0.1", 8102, False), ("127.0.0.1", 8102, True)], waits
 assert ev[-1][1] == "ok" and "FortiAnalyzer features on" in ev[-1][2], ev[-1]
-print("OK  eerste run: timers 180 min (10800 s), tijdzone 28, ADOM advanced, FAZ aan als laatste + herstart afgewacht")
+print("OK  eerste run: timers 180 min (10800 s), tijdzone 26, ADOM advanced, FAZ aan als laatste + herstart afgewacht")
 
 # 2. second run: nothing to change, no reboot
 mock_fmg.STATE["cli_sets"], waits[:] = [], []
