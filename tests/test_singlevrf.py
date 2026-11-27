@@ -30,8 +30,10 @@ assert "set vrf-select 1" in tm and "lan2_ip" in "".join(pm["variables"])
 assert not re.search(r"set vrf (1|11|12)\b|vrf11_leak|vpn-id-ipip|vrf-select", ts), re.findall(r"set vrf \d+|vrf11_leak|vpn-id-ipip|vrf-select", ts)
 assert "lan2_ip" not in "".join(ps["variables"]) and "lan_ip" in ps["variables"]
 assert "encapsulation none" in ts
-assert not any(n.endswith("00-Mgmt") for r in ps["roles"] if r["kind"] == "hub" for n, _, _ in r["cli"])  # no static route
-assert not any(n.endswith("00-Mgmt") for r in ps["roles"] if r["kind"] == "edge" for n, _, _ in r["cli"])  # dhcp: nothing to add
+# the management template holds only the FortiManager link pinned to wan1 (no static route on a hub, nothing else)
+for r in ps["roles"]:
+    mg = [t for n, t, _ in r["cli"] if n.endswith("00-Mgmt")]
+    assert len(mg) == 1 and "interface-select-method specify" in mg[0] and "router static" not in mg[0] and "vrf" not in mg[0], (r["name"], mg)
 assert not any(p["name"] == "Internet (to PE)" for r in ps["roles"] for p in r["policies"])
 assert any(p["name"] == "Internet (to PE)" for r in pm["roles"] for p in r["policies"])
 # validation

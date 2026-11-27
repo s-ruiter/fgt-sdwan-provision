@@ -225,10 +225,14 @@ def mgmt_cli(dev, pe=PE_VRF):
     No static route for a static (hub) wan1: wan1 is an SD-WAN member, so a route on it next to the SD-WAN default route
     (seq 100, zone underlay) is refused ("Duplicate routes (1 and 100) on SD-WAN and/or non-SD-WAN interfaces", FMG
     8.0.2 install). The gateway goes on the SD-WAN member instead (see _hub_gateway)."""
-    lines = []
+    # the FortiManager tunnel always over wan1 (as the Day-0 config sets it): FortiManager would otherwise install its
+    # own 'auto' and an SD-WAN rule (Local-Breakout wan2 first) moves the tunnel mid-install (~15 min wait per task)
+    cm = ["config system central-management", "  set interface-select-method specify", f'  set interface "{dev["wan1_intf"]}"']
     if pe:      # the FortiGate's own traffic to FMG and DNS leaves in the PE-VRF, where the WANs are
-        lines += ["config system central-management", f"  set vrf-select {pe}", "end",
-                  "config system dns", f"  set vrf-select {pe}", "end"]
+        cm.append(f"  set vrf-select {pe}")
+    lines = cm + ["end"]
+    if pe:
+        lines += ["config system dns", f"  set vrf-select {pe}", "end"]
     return "\n".join(lines)
 
 
