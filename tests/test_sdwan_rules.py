@@ -44,7 +44,10 @@ for multi in (True, False):
     for r in edges2:
         under = [str(m["seq-num"]) for m in r["sdwan"]["members"] if m.get("zone") == "underlay"]
         sv = {s["id"]: s for s in r["sdwan"]["service"]}
-        assert [s["id"] for s in r["sdwan"]["service"]] == [1, 2, 10], [s["id"] for s in r["sdwan"]["service"]]
+        assert [s["id"] for s in r["sdwan"]["service"]] == [1, 2, 3, 10], [s["id"] for s in r["sdwan"]["service"]]
+        assert sv[3] == {"id": 3, "name": "Vimeo", "mode": "sla", "load-balance": "enable", "internet-service": "enable",
+                         "internet-service-app-ctrl": [37537, 38473, 36418], "sla": [{"health-check": "Internet", "id": 1}],
+                         "priority-members": under}, sv[3]
         assert sv[2]["name"] == "O365-Teams" and sv[2]["mode"] == "sla", sv[2]
         assert sv[2]["priority-members"] == under and sv[2]["sla"] == [{"health-check": "Internet", "id": 1}], sv[2]
         assert sv[2]["_isdb_names"] == O365 and "dst" not in sv[2], sv[2]
@@ -52,7 +55,7 @@ for multi in (True, False):
         hc = {h["name"]: h for h in r["sdwan"]["health-check"]}["Internet"]
         assert hc["sla"] == [{"id": 1, "latency-threshold": 150, "jitter-threshold": 30, "packetloss-threshold": 2}], hc
     for r in others:
-        assert not any(2 <= s.get("id", 0) <= 6 for s in r["sdwan"].get("service", [])), r["name"]
+        assert not any(2 <= s.get("id", 0) <= 6 for s in r["sdwan"].get("service", [])), r["name"]   # one WAN: none
         if r["kind"] == "edge":                                   # one WAN: Local-Breakout as rendered
             lb = [s for s in r["sdwan"]["service"] if s.get("name") == "Local-Breakout"]
             assert all(len(s["priority-members"]) == 1 for s in lb), lb
@@ -63,7 +66,7 @@ sd = {"members": [{"interface": "port1", "zone": "underlay", "seq-num": 5}, {"in
       "service": [{"id": 1, "name": "Corporate"}, {"id": 10, "name": "Local-Breakout", "priority-members": ["5", "6"]}]}
 ft.add_demo_rules(sd)
 sv = {s["name"]: s for s in sd["service"]}
-assert [s["name"] for s in sd["service"]] == ["Corporate", "O365-Teams", "Local-Breakout"]
+assert [s["name"] for s in sd["service"]] == ["Corporate", "O365-Teams", "Vimeo", "Local-Breakout"]
 assert sv["O365-Teams"]["priority-members"] == ["5", "6"] and sv["Local-Breakout"]["priority-members"] == ["6", "5"]
 print("OK  spokes met 2 WAN's: Corporate, O365-Teams (SLA, wan1 dan wan2), Local-Breakout wan2 eerst")
 
@@ -97,7 +100,7 @@ p = copy.deepcopy(base)                                             # no list fr
 w = fmgapply.resolve_isdb([], p)
 assert len(w) == 1 and "skipped" in w[0] and o365(p) is None
 r = [x for x in p["roles"] if x["kind"] == "edge" and two_wan(x)][0]
-assert [s["id"] for s in r["sdwan"]["service"]] == [1, 10]
+assert [s["id"] for s in r["sdwan"]["service"]] == [1, 3, 10]          # Vimeo uses app ids, not the ISDB list
 
 
 class Fmg:
@@ -131,3 +134,14 @@ f = Fmg(NAMES); f.dry = True                                                    
 fmgapply.apply_plan(f, t, copy.deepcopy(base), lambda *a: None)
 assert not any(u.endswith("internet-service-name") for _, u, _ in f.calls) and "_isdb_names" not in str(f.calls)
 print("OK  ISDB: vaste namen gecontroleerd tegen de FortiManager; ontbrekende naam weggelaten met melding")
+
+# Failures Before Inactive (failtime) 3 on every health-check a spoke runs itself (HUB, Internet; one or two WANs);
+# the hubs' EDGE check is detect-mode remote (measured by the spokes): no failtime there
+for multi in (True, False):
+    for r in ft.build_plan(topo(multi), ORCH)["roles"]:
+        for h in r["sdwan"].get("health-check", []):
+            if h.get("detect-mode") == "remote":
+                assert "failtime" not in h, (r["name"], h["name"])
+            else:
+                assert h.get("failtime") == 3, (r["name"], h["name"], h.get("failtime"))
+print("OK  SLA: Failures Before Inactive 3 op de health-checks van de spokes")

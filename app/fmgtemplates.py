@@ -285,6 +285,9 @@ def build_plan(topo, orch_dir):
             for hc in r["sdwan"].get("health-check", []):
                 if hc.get("detect-mode") != "remote":
                     hc["vrf"] = model.pe_vrf(topo)
+        for hc in r["sdwan"].get("health-check", []):     # Failures Before Inactive: 3 (FortiOS default 5); not for
+            if hc.get("detect-mode") != "remote":          # the hubs' remote check, which the spokes measure
+                hc["failtime"] = SLA_FAILTIME
         if r["kind"] == "edge":
             add_demo_rules(r["sdwan"])
         r["static"] = sd.get("router static", [])
@@ -344,10 +347,15 @@ def check_dyn_ifaces(plan):
 # it is in SLA, else wan2, with three fixed ISDB internet services. The names are checked against the FortiManager's
 # list at deployment (fmgapply.resolve_isdb): one it does not have is left out instead of failing the install.
 # member roles: "w1w2" = wan1 then wan2, "w2w1" = wan2 then wan1 (from the template's underlay members, wan1 first).
+SLA_FAILTIME = 3                                   # health-check "Failures Before Inactive"
 SLA_INTERNET = [{"health-check": "Internet", "id": 1}]
 DEMO_RULES = [
     {"id": 2, "name": "O365-Teams", "mode": "sla", "members": "w1w2", "sla": SLA_INTERNET,
      "names": ["Microsoft-Skype_Teams", "Microsoft-Office365", "Microsoft-Outlook"]},
+    # Vimeo by application-control signature id (no ISDB name, so nothing to check against the FortiManager's list):
+    # spread over the WANs that are in SLA
+    {"id": 3, "name": "Vimeo", "mode": "sla", "load-balance": "enable", "members": "w1w2", "sla": SLA_INTERNET,
+     "internet-service": "enable", "internet-service-app-ctrl": [37537, 38473, 36418]},
 ]
 LOCAL_BREAKOUT = ("Local-Breakout", "w2w1")          # local internet: wan2 first
 INTERNET_SLA = {"id": 1, "latency-threshold": 150, "jitter-threshold": 30, "packetloss-threshold": 2}
@@ -365,7 +373,9 @@ def add_demo_rules(sdwan):
     rows = []
     for r in DEMO_RULES:
         row = {k: v for k, v in r.items() if k not in ("names", "members")}
-        row.update({"priority-members": order[r["members"]], "_isdb_names": list(r["names"])})
+        row["priority-members"] = order[r["members"]]
+        if "names" in r:
+            row["_isdb_names"] = list(r["names"])
         if "sla" in row:
             row["sla"] = [dict(x) for x in row["sla"]]
         rows.append(row)
