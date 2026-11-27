@@ -408,3 +408,15 @@ assert "confirm(" in dj[dj.index("data-dreset") - 200:dj.index("data-dreset") + 
 for i in set(re.findall(r'\$\("#([\w-]+)"\)', dj)):
     assert f'id="{i}"' in html, f"dashboard.js uses #{i}, not in index.html"
 print("OK  UI: Dashboard-tab (nav, route, gedeelde toegang- en WAN-functies)")
+
+# Dashboard: refresh only while open and not while a slider is held; full screen for demos; panel per screen size
+rt = js[js.index("function route()"):js.index("function route()") + 1800]
+assert "DASH_TIMER" in rt and "#v_dashboard .dirty" in rt and "10000" in rt[rt.index("DASH_TIMER"):]
+assert "requestFullscreen" in dj and "fullscreenchange" in dj and "dash-full" in dj
+assert 'classList.remove("dash-full")' in rt, "leaving the dashboard drops the full-screen look"
+assert "body.dash-full" in css and ".dash-full .nav" in css.replace("body.dash-full", ".dash-full")
+for q in ("max-width: 1100px", "max-width: 760px"):
+    blk = css[css.index(f"@media ({q})", css.index("Demo dashboard")):]
+    assert ".dash-panel" in blk[:800] or ".dash-wrap" in blk[:800], q
+assert "z-index" in css[css.index(".dash-full #sess_panel"):][:120] if ".dash-full #sess_panel" in css else False
+print("OK  UI: dashboard ververst alleen open en niet tijdens schuiven; volledig scherm; paneel per schermbreedte")

@@ -385,7 +385,8 @@ body:not([data-lic="files"]) .files-only { display: none !important; }
 .dash-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
 .dash-wrap:has(.dash-panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .dash-pic { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px; overflow-x: auto; }
-.dash-svg { display: block; width: 100%; height: auto; min-width: 720px; }
+.dash-svg { display: block; width: 100%; height: auto; }
+main.wrap:has(#v_dashboard:not([hidden])) { max-width: 1480px; }   /* the picture gets the room of the screen */
 .dash-svg .dl { stroke: var(--line-strong); stroke-width: 3; }
 .dash-svg .dl-hit { stroke: transparent; stroke-width: 18; cursor: pointer; }
 .dash-svg .dl-lan { stroke: var(--line-strong); stroke-width: 2; stroke-dasharray: 2 4; }
@@ -412,3 +413,19 @@ body:not([data-lic="files"]) .files-only { display: none !important; }
 .dash-lk { text-align: left; }
 .dash-lk.st-changed { border-color: #d97706; } .dash-lk.st-down { border-color: var(--bad); color: var(--bad); }
 .dash-hint { margin-top: 10px; }
+/* full screen (beamer): only the dashboard, as large as fits; the SSH/console panel stays on top */
+body.dash-full .nav, body.dash-full .topbar, body.dash-full .dash-hint, body.dash-full #job_banner { display: none !important; }
+body.dash-full main.wrap, body.dash-full main.wrap:has(#v_dashboard:not([hidden])) { max-width: none; padding: 12px 16px; }
+body.dash-full footer { display: none; }
+body.dash-full .dash-head h1 { font-size: 20px; }
+body.dash-full .dash-svg { max-height: calc(100vh - 84px); }
+body.dash-full #sess_panel { z-index: 100; }
+/* panel: beside the picture on wide screens, sliding over it below 1100 px, under it on phones */
+@media (max-width: 1100px) {
+  .dash-wrap { grid-template-columns: minmax(0, 1fr); }
+  .dash-panel { position: fixed; top: 72px; right: 12px; width: min(340px, calc(100vw - 24px)); max-height: calc(100vh - 90px); overflow: auto; z-index: 20; box-shadow: 0 8px 30px rgb(0 0 0 / .25); }
+}
+@media (max-width: 760px) {
+  .dash-panel { position: static; width: auto; max-height: none; box-shadow: none; }
+  .dash-svg { min-width: 640px; }          /* labels stay readable on a phone: scroll the picture sideways */
+}

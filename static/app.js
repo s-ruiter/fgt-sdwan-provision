@@ -37,12 +37,18 @@ function route() {
   if (view === "cleanup") clLoad();
   clearInterval(WAN_TIMER); WAN_TIMER = null;
   if (view === "wanemu") { wanLoad(); wanFwdLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
-  if (view === "dashboard" && typeof dashLoad === "function") dashLoad();
+  clearInterval(DASH_TIMER); DASH_TIMER = null;
+  if (view === "dashboard" && typeof dashLoad === "function") {   // refresh while open, never while a slider is held
+    dashLoad(); DASH_TIMER = setInterval(() => { if (!document.querySelector("#v_dashboard .dirty")) dashLoad(); }, 10000);
+  } else if (document.body.classList.contains("dash-full")) {     // leaving the dashboard: never keep the full-screen look
+    document.body.classList.remove("dash-full");
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
   clearInterval(TR_TIMER); TR_TIMER = null;
   if (view === "traffic") { trOpen(); TR_TIMER = setInterval(trPoll, 2000); }
 }
 window.addEventListener("hashchange", route);
-let WAN_TIMER = null, WAN = { links: [], presets: {} }, FLEX = { enabled: false };
+let WAN_TIMER = null, DASH_TIMER = null, WAN = { links: [], presets: {} }, FLEX = { enabled: false };
 
 // ---- IP format checks ---------------------------------------------------------
 // kinds: "ip" = a.b.c.d, "cidr" = a.b.c.d/nn (host address + prefix). Empty is allowed here; required-ness is checked by the server.

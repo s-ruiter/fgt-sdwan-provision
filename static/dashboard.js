@@ -86,7 +86,7 @@ function dashSvg(m) {
     if (!a || !b) return "";
     const ln = `x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"`;
     if (e.kind !== "wan") return `<line class="dl-lan" ${ln}/>`;
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, lw = e.label.length * 7 + 14;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, lw = e.label.length * 7.4 + 20;
     const lab = e.label ? `<rect class="dl-tag" x="${mx - lw / 2}" y="${my - 11}" width="${lw}" height="20" rx="10"/><text class="dl-txt" x="${mx}" y="${my + 4}">${dEsc(e.label)}</text>` : "";
     return `<g class="de st-${e.state}" data-edge="${dEsc(e.id)}"><title>${dEsc(e.link.name)} ${dEsc(e.link.ip)}</title><line class="dl" ${ln}/><line class="dl-hit" ${ln}/>${lab}</g>`;
   }).join("");
@@ -205,4 +205,14 @@ $("#dash-presets").addEventListener("click", async (e) => {
   if (b.dataset.dreset && confirm("Reset all links to neutral (no delay, no loss, everything up)?")) {
     if (await wanResetAll(dashErr)) await dashLoad();
   }
+});
+// full screen for the beamer: the whole page (so the SSH/console panel still opens), the tool's menu hidden
+$("#dash-full").onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else document.documentElement.requestFullscreen().catch((err) => dashErr("Full screen not allowed by the browser: " + err.message));
+};
+document.addEventListener("fullscreenchange", () => {
+  const on = !!document.fullscreenElement && location.hash.startsWith("#/dashboard");
+  document.body.classList.toggle("dash-full", on);
+  $("#dash-full").textContent = on ? "Exit full screen" : "Full screen";
 });
