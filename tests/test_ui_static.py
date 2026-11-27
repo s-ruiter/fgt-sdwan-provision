@@ -367,7 +367,7 @@ wf = js[js.index("async function wanFwdLoad()"):js.index("async function copyTex
 for g in ("FortiManager", "FortiGates", "LAN clients"):
     assert f">{g}<" in wf or f'"{g}"' in wf or f'"{g}s"' in wf, g
 assert 'data-copy="${esc(d.ip)}"' in wf and 'data-copy="${esc(d.ssh)}"' in wf, "IP en SSH-commando klikbaar"
-ck = js[js.index('$("#wanemu-fgts").addEventListener("click"'):]
+ck = js[js.index("async function accessClick("):]                 # shared click handler (Access page + dashboard)
 assert "[data-copy]" in ck[:900] and "copyText(" in ck[:900]
 assert ".acc-row" in css and "grid-template-columns" in css[css.index(".acc-row"):css.index(".acc-row") + 300]
 print("OK  UI: Remote access gegroepeerd in kolommen; klik op IP/SSH-commando = kopiëren")
@@ -392,3 +392,19 @@ po = js[js.index("async function progressOpen("):js.index("async function banner
 assert '"cancelled"' in po and "p_cancel" in po
 assert ".st-cancelled" in css
 print("OK  UI: Simple = alleen Everything; annuleren op de voortgangspagina")
+
+# Dashboard tab: nav, route, script order, shared access handler and WAN calls, ids used in dashboard.js exist
+dj = open(os.path.join(root, "static", "dashboard.js")).read()
+assert 'data-nav="dashboard"' in html and 'id="v_dashboard"' in html
+assert '"dashboard"' in js[js.index("function route()"):js.index("function route()") + 400]
+assert html.index('<script src="app.js">') < html.index('<script src="dashboard.js">')
+assert "function accessClick(e, errFn)" in js
+assert 'addEventListener("click", (e) => accessClick(e, wanErr))' in js and "accessClick(e, dashErr)" in dj
+for f in ("function wanPut(", "function wanPresetRun(", "function wanResetAll("):
+    assert f in js, f
+for f in ("wanPut(", "wanPresetRun(", "wanResetAll("):
+    assert f in dj, f
+assert "confirm(" in dj[dj.index("data-dreset") - 200:dj.index("data-dreset") + 400] or "confirm(" in dj.split("dataset.dreset")[1][:300]
+for i in set(re.findall(r'\$\("#([\w-]+)"\)', dj)):
+    assert f'id="{i}"' in html, f"dashboard.js uses #{i}, not in index.html"
+print("OK  UI: Dashboard-tab (nav, route, gedeelde toegang- en WAN-functies)")

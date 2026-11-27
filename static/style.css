@@ -377,3 +377,38 @@ body:not([data-lic="files"]) .files-only { display: none !important; }
   .acc-act button { width: auto; }
   .acc-slot { display: none; }
 }
+
+/* ---- Demo dashboard ---- */
+.dash-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.dash-head h1 { margin: 0 auto 0 0; }
+.dash-head .btnrow { margin: 0; }
+.dash-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.dash-wrap:has(.dash-panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.dash-pic { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px; overflow-x: auto; }
+.dash-svg { display: block; width: 100%; height: auto; min-width: 720px; }
+.dash-svg .dl { stroke: var(--line-strong); stroke-width: 3; }
+.dash-svg .dl-hit { stroke: transparent; stroke-width: 18; cursor: pointer; }
+.dash-svg .dl-lan { stroke: var(--line-strong); stroke-width: 2; stroke-dasharray: 2 4; }
+.dash-svg .st-changed .dl { stroke: #d97706; stroke-width: 4; }
+.dash-svg .st-down .dl { stroke: var(--bad); stroke-width: 4; stroke-dasharray: 9 6; }
+.dash-svg .de:hover .dl, .dash-svg .de.sel .dl { stroke-width: 6; }
+.dash-svg .dl-tag { fill: var(--card); stroke: var(--line-strong); }
+.dash-svg .st-changed .dl-tag { stroke: #d97706; } .dash-svg .st-down .dl-tag { stroke: var(--bad); }
+.dash-svg text { font: 600 13px var(--sans); fill: var(--text); text-anchor: middle; pointer-events: none; }
+.dash-svg .dl-txt { font-size: 12px; }
+.dash-svg .dn-sub { font-weight: 400; font-size: 11px; fill: var(--muted); }
+.dash-svg .dn-cloud path { fill: var(--raised); stroke: var(--line-strong); stroke-width: 2; }
+.dash-svg .dn-ctxt { font-size: 14px; fill: var(--text-2); }
+.dash-svg [data-node] { cursor: pointer; outline: none; }
+.dash-svg .dn-wanemu { cursor: default; }
+.dash-svg [data-node]:hover use, .dash-svg [data-node]:focus use, .dash-svg [data-node].sel use { filter: drop-shadow(0 0 6px var(--accent)); }
+.dash-panel { margin: 0; position: sticky; top: 12px; }
+.dash-panel h3 { margin: 14px 0 6px; font-size: 13px; }
+.dash-ph { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+.dash-ph .hint { display: block; margin: 2px 0 0; }
+.dash-panel .acc-copy { display: block; margin: 0 0 8px; }
+.dash-panel .acc-cmd { margin-top: 8px; }
+.dash-lks { display: grid; gap: 6px; }
+.dash-lk { text-align: left; }
+.dash-lk.st-changed { border-color: #d97706; } .dash-lk.st-down { border-color: var(--bad); color: var(--bad); }
+.dash-hint { margin-top: 10px; }

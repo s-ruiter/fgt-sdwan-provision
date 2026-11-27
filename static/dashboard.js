@@ -105,4 +105,104 @@ function dashSvg(m) {
   return `<svg class="dash-svg" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Topology">${DASH_DEFS}${lines}${nodes}</svg>`;
 }
 
+// ---- panels (pure: HTML strings) --------------------------------------------------------------------------------
+const DASH_KIND = { fgt: "FortiGate", fmg: "FortiManager", client: "LAN client", tgen: "Traffic-Gen", wanemu: "WAN emulator" };
+function dashDevicePanel(n) {
+  const a = n.access, key = (a && a.key) || n.name;
+  const head = `<div class="dash-ph"><div><b>${dEsc(n.name)}</b><span class="hint">${n.kind === "fgt" ? n.role : DASH_KIND[n.kind] || ""}</span></div><button class="icon" data-dclose="1" title="Close" aria-label="Close">✕</button></div>`;
+  let body;
+  if (n.kind === "tgen") {
+    body = `<div class="btnrow">${a && a.gui ? `<a href="${dEsc(a.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` : ""}<a href="#/traffic"><button>Traffic tab</button></a></div>`;
+  } else if (!a) {
+    body = `<div class="hint">No connection data for this device in the tool (it keeps them for what it deployed itself). The WAN links below can still be changed.</div>`;
+  } else {
+    body = (a.ip ? `<button class="acc-copy mono" data-copy="${dEsc(a.ip)}" title="Copy ${dEsc(a.ip)} to the clipboard">${dEsc(a.ip)}</button>` : "") +
+      `<div class="btnrow">` +
+      (a.gui ? `<a href="${dEsc(a.gui)}" target="_blank" rel="noopener"><button>GUI</button></a>` : "") +
+      (a.ssh ? `<button data-ssh="${dEsc(key)}" data-auto="${a.password ? 1 : ""}">SSH</button>` : "") +
+      `<button data-console="${dEsc(key)}" title="Proxmox console (also when the network to the device is down)">Console</button>` +
+      (a.password ? `<button data-cpw="${dEsc(key)}" title="Copy the password to the clipboard">Copy password</button>` : "") + `</div>` +
+      (a.ssh ? `<button class="acc-copy acc-cmd mono" data-copy="${dEsc(a.ssh)}" title="Copy: ${dEsc(a.ssh)}">${dEsc(a.ssh)}</button>` : "");
+  }
+  const links = (n.links || []).map((l) => {
+    const lab = dashLabel(l.state);
+    return `<button class="dash-lk st-${dashState(l.state)}" data-openedge="${dEsc(l.id)}">${dEsc(DASH_CLOUDS[l.seg] ? DASH_CLOUDS[l.seg][1] : l.seg)} <span class="mono">${dEsc(l.ip)}</span>${lab ? ` · ${dEsc(lab)}` : ""}</button>`;
+  }).join("");
+  return head + body + (links ? `<h3>WAN links</h3><div class="dash-lks">${links}</div>` : "");
+}
+function dashLinkPanel(e) {
+  const l = e.link, st = l.state, cloud = DASH_CLOUDS[l.seg] ? DASH_CLOUDS[l.seg][1] : l.seg;
+  return `<div class="dash-link" data-dl="${dEsc(l.id)}"><div class="dash-ph"><div><b>${dEsc(l.name)}</b><span class="hint">${dEsc(cloud)} · <span class="mono">${dEsc(l.ip)}</span></span></div><button class="icon" data-dclose="1" title="Close" aria-label="Close">✕</button></div>` +
+    WAN_F.map(([k, lbl, unit, lo, hi, step]) => `<div class="wan-f"><label>${lbl} <output>${dEsc(st[k])}</output> ${unit}</label><input type="range" data-df="${k}" min="${lo}" max="${hi}" step="${step}" value="${dEsc(st[k])}"></div>`).join("") +
+    `<div class="wan-f"><label><input type="checkbox" data-df="down" ${st.down ? "checked" : ""}> link down</label></div>` +
+    `<div class="btnrow"><button data-dneutral="1" title="No delay, jitter or loss, no bandwidth limit, link up">Neutral</button><span class="hint">RTT +${2 * (+st.delay_ms || 0)} ms</span></div></div>`;
+}
+
 // ---- wiring (browser only) -------------------------------------------------------------------------------------
+let DASH = null, DASH_SEL = null;                         // last model; selection {type: "node"|"edge", id}
+const dashErr = (msg) => ($("#dash-err").innerHTML = msg ? `<div class="error">✕ ${esc(msg)}</div>` : "");
+async function dashLoad() {
+  const get = (u) => fetch(u, { cache: "no-store" }).then(async (r) => ({ ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) })).catch((e) => ({ ok: false, j: { detail: String(e) } }));
+  const [lk, ac, tr] = await Promise.all([get("/api/wanemu/links"), get("/api/access"), get("/api/traffic/status")]);
+  if (!lk.ok) { dashErr(lk.j.detail || `HTTP ${lk.status}`); DASH = null; $("#dash-pic").innerHTML = ""; $("#dash-panel").hidden = true; return; }
+  if (!(lk.j.links || []).length) { dashErr("Nothing deployed yet: deploy the FortiManager and FortiGates first."); DASH = null; $("#dash-pic").innerHTML = ""; $("#dash-panel").hidden = true; return; }
+  dashErr("");
+  $("#dash-presets").innerHTML = Object.entries(lk.j.presets || {}).map(([k, l]) => `<button data-dp="${esc(k)}">${esc(l)}</button>`).join("") + `<button data-dreset="1">All neutral</button>`;
+  DASH = dashModel(lk.j.links, ac.ok ? ac.j : null, tr.ok ? tr.j : null);
+  $("#dash-pic").innerHTML = dashSvg(DASH);
+  dashSelect(DASH_SEL, !$("#dash-panel .dirty"));
+}
+// show the selection: highlight it and (unless a slider is being changed) redraw its panel
+function dashSelect(sel, redraw = true) {
+  DASH_SEL = sel;
+  document.querySelectorAll("#dash-pic .sel").forEach((g) => g.classList.remove("sel"));
+  const panel = $("#dash-panel");
+  const item = sel && DASH && (sel.type === "node" ? DASH.nodes.find((n) => n.id === sel.id) : DASH.edges.find((e) => e.id === sel.id));
+  if (!item) { DASH_SEL = null; panel.hidden = true; panel.innerHTML = ""; return; }
+  const g = document.querySelector(`#dash-pic [data-${sel.type}="${CSS.escape(sel.id)}"]`);
+  if (g) g.classList.add("sel");
+  if (redraw) panel.innerHTML = sel.type === "node" ? dashDevicePanel(item) : dashLinkPanel(item);
+  panel.hidden = false;
+}
+$("#dash-pic").addEventListener("click", (e) => {
+  const ed = e.target.closest("[data-edge]"), nd = e.target.closest("[data-node]");
+  if (ed) return dashSelect({ type: "edge", id: ed.dataset.edge });
+  if (nd && !nd.classList.contains("dn-wanemu")) return dashSelect({ type: "node", id: nd.dataset.node });
+  dashSelect(null);
+});
+$("#dash-pic").addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.closest("[data-node]")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+async function dashLinkApply(box) {
+  const v = {};
+  box.querySelectorAll("[data-df]").forEach((i) => (v[i.dataset.df] = i.type === "checkbox" ? i.checked : +i.value));
+  const ok = await wanPut(box.dataset.dl, v, dashErr);
+  box.classList.remove("dirty");
+  if (ok) await dashLoad();
+}
+$("#dash-panel").addEventListener("input", (e) => {
+  const i = e.target.closest("[data-df]"); if (!i) return;
+  i.closest("[data-dl]").classList.add("dirty");
+  if (i.type === "range") i.previousElementSibling.querySelector("output").textContent = i.value;
+});
+$("#dash-panel").addEventListener("change", (e) => {        // slider released / "link down" toggled: apply at once
+  const i = e.target.closest("[data-df]");
+  if (i) dashLinkApply(i.closest("[data-dl]"));
+});
+$("#dash-panel").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-dclose]")) return dashSelect(null);
+  const oe = e.target.closest("[data-openedge]");
+  if (oe) return dashSelect({ type: "edge", id: oe.dataset.openedge });
+  const nb = e.target.closest("[data-dneutral]");
+  if (nb) {
+    const box = nb.closest("[data-dl]");
+    if (await wanPut(box.dataset.dl, { delay_ms: 0, jitter_ms: 0, loss_pct: 0, rate_kbit: 0, down: false }, dashErr)) await dashLoad();
+    return;
+  }
+  accessClick(e, dashErr);
+});
+$("#dash-presets").addEventListener("click", async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.dp) { if (await wanPresetRun(b.dataset.dp, dashErr)) await dashLoad(); return; }
+  if (b.dataset.dreset && confirm("Reset all links to neutral (no delay, no loss, everything up)?")) {
+    if (await wanResetAll(dashErr)) await dashLoad();
+  }
+});

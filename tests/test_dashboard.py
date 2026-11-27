@@ -6,10 +6,17 @@ src = open(os.path.join(root, "static", "dashboard.js")).read()
 html = open(os.path.join(root, "static", "index.html")).read()
 assert html.index('<script src="app.js">') < html.index('<script src="dashboard.js">'), "dashboard.js after app.js"
 pure = src[:src.index("// ---- wiring")]                 # the testable part: no DOM at load time
+appjs = open(os.path.join(root, "static", "app.js")).read()
+WAN_F = next(l for l in appjs.splitlines() if l.startswith("const WAN_F = "))   # shared slider fields (from app.js)
 
 if not shutil.which("node"):
     print("   (node niet gevonden: dashboard-controles overgeslagen)")
     sys.exit(0)
+
+
+r = subprocess.run(["node", "-e", "new Function(require('fs').readFileSync(process.argv[1],'utf8'))",
+                    os.path.join(root, "static", "dashboard.js")], capture_output=True, text=True)
+assert r.returncode == 0, r.stderr[:300]                 # the whole file parses (wiring included)
 
 
 def link(lid, name, seg, ip, **st):
@@ -29,7 +36,7 @@ ACCESS = {"fmgs": [{"name": "fmg", "key": "@fmg:fmg", "ip": "10.10.106.251", "gu
                     "ssh": "ssh -p 10022 admin@10.10.106.250", "password": True}],
           "clients": [{"name": "client-site1-1", "spoke": "site1-1", "ip": "10.0.1.10", "password": True}]}
 
-PROBE = pure + r"""
+PROBE = WAN_F + "\n" + pure + r"""
 const D = JSON.parse(process.argv[1]), out = {};
 const m = dashModel(D.links, D.access, D.traffic);
 out.m = m;
@@ -40,7 +47,8 @@ out.labels = [dashLabel({delay_ms: 80, jitter_ms: 0, loss_pct: 2, rate_kbit: 0, 
               dashLabel({delay_ms: 10, jitter_ms: 5, loss_pct: 0, rate_kbit: 2000, down: false})];
 if (typeof dashDevicePanel === "function") {
   out.panels = m.nodes.filter((n) => n.kind === "fgt" || n.kind === "fmg").map((n) => [n.name, dashDevicePanel(n)]);
-  out.lpanel = dashLinkPanel(m.edges.find((e) => e.id === "site1-1-wan1"));
+  const le = m.edges.find((e) => e.id === "site1-1-wan1");
+  if (le) out.lpanel = dashLinkPanel(le);
 }
 console.log(JSON.stringify(out));
 """
@@ -100,3 +108,18 @@ assert len(xs) == 8 and min(b - a for a, b in zip(xs, xs[1:])) >= 100, xs
 assert 'a<b"c' not in o["svg"] and "a&lt;b&quot;c" in o["svg"]
 assert not [n for n in m["nodes"] if n["id"] == "isp-b"], "no ISP-B cloud without ISP-B links"
 print("OK  dashboard: 8 spokes passen, namen ge-escaped, Traffic-Gen alleen als uitgerold, zonder access toch getekend")
+
+# panels: a FortiGate with access data gets GUI / SSH / Console / copy; without it a clear message; a link panel has
+# one slider per WAN_F field with the link's values, "link down" and a per-link neutral button
+o = run(LINKS)
+pan = dict(o["panels"])
+p1 = pan["site1-1"]
+for want in ('data-ssh="site1-1"', 'data-console="site1-1"', 'data-copy="100.65.1.2"', 'href="https://10.10.106.250:10443/"', 'data-cpw="site1-1"'):
+    assert want in p1, (want, p1)
+assert "connection data" in pan["site1-2"] and "data-ssh" not in pan["site1-2"], pan["site1-2"]
+assert 'data-ssh="@fmg:fmg"' in pan["fmg"] and 'data-console="@fmg:fmg"' in pan["fmg"], pan["fmg"]
+lp = o["lpanel"]
+assert lp.count('type="range"') == 4 and 'data-dl="site1-1-wan1"' in lp, lp
+assert 'data-df="delay_ms"' in lp and 'value="80"' in lp and 'data-df="loss_pct"' in lp and 'value="2"' in lp
+assert 'data-df="down"' in lp and "data-dneutral" in lp
+print("OK  dashboard: apparaatpaneel (GUI/SSH/Console/kopieer), zonder gegevens een melding; linkpaneel met schuifjes")
