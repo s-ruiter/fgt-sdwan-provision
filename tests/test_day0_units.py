@@ -286,3 +286,34 @@ for _d in _t["hubs"] + _t["edges"]:
     assert "set interface-select-method specify" in _cm and f'set interface "{_d["wan1_intf"]}"' in _cm, (_d["name"], _cm)
     assert _cm.index("set interface-select-method specify") < _cm.index(f'set interface "{_d["wan1_intf"]}"')
 print("OK  Day-0: central-management via wan1 (interface-select-method specify)")
+
+# the FortiManager kept 'auto' in its (model) device database and pushed it over the Day-0 pin at autolink; the pin
+# is now also in FortiManager: the device database of each model device and every FortiGate's management CLI template
+from app import fmgtemplates as _ft, fmg as _fm  # noqa: E402
+for _pe in (None, 1):
+    _cli = _ft.mgmt_cli({"wan1_intf": "port1", "name": "x"}, _pe)
+    _cm = _cli[_cli.index("config system central-management"):]
+    _cm = _cm[:_cm.index("end")]
+    assert "set interface-select-method specify" in _cm and 'set interface "port1"' in _cm, _cli
+    assert (f"set vrf-select {_pe}" in _cm) == bool(_pe), _cli
+
+
+class _F:
+    dry = False
+    def __init__(self, fail=False): self.calls, self.fail = [], fail
+    def call(self, m, url, data=None, **kw):
+        if self.fail:
+            raise _fm.FmgError("refused")
+        self.calls.append((m, url, data))
+        return {"data": None}
+
+
+_f, _ev = _F(), []
+_fm.pin_fmg_link(_f, "site1-1", "port1", lambda s, st, msg: _ev.append((st, msg)))
+assert _f.calls == [("update", "/pm/config/device/site1-1/global/system/central-management",
+                     {"interface-select-method": "specify", "interface": ["port1"]})], _f.calls
+_ev.clear()
+_fm.pin_fmg_link(_F(fail=True), "site1-1", "port1", lambda s, st, msg: _ev.append((st, msg)))   # refused: a warning only
+assert _ev and _ev[0][0] == "warn", _ev
+assert "pin_fmg_link(" in __import__("inspect").getsource(_fm)[__import__("inspect").getsource(_fm).index("ensure_vm_ports(fmg, d"):][:400]
+print("OK  FortiManager-verbinding vast op wan1 ook in de FortiManager (device-DB + beheer-CLI-template)")

@@ -417,6 +417,19 @@ def ensure_vm_ports(fmg, name, count, emit, step="devices"):
         emit(step, "running", f"{name}: ports {', '.join(missing)} created (FortiManager only creates port1 for a VM)")
 
 
+def pin_fmg_link(fmg, name, intf, emit, step="devices"):
+    """The model device's own database: central-management over wan1 (interface-select-method specify). FortiManager
+    otherwise keeps 'auto' there and pushes it over the Day-0 pin when it links the FortiGate. Soft: a refusal is a
+    warning (the management CLI template sets it too)."""
+    if fmg.dry:
+        return
+    try:
+        fmg.call("update", f"/pm/config/device/{name}/global/system/central-management",
+                 {"interface-select-method": "specify", "interface": [intf]})
+    except FmgError as e:
+        emit(step, "warn", f"{name}: FortiManager link not pinned to {intf} in the device database ({e})")
+
+
 def ensure_allow_vm(fmg, emit, step="devices"):
     """Allow FortiGate-VM (model) devices on this FortiManager. Only touches the setting when the FMG has it (7.4.7+)
     and it is not on yet; needed before adding FortiGate-VM model devices, also on an existing FortiManager."""
@@ -637,6 +650,7 @@ def pipeline(topo, configs, fmg, emit, boot=None):
     if "VM" in topo.get("platform", "").upper():           # also for devices that already existed
         for d, _ in devices:
             ensure_vm_ports(fmg, d["name"], pv.fgt_port_count(d), emit)
+            pin_fmg_link(fmg, d["name"], d["wan1_intf"], emit)
     emit("devices", "ok", "all model devices present")
 
     # templates first: the model devices are complete before any real FortiGate registers against them
