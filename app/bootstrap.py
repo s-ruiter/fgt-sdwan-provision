@@ -69,7 +69,10 @@ def fgt_network_lines(dev, topo):
     sel = [f"set vrf-select {pe}"] if pe else []
     vrf = [f"set vrf {pe}"] if pe else []
     lines += ["set protocol cleartext", *sel, "end",
-              "config system central-management", "set type fortimanager", f'set fmg "{fmg_ip}"', *verify, *sel, "end"]
+              "config system central-management", "set type fortimanager", f'set fmg "{fmg_ip}"', *verify, *sel,
+              # the FortiManager tunnel always over wan1: with 'auto' it follows SD-WAN rules (Local-Breakout wan2
+              # first), moves to wan2 during the install, gets another source address and FortiManager waits ~15 min
+              "set interface-select-method specify", f'set interface "{port}"', "end"]
     if pe:
         lines += ["config system fortiguard", *sel, "end"]
     if dev.get("wan1_mode") == "static":
