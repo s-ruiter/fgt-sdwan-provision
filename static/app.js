@@ -887,9 +887,46 @@ function sessShow(key) {
   if (cur.needsForm) { $("#term_pw").value = ""; $("#term_user").value = cur.kind === "console" && cur.name.startsWith("client-") ? "root" : "admin"; setTimeout(() => $("#term_pw").focus(), 0); }
   for (const s of SESS.values()) s.el.hidden = s.key !== key;
   sessTabs();
+  sessWanDraw();
   const s = SESS.get(key);
   if (s.fit) { s.fit.fit(); s.term.focus(); }
 }
+// a LAN client's console / SSH: WAN1 or WAN2 of its spoke on 200 ms at once (each on its own), Reset = both neutral
+const SESS_WAN_MS = 200;
+function sessWanButtons(spoke, links) {
+  const mine = (links || []).filter((l) => l.name === spoke && (l.seg === "a" || l.seg === "b"));
+  if (!mine.length) return "";
+  const btn = (l) => `<button class="${l.state.delay_ms === SESS_WAN_MS ? "on" : ""}" data-swan="${esc(l.id)}" title="${esc(l.ip)}: latency ${SESS_WAN_MS} ms">${l.seg === "a" ? "WAN1" : "WAN2"} ${SESS_WAN_MS} ms</button>`;
+  return `<span class="hint">WAN of ${esc(spoke)}</span>` + mine.map(btn).join("") +
+    `<button data-swreset="${esc(mine.map((l) => l.id).join(" "))}" title="Both links of ${esc(spoke)} neutral: no delay, jitter or loss, up">Reset</button><span class="hint sess-wan-msg"></span>`;
+}
+async function sessWanDraw() {
+  const s = SESS.get(SESS_CUR), box = $("#sess_wan");
+  if (!s || !s.name.startsWith("client-")) { box.hidden = true; box.innerHTML = ""; return; }
+  const key = s.key;
+  let links = [];
+  try { const r = await fetch("/api/wanemu/links", { cache: "no-store" }); if (r.ok) links = (await r.json()).links || []; } catch (_) {}
+  if (SESS_CUR !== key) return;                                  // another tab was opened meanwhile
+  box.innerHTML = sessWanButtons(s.name.slice("client-".length), links);
+  box.hidden = !box.innerHTML;
+}
+$("#sess_wan").addEventListener("click", async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const msg = (m) => { const el = document.querySelector("#sess_wan .sess-wan-msg"); if (el) el.textContent = m ? "✕ " + m : ""; };
+  b.disabled = true;
+  if (b.dataset.swan) await wanPut(b.dataset.swan, { delay_ms: SESS_WAN_MS }, msg);
+  if (b.dataset.swreset) {
+    for (const id of b.dataset.swreset.split(" ")) {
+      if (!(await wanPut(id, { delay_ms: 0, jitter_ms: 0, loss_pct: 0, rate_kbit: 0, down: false }, msg))) break;
+    }
+  }
+  const err = (document.querySelector("#sess_wan .sess-wan-msg") || {}).textContent;
+  if (typeof dashLoad === "function" && !$("#v_dashboard").hidden) dashLoad();   // the picture behind shows it at once
+  await sessWanDraw();
+  if (err) msg(err.replace(/^✕ /, ""));
+  const s = SESS.get(SESS_CUR);
+  if (s && s.term) s.term.focus();                               // keep typing in the console
+});
 function sessMin() {
   $("#sess_panel").hidden = true; $("#sess_bar").hidden = SESS.size === 0; sessTabs();
 }

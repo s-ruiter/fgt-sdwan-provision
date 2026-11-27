@@ -425,3 +425,27 @@ print("OK  UI: dashboard ververst alleen open en niet tijdens schuiven; volledig
 la = dj[dj.index("async function dashLinkApply("):dj.index("async function dashLinkApply(") + 700]
 assert "dataset.edits" in la and "dataset.edits" in dj[dj.index('$("#dash-panel").addEventListener("input"'):][:400]
 print("OK  UI: dashboard-schuifje blijft staan als een eerder schuifje nog wordt toegepast")
+
+# client console/SSH: WAN1 / WAN2 200 ms of the client's spoke, each on its own, plus Reset (both links of that spoke)
+assert 'id="sess_wan"' in html and html.index('id="sess_tabs"') < html.index('id="sess_wan"') < html.index('id="term_box"')
+sw = js[js.index("function sessWanButtons("):js.index("function sessWanButtons(") + 1200]
+assert "sessWanDraw" in js[js.index("function sessShow("):js.index("function sessShow(") + 900]
+LK = ('[{"id":"site1-1-wan1","name":"site1-1","seg":"a","ip":"100.65.1.2","state":{"delay_ms":200,"jitter_ms":0,"loss_pct":0,"rate_kbit":0,"down":false}},'
+      '{"id":"site1-1-wan2","name":"site1-1","seg":"b","ip":"100.66.1.2","state":{"delay_ms":0,"jitter_ms":0,"loss_pct":0,"rate_kbit":0,"down":false}},'
+      '{"id":"site1-2-wan1","name":"site1-2","seg":"a","ip":"100.65.2.2","state":{"delay_ms":0,"jitter_ms":0,"loss_pct":0,"rate_kbit":0,"down":false}}]')
+try:
+    probe = ("const esc=s=>String(s);const SESS_WAN_MS=200;" + sw[:sw.index("\n}\n") + 3] +
+             f"const L={LK};const a=sessWanButtons('site1-1',L),b=sessWanButtons('site1-2',L),c=sessWanButtons('nope',L);"
+             "if(!a.includes('data-swan=\"site1-1-wan1\"')||!a.includes('data-swan=\"site1-1-wan2\"'))throw 'a: '+a;"
+             "if(!/class=\"on\"[^>]*data-swan=\"site1-1-wan1\"|data-swan=\"site1-1-wan1\"[^>]*class=\"on\"/.test(a))throw 'wan1 not on: '+a;"
+             "if(/class=\"on\"[^>]*data-swan=\"site1-1-wan2\"|data-swan=\"site1-1-wan2\"[^>]*class=\"on\"/.test(a))throw 'wan2 on: '+a;"
+             "if(!a.includes('data-swreset'))throw 'no reset';"
+             "if(b.includes('site1-1')||!b.includes('data-swan=\"site1-2-wan1\"')||b.includes('wan2'))throw 'b: '+b;"
+             "if(c!=='')throw 'c: '+c;console.log('ok')")
+    r = subprocess.run(["node", "-e", probe], capture_output=True, text=True, cwd=root)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stderr[:500]
+except FileNotFoundError:
+    pass
+cl = js[js.index('$("#sess_wan").addEventListener("click"'):][:900]
+assert "delay_ms: SESS_WAN_MS" in cl and "wanPut(" in cl and "delay_ms: 0" in cl
+print("OK  UI: client-sessie heeft WAN1/WAN2 200 ms en Reset voor de eigen spoke")
