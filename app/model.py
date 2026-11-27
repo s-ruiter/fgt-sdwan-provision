@@ -50,7 +50,7 @@ DEFAULTS = {
         "name_prefix": "",                  # prefix for the Proxmox VM/CT names of this deployment ("" = none; "-" added)
         "ports": {f"port{i}": {"bridge": "", "vlan": None} for i in range(1, 9)},
         "fmg": {"bridge": "", "vlan": None, "cores": 4, "memory_mb": 16384, "data_disk_gb": 100},
-        "fgt": {"cores": 2, "memory_mb": 2048},
+        "fgt": {"cores": 2, "memory_mb": 2048, "log_disk_gb": 10},   # second disk: FortiGate log disk
     },
     # WAN emulator (LXC wan-emu): always deployed with Day-0 FortiGates. ISP-HUB = hub wan1 (static), ISP-A = branch
     # wan1, ISP-B = branch wan2 (both DHCP from the container). The container gateway is .1 of each segment.

@@ -232,7 +232,7 @@ def build_specs(topo, admin_fgt_pw, admin_fmg_pw, tokens, fmg_token, which, lice
             cli = cloudinit.fgt_cli(d, topo, admin_fgt_pw)
             specs.append({"name": d["name"], "pve_name": pve_name(topo, d["name"]), "role": "fgt", "cores": fg["cores"], "memory_mb": fg["memory_mb"],
                           "nics": fgt_nics(d, cfg, topo["wanemu"], d["name"] in hubs, n, n + 1 if n < nh else n - nh + 1),
-                          "extra_disks": [], "license": licenses.get(d["name"]), "serial": (d.get("serial") or "").strip(),
+                          "extra_disks": [int(fg.get("log_disk_gb") or 10)], "license": licenses.get(d["name"]), "serial": (d.get("serial") or "").strip(),
                           "user_data": cloudinit.build_user_data(cli, None if licenses.get(d["name"]) else tokens.get(d["name"]),
                                                                  cloudinit.license_mode("fgt", mode))})
     return specs
@@ -267,7 +267,7 @@ def vm_params(spec, cfg, import_volid, iso_volid):
 
 def plan_lines(spec):
     return (f"{spec['name']}: {spec['role']} {spec['cores']} vCPU / {spec['memory_mb']} MB, "
-            f"{len(spec['nics'])} NIC(s)" + (f", datadisk {spec['extra_disks'][0]} GB" if spec["extra_disks"] else "")
+            f"{len(spec['nics'])} NIC(s)" + (f", {'log' if spec.get('role') == 'fgt' else 'data'} disk {spec['extra_disks'][0]} GB" if spec["extra_disks"] else "")
             + ", Day-0 ISO")
 
 

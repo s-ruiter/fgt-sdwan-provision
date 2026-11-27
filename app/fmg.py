@@ -351,13 +351,13 @@ NO_FGT = ("fmg", "tpl", "dev")        # scopes that create no FortiGate VMs and 
 
 # FortiManager system settings the tool always sets (names/values checked on a real FMG 8.0.2 via `option: syntax`).
 # The idle timeouts are in SECONDS on FMG 8.0 (factory 900 = 15 min). timezone is the numeric FortiOS code:
-# 28 = (GMT+1:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna.
+# 26 = (GMT+1:00) Amsterdam, Berlin, Bern, Rome, Stockholm, Vienna (28 is Brussels, Copenhagen, Madrid, Paris).
 IDLE_TIMEOUT_S = 180 * 60
 FMG_SETTINGS = [
     ("/cli/global/system/admin/setting", "uitlogtimers 180 min",
      {"idle_timeout": IDLE_TIMEOUT_S, "idle_timeout_gui": IDLE_TIMEOUT_S, "idle_timeout_api": IDLE_TIMEOUT_S,
       "idle_timeout_sso": IDLE_TIMEOUT_S}),
-    ("/cli/global/system/global", "tijdzone Europe/Amsterdam", {"timezone": "28"}),
+    ("/cli/global/system/global", "tijdzone Europe/Amsterdam", {"timezone": "26"}),
     ("/cli/global/system/global", "ADOMs aan, advanced mode", {"adom-status": "enable", "adom-mode": "advanced"}),
 ]
 FAZ = ("/cli/global/system/global", "faz-status", "enable")
