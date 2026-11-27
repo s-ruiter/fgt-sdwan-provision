@@ -420,3 +420,8 @@ for q in ("max-width: 1100px", "max-width: 760px"):
     assert ".dash-panel" in blk[:800] or ".dash-wrap" in blk[:800], q
 assert "z-index" in css[css.index(".dash-full #sess_panel"):][:120] if ".dash-full #sess_panel" in css else False
 print("OK  UI: dashboard ververst alleen open en niet tijdens schuiven; volledig scherm; paneel per schermbreedte")
+
+# review fix: releasing slider A and grabbing slider B while A is still being applied must not reset B
+la = dj[dj.index("async function dashLinkApply("):dj.index("async function dashLinkApply(") + 700]
+assert "dataset.edits" in la and "dataset.edits" in dj[dj.index('$("#dash-panel").addEventListener("input"'):][:400]
+print("OK  UI: dashboard-schuifje blijft staan als een eerder schuifje nog wordt toegepast")

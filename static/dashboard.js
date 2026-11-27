@@ -42,7 +42,9 @@ function dashModel(links, access, traffic) {
   for (const n of nodes.filter((x) => x.kind === "fgt")) {
     for (const l of n.links) {
       if (!DASH_CLOUDS[l.seg]) continue;
-      edges.push({ id: l.id, from: n.id, to: DASH_CLOUDS[l.seg][0], kind: "wan", link: l, state: dashState(l.state), label: dashLabel(l.state) });
+      const c = nodes.find((x) => x.id === DASH_CLOUDS[l.seg][0]), t = 0.3;   // label near the FortiGate end: with
+      edges.push({ id: l.id, from: n.id, to: c.id, kind: "wan", link: l, state: dashState(l.state), label: dashLabel(l.state),   // an odd
+        lx: n.x + (c.x - n.x) * t, ly: n.y + (c.y - n.y) * t });          // number of spokes two midpoints coincide
     }
   }
   fmgs.forEach((f, i) => nodes.push({ id: `fmg-${i}`, kind: "fmg", name: f.name, x: w - 90, y: 0.1 * h + i * 72, access: f }));
@@ -55,7 +57,7 @@ function dashModel(links, access, traffic) {
   });
   if (traffic && traffic.deployed) {
     const first = nodes.find((n) => n.role === "spoke");
-    const x = first ? Math.min(first.x + 80, w - 30) : left;
+    const x = first ? Math.min(first.x + 120, w - 30) : left;        // clear of the first client's name
     nodes.push({ id: "tgen", kind: "tgen", name: "Traffic-Gen", x, y: 0.9 * h, access: { gui: traffic.url || "" } });
     if (first) edges.push({ id: "lan-tgen", from: first.id, to: "tgen", kind: "lan", state: "neutral", label: "" });
   }
@@ -86,7 +88,7 @@ function dashSvg(m) {
     if (!a || !b) return "";
     const ln = `x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"`;
     if (e.kind !== "wan") return `<line class="dl-lan" ${ln}/>`;
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, lw = e.label.length * 7.4 + 20;
+    const mx = e.lx ?? (a.x + b.x) / 2, my = e.ly ?? (a.y + b.y) / 2, lw = e.label.length * 7.4 + 20;
     const lab = e.label ? `<rect class="dl-tag" x="${mx - lw / 2}" y="${my - 11}" width="${lw}" height="20" rx="10"/><text class="dl-txt" x="${mx}" y="${my + 4}">${dEsc(e.label)}</text>` : "";
     return `<g class="de st-${e.state}" data-edge="${dEsc(e.id)}"><title>${dEsc(e.link.name)} ${dEsc(e.link.ip)}</title><line class="dl" ${ln}/><line class="dl-hit" ${ln}/>${lab}</g>`;
   }).join("");
@@ -172,15 +174,17 @@ $("#dash-pic").addEventListener("click", (e) => {
 });
 $("#dash-pic").addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.closest("[data-node]")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
 async function dashLinkApply(box) {
-  const v = {};
+  const v = {}, edits = box.dataset.edits;                 // another slider grabbed meanwhile: keep it, apply it on release
   box.querySelectorAll("[data-df]").forEach((i) => (v[i.dataset.df] = i.type === "checkbox" ? i.checked : +i.value));
   const ok = await wanPut(box.dataset.dl, v, dashErr);
+  if (box.dataset.edits !== edits) return;
   box.classList.remove("dirty");
   if (ok) await dashLoad();
 }
 $("#dash-panel").addEventListener("input", (e) => {
   const i = e.target.closest("[data-df]"); if (!i) return;
-  i.closest("[data-dl]").classList.add("dirty");
+  const box = i.closest("[data-dl]");
+  box.classList.add("dirty"); box.dataset.edits = +(box.dataset.edits || 0) + 1;
   if (i.type === "range") i.previousElementSibling.querySelector("output").textContent = i.value;
 });
 $("#dash-panel").addEventListener("change", (e) => {        // slider released / "link down" toggled: apply at once

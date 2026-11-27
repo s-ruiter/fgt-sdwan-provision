@@ -123,3 +123,17 @@ assert lp.count('type="range"') == 4 and 'data-dl="site1-1-wan1"' in lp, lp
 assert 'data-df="delay_ms"' in lp and 'value="80"' in lp and 'data-df="loss_pct"' in lp and 'value="2"' in lp
 assert 'data-df="down"' in lp and "data-dneutral" in lp
 print("OK  dashboard: apparaatpaneel (GUI/SSH/Console/kopieer), zonder gegevens een melding; linkpaneel met schuifjes")
+
+# review fixes: with 3 two-WAN spokes no two WAN labels share a spot (the label sits near the FortiGate end, not the
+# middle); Traffic-Gen is far enough from the first client that their names do not overlap
+three = LINKS[:2] + [link(f"site1-{i}-wan{w}", f"site1-{i}", "a" if w == 1 else "b", f"100.6{4 + w}.{i}.2") for i in (1, 2, 3) for w in (1, 2)]
+m = run(three, traffic={"deployed": True, "url": "https://x:8443"})["m"]
+pos = [(e["lx"], e["ly"]) for e in m["edges"] if e["kind"] == "wan"]
+assert len(pos) == 8
+for i, a in enumerate(pos):
+    for b in pos[i + 1:]:
+        assert abs(a[0] - b[0]) >= 60 or abs(a[1] - b[1]) >= 24, ("labels collide", a, b)
+cl1 = next(n for n in m["nodes"] if n["kind"] == "client" and n["name"] == "client-site1-1")
+tg = next(n for n in m["nodes"] if n["kind"] == "tgen")
+assert abs(tg["x"] - cl1["x"]) >= 110, (tg["x"], cl1["x"])
+print("OK  dashboard: labels botsen niet bij 3 spokes; Traffic-Gen los van de eerste client")
