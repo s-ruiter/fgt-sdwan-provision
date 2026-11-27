@@ -182,6 +182,14 @@ assert dns["protocol"] == ["cleartext"] and dns["primary"] == "1.1.1.1", dns    
 # tests/probe_fmg_devprof_log.py: device/profile/fortianalyzer target 'this-fmg', log/fortianalyzer/setting upload-option)
 faz = [(m, d) for m, u, d in bodies if u.endswith("/devprof/Basic-Settings/device/profile/fortianalyzer")]
 assert faz and faz[-1][1] == {"target": "this-fmg"}, faz
+# time zone Europe/Amsterdam and NTP (FortiGuard) on the FortiGates (values as FMG 8.0.2 stores them, read with
+# tests/probe_fmg_devprof_time.py): the "ntp" page on, system/global timezone ["Europe/Amsterdam"], system/ntp ntpsync
+pages = next(d for _, u, d in bodies if u.endswith("/devprof/Basic-Settings/device/profile/setting"))
+assert "ntp" in pages["enabled-pages"] and {"dns", "log", "admin"} <= set(pages["enabled-pages"]), pages
+glob = next(d for _, u, d in bodies if u.endswith("/devprof/Basic-Settings/system/global"))
+assert glob["timezone"] == ["Europe/Amsterdam"] and glob["admintimeout"] == 480, glob
+ntp = [(m, d) for m, u, d in bodies if u.endswith("/devprof/Basic-Settings/system/ntp")]
+assert ntp and ntp[-1][1] == {"ntpsync": "enable", "type": "fortiguard"}, ntp
 lg = [(m, d) for m, u, d in bodies if u.endswith("/devprof/Basic-Settings/log/fortianalyzer/setting")]
 assert lg and lg[-1] == ("update", {"upload-option": "realtime"}), lg
 var_maps = [m for _, u, d in bodies if "/obj/fmg/variable/" in u for m in (d or {}).get("dynamic_mapping", [])]

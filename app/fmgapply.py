@@ -51,11 +51,15 @@ def plan_calls(topo, plan, devices=True):
     add("Metadata variables", "update", f"{base}/obj/fmg/variable/vm_interface_number",
         {"name": "vm_interface_number", "value": str(VM_INTERFACE_NUMBER)}, soft=True)
 
-    # 3. system template (DNS, admin, logging to this FortiManager)
+    # 3. system template (DNS, time zone + NTP, admin, logging to this FortiManager)
     dns1, dns2 = plan["dns"]
     add("System template", "set", f"/pm/devprof/adom/{adom}/", [{"name": "Basic-Settings", "type": "devprof"}])
-    add("System template", "set", f"{base}/devprof/Basic-Settings/device/profile/setting", {"enabled-pages": ["dns", "log", "admin"]})
-    add("System template", "set", f"{base}/devprof/Basic-Settings/system/global", {"admintimeout": 480, "admin-scp": 1})
+    add("System template", "set", f"{base}/devprof/Basic-Settings/device/profile/setting", {"enabled-pages": ["dns", "ntp", "admin", "log"]})
+    # time zone Europe/Amsterdam (a FortiManager datasource: the zone name in a list) and NTP via FortiGuard;
+    # field names and values as FMG 8.0.2 stores them (tests/probe_fmg_devprof_time.py)
+    add("System template", "set", f"{base}/devprof/Basic-Settings/system/global",
+        {"admintimeout": 480, "admin-scp": 1, "timezone": ["Europe/Amsterdam"]})
+    add("System template", "update", f"{base}/devprof/Basic-Settings/system/ntp", {"ntpsync": "enable", "type": "fortiguard"})
     dns = {"primary": dns1, "protocol": ["cleartext"]}     # FortiOS 8.0 default = DoT to globalsdns.fortinet.net
     if dns2:
         dns["secondary"] = dns2
