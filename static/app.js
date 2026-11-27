@@ -26,7 +26,7 @@ const fmtBytes = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : n >= 1e6 ? (n
 // ---- routing ----------------------------------------------------------------
 function route() {
   const [r, arg] = (location.hash.replace(/^#\//, "") || "deploy").split("?")[0].split("/");
-  const VIEWS = ["deploy", "progress", "wanemu", "traffic", "fortiflex", "images", "servers", "cleanup"];
+  const VIEWS = ["deploy", "progress", "wanemu", "dashboard", "traffic", "fortiflex", "images", "servers", "cleanup"];
   const view = VIEWS.includes(r) ? r : "deploy";
   for (const v of VIEWS) $("#v_" + v).hidden = v !== view;
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === view));
@@ -37,11 +37,18 @@ function route() {
   if (view === "cleanup") clLoad();
   clearInterval(WAN_TIMER); WAN_TIMER = null;
   if (view === "wanemu") { wanLoad(); wanFwdLoad(); WAN_TIMER = setInterval(() => { if (!document.querySelector("#v_wanemu .dirty")) wanLoad(); }, 10000); }
+  clearInterval(DASH_TIMER); DASH_TIMER = null;
+  if (view === "dashboard" && typeof dashLoad === "function") {   // refresh while open, never while a slider is held
+    dashLoad(); DASH_TIMER = setInterval(() => { if (!document.querySelector("#v_dashboard .dirty")) dashLoad(); }, 10000);
+  } else if (document.body.classList.contains("dash-full")) {     // leaving the dashboard: never keep the full-screen look
+    document.body.classList.remove("dash-full");
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
   clearInterval(TR_TIMER); TR_TIMER = null;
   if (view === "traffic") { trOpen(); TR_TIMER = setInterval(trPoll, 2000); }
 }
 window.addEventListener("hashchange", route);
-let WAN_TIMER = null, WAN = { links: [], presets: {} }, FLEX = { enabled: false };
+let WAN_TIMER = null, DASH_TIMER = null, WAN = { links: [], presets: {} }, FLEX = { enabled: false };
 
 // ---- IP format checks ---------------------------------------------------------
 // kinds: "ip" = a.b.c.d, "cidr" = a.b.c.d/nn (host address + prefix). Empty is allowed here; required-ness is checked by the server.
@@ -914,7 +921,8 @@ const sessClick = (e) => {
 $("#sess_tabs").addEventListener("click", sessClick);
 $("#sess_bar").addEventListener("click", sessClick);
 $("#sess_min").onclick = sessMin;
-$("#wanemu-fgts").addEventListener("click", async (e) => {
+// shared by Access & WAN control and the dashboard panel: copy, copy password, SSH, console
+async function accessClick(e, errFn) {
   const cp = e.target.closest("[data-copy]");
   if (cp) {                                                    // IP address or SSH command -> clipboard
     const ok = await copyText(cp.dataset.copy);
@@ -927,7 +935,7 @@ $("#wanemu-fgts").addEventListener("click", async (e) => {
   const c = e.target.closest("[data-cpw]");
   if (c) {
     const r = await post("/api/access/password", { name: c.dataset.cpw }), j = await json(r);
-    if (!r.ok) return wanErr(j.detail || "no password kept");
+    if (!r.ok) return errFn(j.detail || "no password kept");
     if (await copyText(j.password)) c.textContent = "✓ Copied";
     else window.prompt(`Admin password (user ${j.user}): copy it with Ctrl/Cmd+C`, j.password);   // browser refused: copy by hand
     setTimeout(() => (c.textContent = "Copy password"), 2000);
@@ -937,7 +945,8 @@ $("#wanemu-fgts").addEventListener("click", async (e) => {
   if (b) return sessOpen("ssh", b.dataset.ssh, !!b.dataset.auto);
   const k = e.target.closest("[data-console]");
   if (k) sessOpen("console", k.dataset.console, true);          // the tool logs in itself when it knows the password
-});
+}
+$("#wanemu-fgts").addEventListener("click", (e) => accessClick(e, wanErr));
 $("#term_go").onclick = sessGo;
 $("#term_pw").addEventListener("keydown", (e) => { if (e.key === "Enter") sessGo(); });
 $("#term_close").onclick = () => sessClose();
@@ -983,21 +992,34 @@ function wanCard(l) {
     `<div class="wan-f"><label><input type="checkbox" data-wf="down" ${st.down ? "checked" : ""}> link down</label></div>` +
     `<div class="btnrow"><button class="primary" data-wa="1">Apply</button><span class="hint">RTT +${rtt} ms</span></div></div>`;
 }
+// WAN writes, shared with the dashboard: true when the agent took it; errFn gets the message (or "")
+async function wanPut(id, values, errFn) {
+  const r = await fetch("/api/wanemu/links/" + encodeURIComponent(id), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) });
+  const j = await r.json().catch(() => ({}));
+  errFn(r.ok ? "" : j.detail || `HTTP ${r.status}`);
+  return r.ok;
+}
+async function wanPresetRun(name, errFn, link) {
+  const r = await fetch(`/api/wanemu/preset/${name}` + (link ? `?link=${encodeURIComponent(link)}` : ""), { method: "POST" });
+  const j = await r.json().catch(() => ({}));
+  errFn(r.ok ? "" : j.detail || `HTTP ${r.status}`);
+  return r.ok;
+}
+async function wanResetAll(errFn) {
+  const r = await fetch("/api/wanemu/reset", { method: "POST" }), j = await r.json().catch(() => ({}));
+  errFn(r.ok ? "" : j.detail || `HTTP ${r.status}`);
+  return r.ok;
+}
 async function wanApply(card) {
   const v = {};
   card.querySelectorAll("[data-wf]").forEach((i) => (v[i.dataset.wf] = i.type === "checkbox" ? i.checked : +i.value));
-  const r = await fetch("/api/wanemu/links/" + encodeURIComponent(card.dataset.wl), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(v) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
-  wanErr(""); card.classList.remove("dirty"); await wanLoad();
+  if (!(await wanPut(card.dataset.wl, v, wanErr))) return;
+  card.classList.remove("dirty"); await wanLoad();
   const nc = document.querySelector(`#v_wanemu [data-wl="${CSS.escape(card.dataset.wl)}"]`);   // re-rendered card
   if (nc) { nc.classList.add("wan-ok"); setTimeout(() => nc.classList.remove("wan-ok"), 1500); }
 }
 async function wanPreset(name, link) {
-  const r = await fetch(`/api/wanemu/preset/${name}` + (link ? `?link=${encodeURIComponent(link)}` : ""), { method: "POST" });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
-  await wanLoad();
+  if (await wanPresetRun(name, wanErr, link)) await wanLoad();
 }
 $("#v_wanemu").addEventListener("input", (e) => {
   const i = e.target.closest("[data-wf]"); if (!i) return;
@@ -1013,9 +1035,7 @@ $("#v_wanemu").addEventListener("click", async (e) => {
   if (b.dataset.wa) return wanApply(b.closest("[data-wl]"));
   if (b.dataset.wp) return wanPreset(b.dataset.wp);
   if (b.dataset.wreset && confirm("Reset all links to neutral (no delay, no loss, everything up)?")) {
-    const r = await fetch("/api/wanemu/reset", { method: "POST" }), j = await r.json().catch(() => ({}));
-    if (!r.ok) return wanErr(j.detail || `HTTP ${r.status}`);
-    await wanLoad();
+    if (await wanResetAll(wanErr)) await wanLoad();
   }
 });
 

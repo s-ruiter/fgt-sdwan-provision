@@ -21,6 +21,7 @@
         <a href="#/progress" data-nav="progress">Progress</a>
         <a href="#/images" data-nav="images">Images</a>
         <a href="#/wanemu" data-nav="wanemu">Access &amp; WAN control</a>
+        <a href="#/dashboard" data-nav="dashboard">Dashboard</a>
         <a href="#/traffic" data-nav="traffic">Traffic</a>
         <a href="#/fortiflex" data-nav="fortiflex">Licenses</a>
         <a href="#/servers" data-nav="servers">Servers</a>
@@ -270,6 +271,13 @@
       <div class="wan-cols" id="wanemu-links"></div>
     </section>
 
+    <section id="v_dashboard" hidden>
+      <div class="dash-head"><h1>Dashboard</h1><div class="btnrow" id="dash-presets"></div><button id="dash-full" type="button" title="Only the dashboard, on the whole screen (Esc to leave)">Full screen</button></div>
+      <div id="dash-err"></div>
+      <div class="dash-wrap"><div class="dash-pic" id="dash-pic"></div><aside class="dash-panel card" id="dash-panel" hidden></aside></div>
+      <div class="hint dash-hint">Click a FortiGate (or the FortiManager, a LAN client) to connect to it; click a WAN line to change its latency, jitter, loss, bandwidth or take it down. A line shows what is set on it.</div>
+    </section>
+
     <section id="v_traffic" hidden>
       <h1>Traffic</h1>
       <div id="tr_err"></div>
@@ -411,5 +419,6 @@
   </div>
   <div class="sess-bar" id="sess_bar" hidden></div>
   <script src="app.js"></script>
+  <script src="dashboard.js"></script>
 </body>
 </html>

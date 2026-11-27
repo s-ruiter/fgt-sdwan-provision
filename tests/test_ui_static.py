@@ -367,7 +367,7 @@ wf = js[js.index("async function wanFwdLoad()"):js.index("async function copyTex
 for g in ("FortiManager", "FortiGates", "LAN clients"):
     assert f">{g}<" in wf or f'"{g}"' in wf or f'"{g}s"' in wf, g
 assert 'data-copy="${esc(d.ip)}"' in wf and 'data-copy="${esc(d.ssh)}"' in wf, "IP en SSH-commando klikbaar"
-ck = js[js.index('$("#wanemu-fgts").addEventListener("click"'):]
+ck = js[js.index("async function accessClick("):]                 # shared click handler (Access page + dashboard)
 assert "[data-copy]" in ck[:900] and "copyText(" in ck[:900]
 assert ".acc-row" in css and "grid-template-columns" in css[css.index(".acc-row"):css.index(".acc-row") + 300]
 print("OK  UI: Remote access gegroepeerd in kolommen; klik op IP/SSH-commando = kopiëren")
@@ -392,3 +392,36 @@ po = js[js.index("async function progressOpen("):js.index("async function banner
 assert '"cancelled"' in po and "p_cancel" in po
 assert ".st-cancelled" in css
 print("OK  UI: Simple = alleen Everything; annuleren op de voortgangspagina")
+
+# Dashboard tab: nav, route, script order, shared access handler and WAN calls, ids used in dashboard.js exist
+dj = open(os.path.join(root, "static", "dashboard.js")).read()
+assert 'data-nav="dashboard"' in html and 'id="v_dashboard"' in html
+assert '"dashboard"' in js[js.index("function route()"):js.index("function route()") + 400]
+assert html.index('<script src="app.js">') < html.index('<script src="dashboard.js">')
+assert "function accessClick(e, errFn)" in js
+assert 'addEventListener("click", (e) => accessClick(e, wanErr))' in js and "accessClick(e, dashErr)" in dj
+for f in ("function wanPut(", "function wanPresetRun(", "function wanResetAll("):
+    assert f in js, f
+for f in ("wanPut(", "wanPresetRun(", "wanResetAll("):
+    assert f in dj, f
+assert "confirm(" in dj[dj.index("data-dreset") - 200:dj.index("data-dreset") + 400] or "confirm(" in dj.split("dataset.dreset")[1][:300]
+for i in set(re.findall(r'\$\("#([\w-]+)"\)', dj)):
+    assert f'id="{i}"' in html, f"dashboard.js uses #{i}, not in index.html"
+print("OK  UI: Dashboard-tab (nav, route, gedeelde toegang- en WAN-functies)")
+
+# Dashboard: refresh only while open and not while a slider is held; full screen for demos; panel per screen size
+rt = js[js.index("function route()"):js.index("function route()") + 1800]
+assert "DASH_TIMER" in rt and "#v_dashboard .dirty" in rt and "10000" in rt[rt.index("DASH_TIMER"):]
+assert "requestFullscreen" in dj and "fullscreenchange" in dj and "dash-full" in dj
+assert 'classList.remove("dash-full")' in rt, "leaving the dashboard drops the full-screen look"
+assert "body.dash-full" in css and ".dash-full .nav" in css.replace("body.dash-full", ".dash-full")
+for q in ("max-width: 1100px", "max-width: 760px"):
+    blk = css[css.index(f"@media ({q})", css.index("Demo dashboard")):]
+    assert ".dash-panel" in blk[:800] or ".dash-wrap" in blk[:800], q
+assert "z-index" in css[css.index(".dash-full #sess_panel"):][:120] if ".dash-full #sess_panel" in css else False
+print("OK  UI: dashboard ververst alleen open en niet tijdens schuiven; volledig scherm; paneel per schermbreedte")
+
+# review fix: releasing slider A and grabbing slider B while A is still being applied must not reset B
+la = dj[dj.index("async function dashLinkApply("):dj.index("async function dashLinkApply(") + 700]
+assert "dataset.edits" in la and "dataset.edits" in dj[dj.index('$("#dash-panel").addEventListener("input"'):][:400]
+print("OK  UI: dashboard-schuifje blijft staan als een eerder schuifje nog wordt toegepast")
